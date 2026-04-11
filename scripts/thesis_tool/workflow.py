@@ -1,0 +1,650 @@
+from __future__ import annotations
+
+from pathlib import Path
+import xml.etree.ElementTree as ET
+import re
+
+import audit_thesis
+import fix_thesis
+from _thesis_utils import NSMAP, W_NS, HeadingCandidateFilter, build_document_model, build_style_map, match_heading_by_text
+from backmatter_title_utils import is_preface_heading_title
+from frontmatter_utils import has_toc_field_instr, is_toc_structural_style_id
+
+from thesis_tool.capabilities import classify_rule_action, load_rule_capabilities
+from thesis_tool.scopes import list_scope_definitions, normalize_scope_names, scope_for_rule
+
+_HEADING_KIND_TO_LEVEL = {
+    "h1": 1,
+    "h2": 2,
+    "h3": 3,
+    "h4": 4,
+}
+
+
+def _filter_scopes(scopes: list[dict], requested_scope_ids: set[str] | None) -> list[dict]:
+    if requested_scope_ids is None:
+        return scopes
+    return [scope for scope in scopes if scope["id"] in requested_scope_ids]
+
+
+def _scope_status(scope_failed: list[dict]) -> str:
+    if not scope_failed:
+        return "clean"
+
+    actions = {item["action"] for item in scope_failed}
+    if "autofix" in actions:
+        return "autofix_ready"
+    if actions <= {"manual_review"}:
+        return "manual_review"
+    if actions <= {"unsupported"}:
+        return "unsupported"
+    return "mixed"
+
+
+def _classify_result_action(result: dict) -> str:
+    action = classify_rule_action(result["id"])
+    issues = result.get("issues") or []
+
+    # C01 can only be auto-fixed when bracket citations already exist and merely
+    # need superscript normalization. If the document contains no bracket
+    # citations at all, the user must add or confirm citations manually.
+    if result["id"] == "C01" and any("全文未发现任何上标格式的方括号引用" in issue for issue in issues):
+        return "manual_review"
+    return action
+
+
+def build_scope_plan(file_path: str, profile_path: str | None = None, scopes=None, strict_profile: bool = False) -> dict:
+    requested_scope_ids = normalize_scope_names(scopes)
+    capabilities = load_rule_capabilities()
+    results, score, report, runtime = audit_thesis.audit_docx_with_runtime(
+        file_path,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+    failed_results = [result for result in results if not result.get("passed")]
+    failed_by_scope: dict[str, list[dict]] = {}
+    unscoped_failed: list[dict] = []
+
+    for result in failed_results:
+        capability = capabilities.get(result["id"], {})
+        enriched_result = dict(result)
+        enriched_result["check_level"] = capability.get("check_level", "Unknown")
+        enriched_result["autofix"] = capability.get("autofix", "?")
+        enriched_result["action"] = _classify_result_action(result)
+        scope_id = scope_for_rule(result["id"])
+        if scope_id is None:
+            unscoped_failed.append(enriched_result)
+            continue
+        failed_by_scope.setdefault(scope_id, []).append(enriched_result)
+
+    scopes = []
+    for definition in list_scope_definitions():
+        scope_failed = failed_by_scope.get(definition.id, [])
+        action_counts = {
+            "autofixable_count": sum(1 for item in scope_failed if item["action"] == "autofix"),
+            "manual_review_count": sum(1 for item in scope_failed if item["action"] == "manual_review"),
+            "unsupported_count": sum(1 for item in scope_failed if item["action"] == "unsupported"),
+            "unknown_count": sum(1 for item in scope_failed if item["action"] == "unknown"),
+        }
+        scopes.append(
+            {
+                "id": definition.id,
+                "title": definition.title,
+                "description": definition.description,
+                "status": _scope_status(scope_failed),
+                "failed_count": len(scope_failed),
+                "failed_rules": [item["id"] for item in scope_failed],
+                "failed_items": scope_failed,
+                **action_counts,
+            }
+        )
+
+    visible_scopes = _filter_scopes(scopes, requested_scope_ids)
+    visible_scopes.sort(key=lambda item: (item["failed_count"] == 0, item["title"]))
+    selected_failed_count = sum(scope["failed_count"] for scope in visible_scopes)
+    if requested_scope_ids is None:
+        selected_failed_count += len(unscoped_failed)
+
+    return {
+        "file_path": str(Path(file_path)),
+        "profile_path": profile_path,
+        "profile_id": runtime.profile_id,
+        "profile_display": audit_thesis.format_profile_resolution(
+            runtime.profile_id,
+            runtime.requested_profile,
+            runtime.fallback_used,
+        ),
+        "score": score,
+        "failed_count": selected_failed_count,
+        "total_failed_count": len(failed_results),
+        "scopes": visible_scopes,
+        "selected_scopes": sorted(requested_scope_ids) if requested_scope_ids else None,
+        "unscoped_failed": unscoped_failed if requested_scope_ids is None else [],
+        "report": report,
+    }
+
+
+def render_scope_plan(plan: dict) -> str:
+    lines = [
+        f"文件: {Path(plan['file_path']).name}",
+        f"Profile: {plan.get('profile_display') or plan.get('profile_id') or plan['profile_path'] or 'default'}",
+        f"评分: {plan['score']}/100",
+        f"未通过规则: {plan['failed_count']}",
+        "",
+        "建议按范围处理：",
+    ]
+
+    ranked_scopes = [scope for scope in plan["scopes"] if scope["failed_count"] > 0]
+    if not ranked_scopes:
+        lines.append("1. 所有已定义范围当前均未发现规则问题。")
+    else:
+        for index, scope in enumerate(ranked_scopes, start=1):
+            failed_rules = ", ".join(scope["failed_rules"])
+            lines.append(
+                f"{index}. {scope['title']}（{scope['id']}）: {scope['failed_count']} 条规则未通过，状态 {scope['status']}"
+            )
+            lines.append(f"   规则: {failed_rules}")
+            lines.append(
+                "   处理建议: "
+                f"可自动修复 {scope['autofixable_count']} / "
+                f"人工确认 {scope['manual_review_count']} / "
+                f"当前不支持 {scope['unsupported_count']}"
+            )
+            lines.append(f"   说明: {scope['description']}")
+
+    if plan["unscoped_failed"]:
+        lines.append("")
+        lines.append("未归类规则:")
+        for result in plan["unscoped_failed"]:
+            lines.append(f"- {result['id']} {result['name']}")
+
+    return "\n".join(lines)
+
+
+def build_scope_verify(file_path: str, profile_path: str | None = None, scopes=None, strict_profile: bool = False) -> dict:
+    plan = build_scope_plan(file_path, profile_path=profile_path, scopes=scopes, strict_profile=strict_profile)
+    selected_scopes = [scope for scope in plan["scopes"] if scope["failed_count"] > 0]
+    needs_manual = sum(scope["manual_review_count"] for scope in selected_scopes)
+    unsupported = sum(scope["unsupported_count"] for scope in selected_scopes)
+    autofixable = sum(scope["autofixable_count"] for scope in selected_scopes)
+    manual_review_rules: list[dict] = []
+    unsupported_rules: list[dict] = []
+
+    for scope in selected_scopes:
+        for item in scope.get("failed_items", []):
+            summary_item = {
+                "id": item["id"],
+                "name": item["name"],
+                "check_level": item.get("check_level", "Unknown"),
+                "scope_id": scope["id"],
+                "scope_title": scope["title"],
+                "action": item.get("action", "unknown"),
+            }
+            if item.get("action") == "manual_review":
+                manual_review_rules.append(summary_item)
+            elif item.get("action") == "unsupported":
+                unsupported_rules.append(summary_item)
+
+    manual_review_rules.sort(key=lambda item: item["id"])
+    unsupported_rules.sort(key=lambda item: item["id"])
+
+    if not selected_scopes:
+        overall_status = "verified"
+    elif autofixable > 0:
+        overall_status = "needs_fix"
+    elif needs_manual > 0 and unsupported == 0:
+        overall_status = "manual_review"
+    elif unsupported > 0 and needs_manual == 0:
+        overall_status = "unsupported"
+    else:
+        overall_status = "mixed"
+
+    return {
+        "file_path": plan["file_path"],
+        "profile_path": plan["profile_path"],
+        "profile_id": plan.get("profile_id"),
+        "profile_display": plan.get("profile_display"),
+        "score": plan["score"],
+        "failed_count": plan["failed_count"],
+        "selected_scopes": plan["selected_scopes"],
+        "scopes": plan["scopes"],
+        "overall_status": overall_status,
+        "manual_review_count": needs_manual,
+        "unsupported_count": unsupported,
+        "autofixable_count": autofixable,
+        "manual_review_rules": manual_review_rules,
+        "unsupported_rules": unsupported_rules,
+        "manual_review_rule_ids": [item["id"] for item in manual_review_rules],
+        "unsupported_rule_ids": [item["id"] for item in unsupported_rules],
+    }
+
+
+def render_scope_verify(verification: dict) -> str:
+    lines = [
+        f"文件: {Path(verification['file_path']).name}",
+        f"Profile: {verification.get('profile_display') or verification.get('profile_id') or verification['profile_path'] or 'default'}",
+        f"评分: {verification['score']}/100",
+        f"验证状态: {verification['overall_status']}",
+        f"未通过规则: {verification['failed_count']}",
+    ]
+
+    if verification["selected_scopes"]:
+        lines.append(f"复查范围: {', '.join(verification['selected_scopes'])}")
+
+    failed_scopes = [scope for scope in verification["scopes"] if scope["failed_count"] > 0]
+    if not failed_scopes:
+        lines.append("结果: 所选范围当前未发现规则问题。")
+        return "\n".join(lines)
+
+    lines.append("")
+    lines.append("范围复查结果：")
+    for scope in failed_scopes:
+        lines.append(
+            f"- {scope['title']}（{scope['id']}）: "
+            f"自动修复 {scope['autofixable_count']}，"
+            f"人工确认 {scope['manual_review_count']}，"
+            f"当前不支持 {scope['unsupported_count']}"
+        )
+
+    manual_review_rules = verification.get("manual_review_rules") or []
+    unsupported_rules = verification.get("unsupported_rules") or []
+    if manual_review_rules or unsupported_rules:
+        lines.append("")
+        lines.append("仍需人工复核：")
+        lines.append("提示: 评分较高不等于可直接提交，以下规则仍需人工确认。")
+        for item in manual_review_rules:
+            lines.append(
+                f"- {item['id']} ({item['check_level']}) {item['name']} "
+                f"[scope={item['scope_id']}]"
+            )
+        for item in unsupported_rules:
+            lines.append(
+                f"- {item['id']} (unsupported/{item['check_level']}) {item['name']} "
+                f"[scope={item['scope_id']}]"
+            )
+    return "\n".join(lines)
+
+
+def _load_document_model(file_path: str):
+    document_xml, styles_xml, _footnotes_xml = audit_thesis.load_docx_xml(file_path)
+    document_root = ET.fromstring(document_xml)
+    styles_root = ET.fromstring(styles_xml)
+    style_map = build_style_map(styles_root)
+    document_model = build_document_model(document_root, style_map)
+    return document_root, style_map, document_model
+
+
+def _node_style_id(node) -> str | None:
+    style_elem = node.elem.find("w:pPr/w:pStyle", NSMAP)
+    if style_elem is None:
+        return None
+    return style_elem.get(f"{{{W_NS}}}val")
+
+
+def _style_heading_level(style_id: str | None, style_map: dict) -> int | None:
+    if not style_id:
+        return None
+    style_props = style_map.get(style_id, {})
+    outline_level = style_props.get("outlineLvl")
+    if isinstance(outline_level, int) and 0 <= outline_level <= 3:
+        return outline_level + 1
+    return None
+
+
+def _truncate_text(text: str, *, limit: int = 80) -> str:
+    compact = " ".join((text or "").split())
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[: limit - 1]}..."
+
+
+def _normalize_preface_heading_title(text: str) -> str:
+    return "序言" if is_preface_heading_title(text) else ""
+
+
+def _render_limited_items(lines: list[str], items: list[dict], renderer, *, limit: int = 12):
+    for item in items[:limit]:
+        lines.append(renderer(item))
+    if len(items) > limit:
+        lines.append(f"- 其余 {len(items) - limit} 项已省略。")
+
+
+def _build_toc_diagnostics(document_model, style_map: dict) -> dict:
+    title_count = 0
+    entry_count = 0
+    field_count = 0
+    structural_count = 0
+
+    for node in document_model.paragraphs:
+        style_id = _node_style_id(node)
+        has_toc_field = has_toc_field_instr(node.elem, NSMAP)
+
+        if node.module == "toc_title":
+            title_count += 1
+        if node.module == "toc_entry":
+            entry_count += 1
+        if is_toc_structural_style_id(style_id):
+            structural_count += 1
+        if str(style_id or "").strip() == "TOCField" or has_toc_field:
+            field_count += 1
+
+    if title_count > 1:
+        status = "duplicate_toc"
+    elif title_count == 0 and entry_count == 0 and field_count == 0 and structural_count == 0:
+        status = "no_toc"
+    elif field_count > 0 and entry_count == 0:
+        status = "field_only"
+    elif field_count > 0:
+        status = "generated_toc"
+    else:
+        status = "manual_toc"
+
+    return {
+        "status": status,
+        "title_count": title_count,
+        "entry_count": entry_count,
+        "field_count": field_count,
+        "structural_count": structural_count,
+    }
+
+
+def _build_diagnostic_actions(toc: dict, preface_status: str, style_text_conflicts: list[dict], table_heading_candidates: list[dict]) -> list[str]:
+    actions: list[str] = []
+
+    toc_status = toc.get("status")
+    if toc_status in {"manual_toc", "duplicate_toc", "no_toc"}:
+        actions.append("优先处理目录：建议执行 toc scope，必要时带 --toc 重建自动目录。")
+    elif toc_status == "field_only":
+        actions.append("目录结构已存在但未渲染：在 Word/WPS 中 Ctrl+A 后按 F9 刷新页码显示。")
+
+    if preface_status == "zero_based_mismatch":
+        actions.append("辽大序言编号异常：建议执行 headings scope，并启用 --renumber-headings。")
+    elif preface_status == "preface_without_children":
+        actions.append("检测到序言但未发现子标题：先人工确认是否需要 0.1 / 0.1.1 体系。")
+
+    if style_text_conflicts:
+        actions.append("存在样式/文本层级冲突：优先检查 headings scope，确认错样式标题是否需要自动扶正。")
+
+    if table_heading_candidates:
+        actions.append("表格中存在伪标题风险：重编号前先核对表格内容，避免将化合物名或数值误算进标题链。")
+
+    if not actions:
+        actions.append("当前未发现明显结构风险，可直接按目标 scope 执行修复或复查。")
+    return actions
+
+
+def _build_heading_renumber_guard(style_text_conflicts: list[dict], table_heading_candidates: list[dict]) -> dict:
+    if style_text_conflicts:
+        return {
+            "status": "block",
+            "reason": "style_conflict",
+            "style_conflict_count": len(style_text_conflicts),
+            "table_risk_count": len(table_heading_candidates),
+        }
+    if table_heading_candidates:
+        return {
+            "status": "warn",
+            "reason": "table_risk",
+            "style_conflict_count": 0,
+            "table_risk_count": len(table_heading_candidates),
+        }
+    return {
+        "status": "clear",
+        "reason": "none",
+        "style_conflict_count": 0,
+        "table_risk_count": 0,
+    }
+
+
+def build_document_diagnostics(file_path: str, profile_path: str | None = None, strict_profile: bool = False) -> dict:
+    runtime = audit_thesis.build_audit_runtime(profile_path, strict_profile=strict_profile)
+    _document_root, style_map, document_model = _load_document_model(file_path)
+    toc = _build_toc_diagnostics(document_model, style_map)
+
+    headings = []
+    table_heading_candidates = []
+    style_text_conflicts = []
+
+    for node in document_model.section_nodes("body"):
+        style_id = _node_style_id(node)
+        style_level = _style_heading_level(style_id, style_map)
+        text_level = match_heading_by_text(node.text)
+
+        if node.kind in _HEADING_KIND_TO_LEVEL and not node.in_table:
+            headings.append(
+                {
+                    "index": node.index,
+                    "kind": node.kind,
+                    "style_id": style_id,
+                    "text": node.text.strip(),
+                }
+            )
+
+        if HeadingCandidateFilter.is_table_heading_risk(node, style_level, text_level):
+            candidate_reason = HeadingCandidateFilter.candidate_reason(node.text)
+            table_heading_candidates.append(
+                {
+                    "index": node.index,
+                    "kind": node.kind,
+                    "style_id": style_id,
+                    "style_level": style_level,
+                    "text_level": text_level,
+                    "reason": candidate_reason or "table_heading_like",
+                    "text": node.text.strip(),
+                }
+            )
+
+        if not node.in_table and style_level is not None and text_level is not None and style_level != text_level:
+            style_text_conflicts.append(
+                {
+                    "index": node.index,
+                    "kind": node.kind,
+                    "style_id": style_id,
+                    "style_level": style_level,
+                    "text_level": text_level,
+                    "text": node.text.strip(),
+                }
+            )
+
+    preface_status = "not_detected"
+    first_h1_index = next((idx for idx, item in enumerate(headings) if item["kind"] == "h1"), None)
+    if first_h1_index is not None and _normalize_preface_heading_title(headings[first_h1_index]["text"]) == "序言":
+        preface_children = []
+        for item in headings[first_h1_index + 1 :]:
+            if item["kind"] == "h1":
+                break
+            preface_children.append(item)
+        numbered_children = [item for item in preface_children if item["kind"] in {"h2", "h3", "h4"}]
+        if not numbered_children:
+            preface_status = "preface_without_children"
+        elif all(item["text"].startswith("0.") for item in numbered_children):
+            preface_status = "zero_based_ok"
+        else:
+            preface_status = "zero_based_mismatch"
+
+    return {
+        "file_path": str(Path(file_path)),
+        "profile_path": profile_path,
+        "profile_id": runtime.profile_id,
+        "profile_display": audit_thesis.format_profile_resolution(
+            runtime.profile_id,
+            runtime.requested_profile,
+            runtime.fallback_used,
+        ),
+        "toc": toc,
+        "headings": headings,
+        "table_heading_candidates": table_heading_candidates,
+        "table_heading_candidate_summary": {
+            reason: sum(1 for item in table_heading_candidates if item["reason"] == reason)
+            for reason in sorted({item["reason"] for item in table_heading_candidates})
+        },
+        "style_text_conflicts": style_text_conflicts,
+        "preface_status": preface_status,
+        "heading_renumber_guard": _build_heading_renumber_guard(
+            style_text_conflicts,
+            table_heading_candidates,
+        ),
+        "recommended_actions": _build_diagnostic_actions(
+            toc,
+            preface_status,
+            style_text_conflicts,
+            table_heading_candidates,
+        ),
+    }
+
+
+def render_document_diagnostics(diagnostics: dict) -> str:
+    toc = diagnostics["toc"]
+    lines = [
+        f"文件: {Path(diagnostics['file_path']).name}",
+        f"Profile: {diagnostics.get('profile_display') or diagnostics.get('profile_id') or diagnostics['profile_path'] or 'default'}",
+        f"目录状态: {toc['status']}",
+        (
+            "目录摘要: "
+            f"标题 {toc['title_count']}，"
+            f"目录域 {toc['field_count']}，"
+            f"目录条目 {toc['entry_count']}，"
+            f"结构段落 {toc['structural_count']}"
+        ),
+        f"辽大序言编号: {diagnostics['preface_status']}",
+        (
+            "正文重编号守卫: "
+            f"{diagnostics['heading_renumber_guard']['status']}"
+            f" ({diagnostics['heading_renumber_guard']['reason']})"
+        ),
+        "",
+        "正文标题链：",
+    ]
+
+    if diagnostics["headings"]:
+        for heading in diagnostics["headings"]:
+            lines.append(f"- 第{heading['index']}段 {heading['kind']} {heading['text']}")
+    else:
+        lines.append("- 未检测到正文标题。")
+
+    lines.extend(["", "表格内伪标题候选："])
+    if diagnostics["table_heading_candidates"]:
+        summary = diagnostics.get("table_heading_candidate_summary") or {}
+        if summary:
+            summary_text = "，".join(f"{reason} {count}" for reason, count in summary.items())
+            lines.append(f"- 风险摘要: {summary_text}")
+        _render_limited_items(
+            lines,
+            diagnostics["table_heading_candidates"],
+            lambda candidate: (
+                f"- 第{candidate['index']}段 {candidate['kind']} "
+                f"reason={candidate['reason']} "
+                f"style={candidate['style_id'] or '-'} "
+                f"text_level={candidate['text_level'] or '-'} "
+                f"{_truncate_text(candidate['text'])}"
+            ),
+            limit=8,
+        )
+    else:
+        lines.append("- 未发现。")
+
+    lines.extend(["", "样式/文本层级冲突："])
+    if diagnostics["style_text_conflicts"]:
+        _render_limited_items(
+            lines,
+            diagnostics["style_text_conflicts"],
+            lambda conflict: (
+                f"- 第{conflict['index']}段 "
+                f"style={conflict['style_id'] or '-'}(h{conflict['style_level']}) "
+                f"text=h{conflict['text_level']} "
+                f"{_truncate_text(conflict['text'])}"
+            ),
+        )
+    else:
+        lines.append("- 未发现。")
+
+    lines.extend(["", "建议动作："])
+    for action in diagnostics.get("recommended_actions") or []:
+        lines.append(f"- {action}")
+
+    return "\n".join(lines)
+
+
+def render_document_diagnostics_compact(diagnostics: dict) -> str:
+    toc = diagnostics["toc"]
+    summary = diagnostics.get("table_heading_candidate_summary") or {}
+    summary_text = ",".join(f"{reason}:{count}" for reason, count in summary.items()) or "-"
+    renumber_guard = diagnostics["heading_renumber_guard"]
+    values = [
+        ("file", Path(diagnostics["file_path"]).name),
+        ("profile", diagnostics.get("profile_display") or diagnostics.get("profile_id") or diagnostics["profile_path"] or "default"),
+        ("toc_status", toc["status"]),
+        ("toc_title_count", str(toc["title_count"])),
+        ("toc_field_count", str(toc["field_count"])),
+        ("toc_entry_count", str(toc["entry_count"])),
+        ("preface_status", diagnostics["preface_status"]),
+        ("heading_renumber_guard_status", renumber_guard["status"]),
+        ("heading_renumber_guard_reason", renumber_guard["reason"]),
+        ("heading_count", str(len(diagnostics["headings"]))),
+        ("table_heading_risk_count", str(len(diagnostics["table_heading_candidates"]))),
+        ("table_heading_risk_summary", summary_text),
+        ("style_conflict_count", str(len(diagnostics["style_text_conflicts"]))),
+        ("recommended_action_count", str(len(diagnostics.get("recommended_actions") or []))),
+    ]
+    return "\n".join(f"{key}={value}" for key, value in values)
+
+
+def apply_scoped_fix(
+    input_path: str,
+    output_path: str,
+    profile_path: str | None = None,
+    scopes=None,
+    toc: bool = False,
+    renumber_headings: bool = False,
+    dry_run: bool = False,
+    strict_profile: bool = False,
+) -> str | dict:
+    normalized_scopes = normalize_scope_names(scopes)
+    runtime = fix_thesis.build_fix_runtime(
+        profile_path=profile_path,
+        toc=toc,
+        scopes=normalized_scopes,
+        renumber_headings=renumber_headings,
+        dry_run=dry_run,
+        strict_profile=strict_profile,
+    )
+    if dry_run:
+        return fix_thesis.describe_fix_docx(
+            input_path,
+            output_path=output_path,
+            runtime=runtime,
+        )
+    return fix_thesis.fix_docx(
+        input_path,
+        output_path,
+        runtime=runtime,
+    )
+
+
+def build_scoped_fix_preview(
+    input_path: str,
+    output_path: str | None = None,
+    profile_path: str | None = None,
+    scopes=None,
+    toc: bool = False,
+    renumber_headings: bool = False,
+    strict_profile: bool = False,
+) -> dict:
+    preview = apply_scoped_fix(
+        input_path,
+        output_path or "",
+        profile_path=profile_path,
+        scopes=scopes,
+        toc=toc,
+        renumber_headings=renumber_headings,
+        strict_profile=strict_profile,
+        dry_run=True,
+    )
+    assert isinstance(preview, dict)
+    if not output_path:
+        preview["output_path"] = None
+    return preview
+
+
+def render_scoped_fix_preview(preview: dict) -> str:
+    return fix_thesis.render_fix_preview(preview)

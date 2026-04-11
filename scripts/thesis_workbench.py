@@ -1,0 +1,258 @@
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+import audit_thesis
+
+from thesis_tool.scopes import list_scope_definitions, normalize_scope_names
+from thesis_tool.workflow import (
+    apply_scoped_fix,
+    build_document_diagnostics,
+    build_scoped_fix_preview,
+    build_scope_plan,
+    build_scope_verify,
+    render_document_diagnostics_compact,
+    render_document_diagnostics,
+    render_scoped_fix_preview,
+    render_scope_plan,
+    render_scope_verify,
+)
+
+
+def add_profile_args(command_parser, *, default="lnu"):
+    command_parser.add_argument("--profile", default=default, help="学校 Profile 路径或简称")
+    command_parser.add_argument("--strict-profile", action="store_true", default=False, help="profile 加载失败时直接报错，不回退默认配置")
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description="论文格式工作台：按 scope 检查和修复论文格式")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    plan_parser = subparsers.add_parser("plan", help="按 scope 生成修复计划")
+    plan_parser.add_argument("input_docx", help="输入 .docx 文件路径")
+    add_profile_args(plan_parser)
+    plan_parser.add_argument(
+        "--scope",
+        action="append",
+        default=None,
+        help="仅查看指定 scope，可重复传入，或用逗号分隔多个值",
+    )
+
+    apply_parser = subparsers.add_parser("apply", help="按 scope 执行修复")
+    apply_parser.add_argument("input_docx", help="输入 .docx 文件路径")
+    add_profile_args(apply_parser)
+    apply_parser.add_argument("--output", help="输出 .docx 文件路径")
+    apply_parser.add_argument(
+        "--scope",
+        action="append",
+        required=True,
+        help="要修复的 scope，可重复传入，或用逗号分隔多个值",
+    )
+    apply_parser.add_argument("--toc", action="store_true", default=False, help="同时重建目录")
+    apply_parser.add_argument("--dry-run", action="store_true", default=False, help="仅预览将触达的修复范围，不写入文件")
+    apply_parser.add_argument("--renumber-headings", action="store_true", default=False, help="显式启用正文标题重编号")
+    apply_parser.add_argument("--force", action="store_true", default=False, help="跳过结构风险守卫，强制执行修复")
+
+    audit_parser = subparsers.add_parser("audit", help="执行完整审查")
+    audit_parser.add_argument("input_docx", help="输入 .docx 文件路径")
+    add_profile_args(audit_parser)
+
+    diagnose_parser = subparsers.add_parser("diagnose", help="输出文档结构诊断，便于定位辽大规则问题")
+    diagnose_parser.add_argument("input_docx", help="输入 .docx 文件路径")
+    add_profile_args(diagnose_parser)
+    diagnose_parser.add_argument("--compact", action="store_true", default=False, help="输出紧凑摘要，便于批量比较")
+
+    verify_parser = subparsers.add_parser("verify", help="按 scope 复查修复结果")
+    verify_parser.add_argument("input_docx", help="输入 .docx 文件路径")
+    add_profile_args(verify_parser)
+    verify_parser.add_argument(
+        "--scope",
+        action="append",
+        default=None,
+        help="仅复查指定 scope，可重复传入，或用逗号分隔多个值",
+    )
+
+    subparsers.add_parser("scopes", help="列出可用 scope")
+    return parser
+
+
+def default_output_path(input_docx: str, scopes) -> str:
+    stem, ext = os.path.splitext(input_docx)
+    normalized_scopes = normalize_scope_names(scopes)
+    scope_suffix = "_".join(sorted(normalized_scopes or []))
+    return f"{stem}_{scope_suffix or '修复'}{ext or '.docx'}"
+
+
+def _render_apply_risk_warning(diagnostics: dict, *, renumber_headings: bool, selected_scopes: set[str] | None) -> tuple[list[str], bool]:
+    table_risk = len(diagnostics["table_heading_candidates"])
+    style_conflict = len(diagnostics["style_text_conflicts"])
+    lines: list[str] = []
+    should_block = False
+
+    affects_heading_renumber = bool(renumber_headings and selected_scopes and "headings" in selected_scopes)
+
+    if table_risk >= 5:
+        lines.append(f"  - 表格伪标题候选: {table_risk} 个（阈值 5）")
+        lines.append("建议: 先运行 diagnose 核对表格内容，避免化合物名或数值误入标题重编号链。")
+
+    if style_conflict >= 1:
+        lines.append(f"  - 样式/文本层级冲突: {style_conflict} 个")
+        if affects_heading_renumber:
+            lines.append("建议: 先检查 headings 相关冲突，再执行 --renumber-headings。")
+            should_block = True
+        else:
+            lines.append("建议: 可先运行 diagnose 查看冲突详情，必要时再处理 headings scope。")
+
+    return lines, should_block
+
+
+def _render_post_verify_notice(verification: dict) -> list[str]:
+    lines: list[str] = []
+    manual_review_rule_ids = verification.get("manual_review_rule_ids") or []
+    unsupported_rule_ids = verification.get("unsupported_rule_ids") or []
+
+    if manual_review_rule_ids or unsupported_rule_ids:
+        lines.append("[提示] 当前结果仍含人工复核项，评分较高不等于可直接提交。")
+        if manual_review_rule_ids:
+            lines.append(f"需人工确认规则: {', '.join(manual_review_rule_ids)}")
+        if unsupported_rule_ids:
+            lines.append(f"当前不支持规则: {', '.join(unsupported_rule_ids)}")
+        if verification.get("selected_scopes"):
+            lines.append("注意: 以上结论仅覆盖当前复查范围。")
+    return lines
+
+
+def main():
+    parser = build_parser()
+    try:
+        args = parser.parse_args()
+
+        if args.command == "scopes":
+            for scope in list_scope_definitions():
+                print(f"{scope.id}: {scope.title} - {scope.description}")
+            return 0
+
+        if args.command == "audit":
+            results, score, _report, runtime = audit_thesis.audit_docx_with_runtime(
+                args.input_docx,
+                profile_path=args.profile,
+                strict_profile=args.strict_profile,
+            )
+            failed = [item for item in results if not item.get("passed")]
+            print(f"文件: {os.path.basename(args.input_docx)}")
+            print(
+                "Profile: "
+                + audit_thesis.format_profile_resolution(
+                    runtime.profile_id,
+                    runtime.requested_profile,
+                    runtime.fallback_used,
+                )
+            )
+            print(f"评分: {score}/100")
+            print(f"未通过规则: {len(failed)}")
+            for result in failed:
+                print(f"- {result['id']} {result['name']}")
+            return 0
+
+        if args.command == "diagnose":
+            diagnostics = build_document_diagnostics(
+                args.input_docx,
+                profile_path=args.profile,
+                strict_profile=args.strict_profile,
+            )
+            if args.compact:
+                print(render_document_diagnostics_compact(diagnostics))
+            else:
+                print(render_document_diagnostics(diagnostics))
+            return 0
+
+        if args.command == "plan":
+            plan = build_scope_plan(
+                args.input_docx,
+                profile_path=args.profile,
+                scopes=args.scope,
+                strict_profile=args.strict_profile,
+            )
+            print(render_scope_plan(plan))
+            return 0
+
+        if args.command == "apply":
+            selected_scopes = normalize_scope_names(args.scope)
+            output_path = args.output or default_output_path(args.input_docx, args.scope)
+            if args.dry_run:
+                preview = build_scoped_fix_preview(
+                    args.input_docx,
+                    output_path=output_path,
+                    profile_path=args.profile,
+                    scopes=args.scope,
+                    toc=args.toc,
+                    renumber_headings=args.renumber_headings,
+                    strict_profile=args.strict_profile,
+                )
+                print(render_scoped_fix_preview(preview))
+                return 0
+            if not args.force:
+                diagnostics = build_document_diagnostics(
+                    args.input_docx,
+                    profile_path=args.profile,
+                    strict_profile=args.strict_profile,
+                )
+                warning_lines, should_block = _render_apply_risk_warning(
+                    diagnostics,
+                    renumber_headings=args.renumber_headings,
+                    selected_scopes=selected_scopes,
+                )
+                if warning_lines:
+                    print("[警告] 发现结构风险：")
+                    for line in warning_lines:
+                        print(line)
+                if should_block:
+                    print("如需跳过此检查，请传入 --force 参数。")
+                    return 1
+            fixed_path = apply_scoped_fix(
+                args.input_docx,
+                output_path,
+                profile_path=args.profile,
+                scopes=args.scope,
+                toc=args.toc,
+                renumber_headings=args.renumber_headings,
+                strict_profile=args.strict_profile,
+            )
+            verification = build_scope_verify(
+                fixed_path,
+                profile_path=args.profile,
+                scopes=args.scope,
+                strict_profile=args.strict_profile,
+            )
+            print(f"输出文件: {fixed_path}")
+            print(render_scope_verify(verification))
+            for line in _render_post_verify_notice(verification):
+                print(line)
+            if args.toc:
+                print("提示: 目录为 Word 域，若页码未刷新，请在 Word 中 Ctrl+A 后按 F9 更新。")
+            return 0
+
+        if args.command == "verify":
+            verification = build_scope_verify(
+                args.input_docx,
+                profile_path=args.profile,
+                scopes=args.scope,
+                strict_profile=args.strict_profile,
+            )
+            print(render_scope_verify(verification))
+            for line in _render_post_verify_notice(verification):
+                print(line)
+            return 0
+
+        parser.error(f"未知命令: {args.command}")
+        return 2
+    except ValueError as exc:
+        parser.exit(2, f"{exc}\n")
+    except RuntimeError as exc:
+        parser.exit(1, f"{exc}\n")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

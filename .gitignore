@@ -1,0 +1,38 @@
+.DS_Store
+
+# Python cache
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test and coverage artifacts
+.coverage
+htmlcov/
+
+# Node artifacts
+node_modules/
+
+# IDE/editor noise
+.idea/
+.vscode/
+
+# macOS / Office temp files
+*.tmp
+*.temp
+~$*.docx
+outputs/.~*.docx
+
+# Generated thesis outputs stay local by default.
+# Tracked metadata and promoted milestones are whitelisted below.
+outputs/**
+!outputs/.gitkeep
+!outputs/README.md
+!outputs/index/
+!outputs/index/**
+!outputs/milestones/
+!outputs/milestones/**

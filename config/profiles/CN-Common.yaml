@@ -1,0 +1,694 @@
+# CN-Common.yaml — 中国高校论文格式通用基线规则库 v1.0
+# 覆盖范围：页面 / 正文 / 标题 / 图 / 表 / 公式 / 参考文献 / 标点 / 脚注 / 其他
+# check_level: Auto（程序自动检查） / Semi（程序定位，人工确认） / Manual（人工复核）
+# method: docx-structure（读XML即可） / rendered-layout（依赖Word排版渲染）
+# scope: undergraduate=本科 / master=硕士 / phd=博士 / all=通用
+
+meta:
+  id: CN-Common
+  version: "1.0"
+  pub_date: "2026-03-25"
+  scope: all
+  description: "中国高校论文格式通用基线，覆盖各校共性要求，差异项由学校Profile覆盖"
+  source_refs:
+    - GB/T 7714-2015
+    - GB/T 15834-2011
+    - 教育部学位论文规范（2020）
+
+# ---------- 全局容差配置 ----------
+tolerance:
+  font_size_pt: 0.5          # 字号允许误差（磅）
+  indent_cm: 0.02            # 首行缩进允许误差（厘米）
+  margin_dxa: 28             # 页边距允许误差（DXA，约0.05cm）
+  line_spacing_pct: 3        # 行距允许误差（百分比，适用倍数行距）
+
+# ========== 页面模块 ==========
+rules:
+
+  - id: P01
+    module: page
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "页边距检查"
+    expected:
+      top_dxa: 1440           # 2.54cm
+      bottom_dxa: 1440
+      left_dxa: 1800          # 3.17cm（装订线）
+      right_dxa: 1440
+    tolerance_override: margin_dxa
+    method: docx-structure
+    evidence: "w:pgMar"
+    notes: "各校差异大，此为最常见默认值，学校Profile应覆盖此项"
+    fix: "set_page_margins(top=1440, bottom=1440, left=1800, right=1440)"
+    source: CN-Common
+
+  - id: P02
+    module: page
+    scope: all
+    severity: minor
+    check_level: Manual
+    description: "页眉内容（奇偶页分置）"
+    expected: "奇数页：章标题；偶数页：论文题目（各校不同）"
+    method: rendered-layout
+    evidence: null
+    notes: "依赖渲染，无法纯读XML可靠判断，标Manual"
+    fix: null
+    source: CN-Common
+
+  - id: P03
+    module: page
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "页码位置：页面底端居中"
+    expected: "footer居中，阿拉伯数字"
+    method: docx-structure
+    evidence: "w:ftr > w:p > w:pPr > w:jc[@w:val='center']"
+    notes: "检查footer段落是否居中，不检查起始页码值"
+    fix: null
+    source: CN-Common
+
+# ========== 正文模块 ==========
+
+  - id: T01
+    module: body
+    scope: all
+    severity: critical
+    check_level: Auto
+    description: "正文中文字体：宋体"
+    expected: "宋体"
+    tolerance: null
+    method: docx-structure
+    evidence: "w:rFonts[@w:eastAsia='宋体']"
+    notes: "仅检查正文段落，不含标题、题注、参考文献"
+    fix: "set_east_asia_font('宋体')"
+    source: CN-Common
+
+  - id: T02
+    module: body
+    scope: all
+    severity: critical
+    check_level: Auto
+    description: "正文西文字体：Times New Roman"
+    expected: "Times New Roman"
+    tolerance: null
+    method: docx-structure
+    evidence: "w:rFonts[@w:ascii='Times New Roman']"
+    notes: "同T01，仅正文段落"
+    fix: "set_ascii_font('Times New Roman')"
+    source: CN-Common
+
+  - id: T03
+    module: body
+    scope: all
+    severity: critical
+    check_level: Auto
+    description: "正文字号：12pt（24 half-points）"
+    expected:
+      half_points: 24
+    tolerance_override: font_size_pt
+    method: docx-structure
+    evidence: "w:sz[@w:val='24']"
+    notes: "小四号=12pt，允许±0.5pt容差"
+    fix: "set_font_size(24)"
+    source: CN-Common
+
+  - id: T04
+    module: body
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "正文行距：1.5倍（或固定值20pt）"
+    expected:
+      line_rule: auto         # auto=倍数行距
+      line_value: 360         # 240*1.5=360 twips
+    tolerance_override: line_spacing_pct
+    method: docx-structure
+    evidence: "w:spacing[@w:lineRule='auto'][@w:line='360']"
+    notes: "部分学校用固定值20pt（line=400，lineRule=exact），Profile可覆盖"
+    fix: "set_line_spacing(rule='auto', value=360)"
+    source: CN-Common
+
+  - id: T05
+    module: body
+    scope: all
+    severity: critical
+    check_level: Auto
+    description: "正文首行缩进：2字符（约0.74cm / 480 twips）"
+    expected:
+      ind_cm: 0.74
+      ind_dxa: 480
+    tolerance_override: indent_cm
+    method: docx-structure
+    evidence: "w:ind[@w:firstLine='480']"
+    notes: "三重检查：存在性 + 标准值（±0.02cm） + 全文统一性"
+    fix: "set_first_line_indent(480)"
+    source: CN-Common
+
+  - id: T06
+    module: body
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "正文两端对齐"
+    expected: "both"
+    method: docx-structure
+    evidence: "w:jc[@w:val='both']"
+    notes: null
+    fix: "set_justification('both')"
+    source: CN-Common
+
+  - id: SP01
+    module: body
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "关闭中英文间自动空格"
+    expected: "w:autoSpaceDE=false"
+    method: docx-structure
+    evidence: "w:autoSpaceDE[@w:val='0']"
+    notes: "Word默认开启，容易被忽视"
+    fix: "set_auto_space_de(False)"
+    source: CN-Common
+
+  - id: SP02
+    module: body
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "关闭中文与数字间自动空格"
+    expected: "w:autoSpaceDN=false"
+    method: docx-structure
+    evidence: "w:autoSpaceDN[@w:val='0']"
+    notes: "同SP01"
+    fix: "set_auto_space_dn(False)"
+    source: CN-Common
+
+# ========== 标题模块 ==========
+
+  - id: H01
+    module: heading
+    scope: all
+    severity: critical
+    check_level: Auto
+    description: "一级标题：黑体，15pt，加粗，居中"
+    expected:
+      east_asia_font: "黑体"
+      half_points: 30         # 15pt
+      bold: true
+      alignment: center
+    method: docx-structure
+    evidence: "outlineLvl=0 段落"
+    notes: "字体用黑体不用宋体，是一级标题的关键特征"
+    fix: "fix_heading(level=1, font='黑体', size=30, bold=True, align='center')"
+    source: CN-Common
+
+  - id: H02
+    module: heading
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "二级标题：黑体，15pt，加粗，左对齐"
+    expected:
+      east_asia_font: "黑体"
+      half_points: 30
+      bold: true
+      alignment: left
+    method: docx-structure
+    evidence: "outlineLvl=1 段落"
+    notes: null
+    fix: "fix_heading(level=2, font='黑体', size=30, bold=True, align='left')"
+    source: CN-Common
+
+  - id: H03
+    module: heading
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "三级标题：黑体，12pt，加粗，左对齐"
+    expected:
+      east_asia_font: "黑体"
+      half_points: 24
+      bold: true
+      alignment: left
+    method: docx-structure
+    evidence: "outlineLvl=2 段落"
+    notes: null
+    fix: "fix_heading(level=3, font='黑体', size=24, bold=True, align='left')"
+    source: CN-Common
+
+  - id: H04
+    module: heading
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "四级标题：黑体，12pt，加粗，左对齐"
+    expected:
+      east_asia_font: "黑体"
+      half_points: 24
+      bold: true
+      alignment: left
+    method: docx-structure
+    evidence: "outlineLvl=3 段落"
+    notes: null
+    fix: "fix_heading(level=4, font='黑体', size=24, bold=True, align='left')"
+    source: CN-Common
+
+  - id: S01
+    module: heading
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "标题段前段后间距（一级24pt/18pt，二级12pt/6pt）"
+    expected:
+      h1: {before_pt: 24, after_pt: 18}
+      h2: {before_pt: 12, after_pt: 6}
+      h3: {before_pt: 6, after_pt: 6}
+    method: docx-structure
+    evidence: "w:spacing[@w:before][@w:after]"
+    notes: "部分学校有差异，tolerance可适当放宽"
+    fix: null
+    source: CN-Common
+
+  - id: S02
+    module: heading
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "章标题前分页（每章从新页开始）"
+    expected: "w:pageBreakBefore=true"
+    method: docx-structure
+    evidence: "w:pageBreakBefore[@w:val='1']"
+    notes: "仅对一级标题（第X章）检查，不对二级及以下"
+    fix: null
+    source: CN-Common
+
+# ========== 图模块 ==========
+
+  - id: F01
+    module: figure
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "图题字号：10.5pt（五号，21 half-points）"
+    expected:
+      half_points: 21
+    tolerance_override: font_size_pt
+    method: docx-structure
+    evidence: "图题段落 w:sz[@w:val='21']"
+    notes: "图题段落识别：以'图'+'数字'开头"
+    fix: "set_caption_font_size(21)"
+    source: CN-Common
+
+  - id: F02
+    module: figure
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "表题字号：10.5pt（五号，21 half-points）"
+    expected:
+      half_points: 21
+    tolerance_override: font_size_pt
+    method: docx-structure
+    evidence: "表题段落 w:sz[@w:val='21']"
+    notes: "表题段落识别：以'表'+'数字'开头"
+    fix: "set_caption_font_size(21)"
+    source: CN-Common
+
+  - id: F03
+    module: figure
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "图编号格式：图X-Y（章节式，如图1-1）"
+    expected_pattern: "^图\\d+-\\d+"
+    method: docx-structure
+    evidence: "图题段落文本匹配正则"
+    notes: "检测是否为'图1'（非章节式），报告需修改为'图1-1'"
+    fix: null
+    source: CN-Common
+
+  - id: F04
+    module: figure
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "表编号格式：表X-Y（章节式，如表1-1）"
+    expected_pattern: "^表\\d+-\\d+"
+    method: docx-structure
+    evidence: "表题段落文本匹配正则"
+    notes: "同F03"
+    fix: null
+    source: CN-Common
+
+  - id: F05
+    module: figure
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "图题/表题字体：宋体+Times New Roman"
+    expected:
+      east_asia_font: "宋体"
+      ascii_font: "Times New Roman"
+    method: docx-structure
+    evidence: "题注段落 w:rFonts"
+    notes: null
+    fix: "fix_caption_paragraph()"
+    source: CN-Common
+
+  - id: F06
+    module: figure
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "图片段落居中，无首行缩进"
+    expected:
+      alignment: center
+      first_line_indent: 0
+    method: docx-structure
+    evidence: "含w:drawing的段落"
+    notes: "图片段落识别：w:r/w:drawing 存在"
+    fix: "fix_figure_paragraph()"
+    source: CN-Common
+
+  - id: F07
+    module: figure
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "图题末尾无句号"
+    expected: "末尾字符不为'。'或'.'"
+    method: docx-structure
+    evidence: "图题段落文本末尾字符"
+    notes: "表题末尾也不应有句号"
+    fix: "trim_caption_terminal_punctuation()"
+    source: CN-Common
+
+# ========== 表格模块 ==========
+
+  - id: TB01
+    module: table
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "三线表：顶线和底线（sz=12，约1.5磅），栏目线（sz=6，约0.75磅）"
+    expected:
+      top_bottom_sz: 12
+      header_bottom_sz: 6
+    method: docx-structure
+    evidence: "w:tblBorders / w:trPr / w:tcBorders"
+    notes: "检查：顶线/底线存在且sz≥10；第一行底部横线存在且比顶底线细"
+    fix: "fix_table_borders(top_bottom_sz=12, header_sz=6)"
+    source: CN-Common
+
+  - id: TB02
+    module: table
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "三线表无竖线、无内部水平线（非栏目线）"
+    expected: "insideH/insideV/left/right 均为none"
+    method: docx-structure
+    evidence: "w:tblBorders"
+    notes: "三线表规范：只有3条横线，无竖线"
+    fix: null
+    source: CN-Common
+
+  - id: TB03
+    module: table
+    scope: all
+    severity: minor
+    check_level: Semi
+    description: "续表重复表头"
+    expected: "跨页表格第一行设置w:tblHeader"
+    method: docx-structure
+    evidence: "w:tblHeader"
+    notes: "能检测是否设置了tblHeader，但是否需要续表头需人工判断"
+    fix: null
+    source: CN-Common
+
+# ========== 公式模块 ==========
+
+  - id: EQ01
+    module: equation
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "公式段落居中，无首行缩进"
+    expected:
+      alignment: center
+      first_line_indent: 0
+    method: docx-structure
+    evidence: "含m:oMathPara的段落"
+    notes: "公式段落识别：w:r/m:oMathPara 或 m:oMath 存在"
+    fix: "fix_equation_paragraph()"
+    source: CN-Common
+
+  - id: EQ02
+    module: equation
+    scope: all
+    severity: important
+    check_level: Semi
+    description: "公式编号右对齐，格式(X-Y)"
+    expected_pattern: "\\(\\d+-\\d+\\)"
+    method: docx-structure
+    evidence: "公式段落末尾run文本，右制表位"
+    notes: "能检测编号格式，但编号与公式的对应关系需人工确认"
+    fix: null
+    source: CN-Common
+
+  - id: EQ03
+    module: equation
+    scope: all
+    severity: minor
+    check_level: Manual
+    description: "正文中公式引用格式：式(X-Y)"
+    expected_pattern: "式\\(\\d+-\\d+\\)"
+    method: docx-structure
+    evidence: "正文文本正则匹配"
+    notes: "能找到引用位置，但是否与公式编号匹配需人工核对"
+    fix: null
+    source: CN-Common
+
+  - id: EQ04
+    module: equation
+    scope: all
+    severity: minor
+    check_level: Manual
+    description: "公式变量字体：变量斜体，常数/函数正体"
+    expected: "MathML字体规范"
+    method: rendered-layout
+    evidence: null
+    notes: "依赖语义判断，无法自动检查，标Manual"
+    fix: null
+    source: CN-Common
+
+# ========== 参考文献模块 ==========
+
+  - id: C01
+    module: citation
+    scope: all
+    severity: critical
+    check_level: Auto
+    description: "正文引用标记为上标"
+    expected: "w:vertAlign[@w:val='superscript']"
+    method: docx-structure
+    evidence: "正文段落中[N]格式run"
+    notes: "仅检查正文段落中的上标引用"
+    fix: "convert_inline_citations_to_superscript()"
+    source: CN-Common
+
+  - id: C02
+    module: citation
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "正文引用字体：Times New Roman"
+    expected: "Times New Roman"
+    method: docx-structure
+    evidence: "上标引用run的w:rFonts"
+    notes: null
+    fix: "fix_superscript_fonts()"
+    source: CN-Common
+
+  - id: C03
+    module: citation
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "正文引用位置：在句末标点之前"
+    expected: "标点后无上标引用"
+    method: docx-structure
+    evidence: "正文段落文本：句号后跟上标[N]"
+    notes: "检测'。[N]'或'.[N]'模式，应改为'[N]。'"
+    fix: "reorder_citation_before_punctuation()"
+    source: CN-Common
+
+  - id: C04
+    module: citation
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "正文中未上标的[N]引用（嵌入正文未转上标）"
+    expected: "无非上标的[N]格式文本"
+    method: docx-structure
+    evidence: "正文run文本匹配[\\d+]且非superscript"
+    notes: "split_inline_citations()可处理"
+    fix: "split_inline_citations()"
+    source: CN-Common
+
+  - id: R01
+    module: reference
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "参考文献悬挂缩进：420 twips（约0.74cm）"
+    expected:
+      hanging_dxa: 420
+    method: docx-structure
+    evidence: "w:ind[@w:hanging='420']"
+    notes: null
+    fix: "set_reference_hanging_indent(420)"
+    source: CN-Common
+
+  - id: R02
+    module: reference
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "参考文献制表位：位置420 twips，左对齐"
+    expected:
+      tab_pos: 420
+      tab_type: left
+    method: docx-structure
+    evidence: "w:tabs/w:tab[@w:val='left'][@w:pos='420']"
+    notes: null
+    fix: "set_reference_tabstop(420)"
+    source: CN-Common
+
+  - id: R03
+    module: reference
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "参考文献行距：单倍（240 twips）"
+    expected:
+      line_rule: auto
+      line_value: 240
+    method: docx-structure
+    evidence: "w:spacing[@w:line='240']"
+    notes: null
+    fix: "set_reference_line_spacing(240)"
+    source: CN-Common
+
+  - id: R04
+    module: reference
+    scope: all
+    severity: critical
+    check_level: Auto
+    description: "参考文献列表编号不使用上标"
+    expected: "w:vertAlign 不为 superscript"
+    method: docx-structure
+    evidence: "参考文献段落首个run"
+    notes: null
+    fix: "remove_superscript_from_reference_number()"
+    source: CN-Common
+
+  - id: R05
+    module: reference
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "参考文献编号格式：[N]<Tab>内容"
+    expected_pattern: "^\\[\\d+\\]\\t"
+    method: docx-structure
+    evidence: "参考文献段落文本正则匹配"
+    notes: "第一阶段只检结构，不做GB/T 7714深度语义匹配"
+    fix: null
+    source: CN-Common
+
+  - id: REF01
+    module: reference
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "参考文献末尾标点：中文用'。'，英文用'.'"
+    expected: "最后一个非空字符为句号"
+    method: docx-structure
+    evidence: "参考文献段落末尾字符"
+    notes: "区分中英文文献"
+    fix: "fix_reference_punctuation()"
+    source: CN-Common
+
+  - id: KW01
+    module: reference
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "关键词数量：3-8个"
+    expected:
+      min: 3
+      max: 8
+    method: docx-structure
+    evidence: "关键词段落文本按'；'分割计数"
+    notes: "适用于摘要页的关键词段落"
+    fix: null
+    source: CN-Common
+
+# ========== 标点与单位模块 ==========
+
+  - id: PU01
+    module: punctuation
+    scope: all
+    severity: minor
+    check_level: Semi
+    description: "中文正文不使用英文标点（半角逗号、句点等）"
+    expected: "中文段落使用全角标点"
+    method: docx-structure
+    evidence: "正文段落文本正则检测半角标点"
+    notes: "有误报风险（代码、URL、公式中的英文标点），标Semi"
+    fix: null
+    source: CN-Common
+
+  - id: PU02
+    module: punctuation
+    scope: all
+    severity: minor
+    check_level: Semi
+    description: "省略号：……（六点，全角），不用...或......"
+    expected: "\\u2026\\u2026"
+    method: docx-structure
+    evidence: "正文文本检测'...'模式"
+    notes: "有误报风险，标Semi"
+    fix: null
+    source: CN-Common
+
+# ========== 脚注/页码模块 ==========
+
+  - id: FN01
+    module: footnote
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "脚注字号：9pt（小五号，18 half-points）"
+    expected:
+      half_points: 18
+    method: docx-structure
+    evidence: "w:footnote 段落 w:sz"
+    notes: null
+    fix: null
+    source: CN-Common
+
+  - id: PG01
+    module: page
+    scope: all
+    severity: minor
+    check_level: Semi
+    description: "页码起始：正文从第1页开始，前置部分用罗马数字"
+    expected: "前置：i, ii, iii；正文：1, 2, 3"
+    method: docx-structure
+    evidence: "w:sectPr/w:pgNumType"
+    notes: "能检测分节和页码类型，但实际显示效果标Semi"
+    fix: null
+    source: CN-Common

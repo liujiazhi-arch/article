@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thesis-format-tool"
+version = "0.1.0"
+description = "Structured audit and scoped fix tool for Chinese thesis .docx formatting"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "python-docx>=1.1,<2",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+]
+
+[project.scripts]
+thesis-workbench = "thesis_workbench:main"
+
+[tool.setuptools]
+package-dir = {"" = "scripts"}
+py-modules = [
+  "audit_thesis",
+  "fix_thesis",
+  "fix_docx_io",
+  "fix_output_parts",
+  "thesis_workbench",
+  "_profile_utils",
+  "_thesis_utils",
+  "output_versioning",
+]
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+include = ["thesis_tool", "thesis_tool.*", "sections", "sections.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

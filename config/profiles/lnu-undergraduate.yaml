@@ -1,0 +1,608 @@
+# 辽宁大学本科毕业论文格式 Profile（官方版）
+# 继承自 CN-Common，严格按照辽宁大学官方模板覆盖所有差异项
+# 数据来源：辽宁大学官方论文样本（理工类）PDF + DOC 双版本核对
+# 文件（已归档至项目）：
+#   references/lnu/lnu-undergraduate-format-spec.pdf     （原：26BDF01BF6EADB5189164EB297C_3EF799F3_66559.pdf）
+#   references/lnu/lnu-undergraduate-format-template.doc （原：20250608_4-1 毕业论文样本（理工类）(2).doc）
+# 更新日期：2026-04-07
+# 注意：此Profile以官方样本为准，优先级高于CN-Common
+
+meta:
+  id: lnu-undergraduate
+  extends: CN-Common
+  school: 辽宁大学
+  dept: 教务处
+  scope: undergraduate
+  pub_date: "2025"       # 模板内日期：202×年，推测为近年版本
+  access_date: "2026-04-07"
+  doc_url: null          # 用户提供的本地官方文件
+  notes: |
+    严格按照辽宁大学官方论文样本（理工类）设定。
+    PDF与DOC内容一致，以此为唯一数据来源。
+    与CN-Common的主要差异：
+    - 页边距全部2.5cm + 装订线0.5cm（非CN-Common的上左30mm）
+    - 图表编号用点号（图2.1），不用横线（图2-1）
+    - 关键词3-5个（非3-8个），黑体小四，不加粗
+    - 参考文献标点用英文半角
+    - 参考文献编号用 [N] + 单空格，第二行采用悬挂缩进对齐
+    - 致谢用仿宋小四
+    2026-04-07校准：已重新核对最后保存于2025-06-08的新版样本
+    《20250608_4-1 毕业论文样本（理工类）(2).doc》，并沿用其中的
+    关键词、摘要标题字号、英文摘要行距、四级标题字体等修订。
+
+# ========== 差异覆盖项（完整列出所有与CN-Common不同的项）==========
+overrides:
+
+  # ---------- 页面 ----------
+
+  # 页边距：上下左右全部2.5cm，装订线（左）0.5cm
+  # 官方原文：上2.5cm，下2.5cm，左2.5cm，右2.5cm，装订线（左）0.5cm
+  - id: P01
+    expected:
+      top_dxa: 1418       # 2.5cm = 1418 DXA（1cm≈567 DXA）
+      bottom_dxa: 1418
+      left_dxa: 1418      # 2.5cm（装订线单独0.5cm=283 DXA，由gutter字段设置）
+      right_dxa: 1418
+      gutter_dxa: 283     # 装订线（左）0.5cm
+    tolerance_override: margin_dxa
+    notes: "辽宁大学：四周均为2.5cm，另设装订线0.5cm（左侧）"
+
+  # ---------- 正文 ----------
+  # 行距：多倍行距1.5（与CN-Common一致，但官方明确"取消网格对齐"）
+  - id: T04
+    expected:
+      line_rule: auto
+      line_value: 360     # 240*1.5=360
+    fix_extra: "disable_snap_to_grid()"
+    notes: "辽宁大学明确要求取消网格对齐（contextualSpacing=false，snapToGrid=false）"
+
+  # ---------- 一级标题 ----------
+  # 官方原文：黑体，三号（16pt），居中
+  - id: H01
+    expected:
+      east_asia_font: "黑体"
+      half_points: 32     # 16pt = 三号（官方：黑体三号居中）
+      bold: false
+      alignment: center
+      space_before_lines: 0.5    # 段前0.5行（新版样本）
+      space_after_lines: 0.5     # 段后0.5行（新版样本）
+    notes: "辽宁大学一级标题：黑体三号（16pt），居中。注意：比CN-Common的15pt大1pt，段前后各0.5行"
+
+  # 二级标题：黑体，四号（14pt），左对齐
+  - id: H02
+    expected:
+      east_asia_font: "黑体"
+      half_points: 28     # 14pt = 四号
+      bold: false
+      alignment: left
+      space_before_lines: 0.5    # 段前0.5行（新版样本）
+      space_after_lines: 0.5     # 段后0.5行（新版样本）
+    notes: "辽宁大学二级标题：黑体四号（14pt），段前后各0.5行"
+
+  # 三级标题：黑体，小四（12pt），左对齐
+  - id: H03
+    expected:
+      east_asia_font: "黑体"
+      half_points: 24     # 12pt = 小四
+      bold: false
+      alignment: left
+      space_before_lines: 0.5    # 段前0.5行（新版样本）
+      space_after_lines: 0.5     # 段后0.5行（新版样本）
+    notes: "辽宁大学三级标题：黑体小四（12pt），段前后各0.5行"
+
+  # 四级标题：宋体，小四（12pt），左对齐，缩进2字符（新版样本明确）
+  - id: H04
+    expected:
+      east_asia_font: "宋体"
+      half_points: 24     # 12pt = 小四
+      bold: false
+      alignment: left
+      indent_chars: 2
+      space_before_lines: 0.5    # 段前0.5行（新版样本）
+      space_after_lines: 0.5     # 段后0.5行（新版样本）
+    notes: "辽宁大学四级标题：宋体小四（12pt），缩进2字符。注意：字体为宋体，非黑体，段前后各0.5行"
+
+  # ---------- 图/表题字号（官方：五号=10.5pt，与CN-Common一致）----------
+  # F01/F02 不变，CN-Common的21 half-points正确
+
+  # ---------- 关键词（官方：3-5个，黑体小四，不加粗）----------
+  - id: KW01
+    expected:
+      min: 3
+      max: 5              # 官方明确3-5个（非3-8个）
+      font: "黑体"
+      bold: false
+      half_points: 24     # 小四
+      separator: "；"
+    notes: "辽宁大学关键词：3-5个，黑体小四不加粗，分号间隔，末尾无标点"
+
+  # ---------- 页码（官方：—N—格式，宋体五号，居中底部）----------
+  - id: PG01
+    expected: "页码格式：—数字—（破折号包围），宋体五号，页面底端居中，正文从1开始"
+    notes: "辽宁大学页码格式：—1—，不是纯数字"
+
+  # ---------- 参考文献悬挂缩进 ----------
+  - id: R01
+    expected:
+      hanging_dxa: 420
+    notes: |
+      官方样本文本说明：单条文献第二行需要缩进对齐即可。
+      辽大参考文献采用悬挂缩进，不使用正文首行缩进。
+      为了让 [1] 到 [10] 的视觉更自然，辽大 profile 固定为 420 twips。
+
+# ========== 辽宁大学特有规则（当前 runtime 已接入）==========
+additions:
+
+  # ---------- 图编号格式：图X.X（点号，非横线）----------
+  - id: LNU_F01
+    module: figure
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "图编号格式：图X.X（章.序号，用点号），如图2.1"
+    expected_pattern: "^图\\s*\\d+\\.\\d+"
+    method: docx-structure
+    evidence: "图题段落文本正则匹配"
+    notes: |
+      官方样本用点号：图2.1、图2.2（不是图2-1）
+      覆盖CN-Common的F03规则（F03用横线格式图X-Y）
+      如果你的论文用横线格式，需要手动改为点号格式
+    fix: "fix_caption_number_sep(sep='.')"
+    source: lnu-undergraduate
+
+  # ---------- 表编号格式：表X.X（点号）----------
+  - id: LNU_F02
+    module: figure
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "表编号格式：表X.X（章.序号，用点号），如表2.1"
+    expected_pattern: "^表\\s*\\d+\\.\\d+"
+    method: docx-structure
+    evidence: "表题段落文本正则匹配"
+    notes: "官方样本用点号：表2.1、表2.2（覆盖CN-Common的F04）"
+    fix: "fix_caption_number_sep(sep='.')"
+    source: lnu-undergraduate
+
+  # ---------- 表格边框：外框1.5pt，内线0.5pt ----------
+  - id: LNU_TB01
+    module: table
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "表格外框线1.5pt，内线0.5pt"
+    expected:
+      outer_border_size_eighth_pt: 18
+      inner_border_size_eighth_pt: 6
+    method: docx-structure
+    evidence: "表格边框 w:top/w:bottom=18，insideH=6"
+    notes: |
+      当前 runtime 检查并修复边框线宽，不覆盖“表名前后空行”这类渲染型要求。
+    fix: "fix_table_borders(top_bottom_sz=18, header_sz=6)"
+    source: lnu-undergraduate
+
+  # ---------- 表格内容字号：宋体五号（10.5pt）----------
+  - id: LNU_TB02
+    module: table
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "表格内容字号：宋体五号（10.5pt，21 half-points）"
+    expected:
+      east_asia_font: "宋体"
+      half_points: 21
+    method: docx-structure
+    evidence: "表格单元格段落 w:sz[@w:val='21']"
+    notes: "官方原文：表内文字全文统一，设置为宋体，五号"
+    fix: "fix_table_cell_font(east_asia='宋体', half_points=21)"
+    source: lnu-undergraduate
+
+  # ---------- 参考文献标点：使用英文半角 ----------
+  - id: LNU_REF01
+    module: reference
+    scope: undergraduate
+    severity: important
+    check_level: Semi
+    description: "参考文献中标点符号使用英文半角（句点.，逗号,，冒号:）"
+    expected: "参考文献列表中所有标点为英文半角"
+    method: docx-structure
+    evidence: "参考文献段落文本检测全角标点（。，：）"
+    notes: |
+      官方原文（文本框标注）：参考文献中标点符号使用英文
+      示例：[1] 郭光灿.量子光学[M]. 北京:高等教育出版社,2005,463.
+      注意：句号用.（半角），冒号用:（半角），逗号用,（半角）
+      覆盖CN-Common的REF01（REF01检查的是末尾标点）
+    fix: "fix_lnu_ref01()"
+    source: lnu-undergraduate
+
+  # ---------- 参考文献编号格式：[N] 空格（无Tab）----------
+  - id: LNU_REF02
+    module: reference
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "参考文献编号格式：[N] 空格内容（无制表符Tab）"
+    expected_pattern: "^\\[\\d+\\]\\s+"
+    method: docx-structure
+    evidence: "参考文献段落文本正则：[N]后跟空格，非Tab"
+    notes: |
+      官方样本实际格式：[1] 郭光灿.量子光学...（方括号+空格）
+      注意：与CN-Common的R05不同，官方用空格不用Tab
+      单双位数编号对齐用悬挂缩进处理，第二行与文献正文起始处对齐
+    fix: "fix_lnu_ref02()"
+    source: lnu-undergraduate
+
+  # ---------- 致谢：仿宋小四 ----------
+  - id: LNU_ACK01
+    module: acknowledgement
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "致谢正文：仿宋（FangSong），小四（12pt）"
+    expected:
+      east_asia_font: "仿宋"
+      half_points: 24
+    method: docx-structure
+    evidence: "致谢正文段落 w:rFonts[@w:eastAsia='仿宋']"
+    notes: |
+      官方原文：仿宋，小四号
+      这是辽宁大学特有要求，与正文（宋体）不同
+    fix: "fix_lnu_ack01()"
+    source: lnu-undergraduate
+
+  # ---------- 摘要标题：黑体三号，居中，段后0磅 ----------
+  - id: LNU_ABS01
+    module: abstract
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "摘要/Abstract标题：黑体/Times New Roman，三号（16pt），居中，段后0磅"
+    expected:
+      east_asia_font: "黑体"
+      half_points: 32     # 三号（新版样本明确用三号，与H01一致）
+      bold: false
+      alignment: center
+      space_after_pt: 0
+    method: docx-structure
+    evidence: "摘要标题段落"
+    notes: |
+      官方原文：字体黑体，居中，字号三号（16pt），段后0磅，段前为0
+      English Abstract标题：Times New Roman，三号（16pt），加粗，居中
+    fix: "fix_lnu_abs01()"
+    source: lnu-undergraduate
+
+  # ---------- Abstract标题：Times New Roman三号加粗 ----------
+  - id: LNU_ABS02
+    module: abstract
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "Abstract（英文摘要标题）：Times New Roman，三号（16pt），加粗，居中"
+    expected:
+      ascii_font: "Times New Roman"
+      half_points: 32     # 三号=16pt
+      bold: true
+      alignment: center
+    method: docx-structure
+    evidence: "Abstract段落"
+    notes: "官方PDF标注：Times New Roman，三号，加粗，居中"
+    fix: "fix_lnu_abs02()"
+    source: lnu-undergraduate
+
+  # ---------- 英文摘要正文：Times New Roman小四，单倍行距 ----------
+  - id: LNU_ABS03
+    module: abstract
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "英文摘要（Abstract）正文：Times New Roman，小四（12pt），单倍行距"
+    expected:
+      ascii_font: "Times New Roman"
+      half_points: 24
+      line_rule: single     # 单倍行距（新版样本：单倍行距）
+    method: docx-structure
+    evidence: "Abstract正文段落"
+    notes: |
+      官方PDF标注：Times New Roman，小四号
+      新版样本明确：单倍行距
+    fix: "fix_lnu_abs03()"
+    source: lnu-undergraduate
+
+  # ---------- 目录：黑体三号居中，内容宋体小四 ----------
+  - id: LNU_TOC01
+    module: toc
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "目录标题：黑体三号居中；目录内容：宋体小四"
+    expected: "目录标题黑体三号居中，条目宋体小四，页码右对齐"
+    method: docx-structure
+    evidence: "TOCHeading 居中黑体32；TOC1-3 宋体24并带右对齐制表位"
+    notes: "当前 runtime 会校验目录标题/条目的基础样式与页码右对齐制表位。"
+    fix: "fix_insert_toc()"
+    source: lnu-undergraduate
+
+  # ---------- 目录内容行距：多倍1.15倍，段后5磅 ----------
+  - id: LNU_TOC02
+    module: toc
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "目录条目：多倍行距1.15倍，段后5磅"
+    expected:
+      line_rule: multiple
+      line_value: 276     # 240*1.15=276（DOCX多倍行距用240为基）
+      space_after_pt: 5
+    method: docx-structure
+    evidence: "目录段落 w:spacing[@w:line='276'][@w:after='100']"
+    notes: |
+      新版样本原文：行距设置多倍1.15倍，段前0行，段后5磅
+      目录由Word自动生成，条目段落应用此间距
+    fix: "fix_insert_toc()"
+    source: lnu-undergraduate
+
+  # ---------- 目录必须使用 Word 自动生成 ----------
+  - id: LNU_TOC03
+    module: toc
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "目录必须为 Word 自动生成域，不应手敲"
+    expected: "TOC 域或 TOC 样式存在"
+    method: docx-structure
+    evidence: "目录区段存在 TOCField / TOC1 / instrText: TOC"
+    notes: "当前 runtime 会检测目录标题存在但缺少 TOC 域的场景。"
+    fix: "fix_insert_toc()"
+    source: lnu-undergraduate
+
+  # ---------- 图表需先在正文中引用 ----------
+  - id: LNU_F05
+    module: figure
+    scope: undergraduate
+    severity: important
+    check_level: Semi
+    description: "每一个图或表在出现前，正文中应先有“如图X.X所示”“见表X.X”等文字描述"
+    expected: "正文先引用，后出现图表"
+    method: docx-structure
+    evidence: "图题/表题前的正文段落是否已出现对应编号引用"
+    notes: |
+      截图原文：在文中需要对每一个图或表进行阐述，并且文字描述需要出现在图、表之前。
+      该规则可定位缺少正文引用的图表，但仍建议人工复核引用语义是否完整。
+    fix: null
+    source: lnu-undergraduate
+
+  # ---------- 图前图后留白 ----------
+  - id: LNU_F03
+    module: figure
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "图与上文留一空行；图名/图注与下文留一空行"
+    expected: "图前空一行，图块结束后与下文空一行"
+    method: docx-structure
+    evidence: "图片段落 before>=一行，图块末段 after>=一行，或相邻空白段"
+    notes: "官方原文：图与上文应留一行空格；图名与下文留一空行。当前 runtime 接受显式空白段或等效段前/段后留白。"
+    fix: "fix_lnu_figure_block_spacing()"
+    source: lnu-undergraduate
+
+  # ---------- 图题/图注版式 ----------
+  - id: LNU_F06
+    module: figure
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "图题五号居中、1.5倍行距；图注五号、单倍行距"
+    expected: "图题1.5倍行距；图注置于图名后，宋体+Times New Roman，五号，单倍行距"
+    method: docx-structure
+    evidence: "图题/图注段落 spacing 与 run 字体字号"
+    notes: "当前 runtime 仅自动检查和修复版式，不自动判断图注语义是否已充分解释 A/B/C 子图或符号含义。"
+    fix: "fix_caption_paragraph()/fix_caption_note_paragraph()"
+    source: lnu-undergraduate
+
+  # ---------- 参考文献字体和行距 ----------
+  - id: LNU_REF03
+    module: reference
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "参考文献条目：宋体五号（10.5pt），英文Times New Roman，1.5倍行距，段前后0，悬挂缩进"
+    expected:
+      east_asia_font: "宋体"
+      half_points: 21     # 五号
+      line_rule: multiple
+      line_value: 360     # 1.5倍行距
+      space_before: 0
+      space_after: 0
+    method: docx-structure
+    evidence: "参考文献段落字号和行距检查"
+    notes: |
+      新版样本原文：宋体5号 1.5倍行距，段前后0，英文使用Times New Roman
+      第二行需缩进（悬挂缩进），与编号后的正文起始位置对齐
+    fix: "fix_reference_paragraph(profile='lnu')"
+    source: lnu-undergraduate
+
+  - id: LNU_H01
+    module: heading
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "标题编号与文字间距：二三四级标题编号后空一个汉字（如 1.1 研究方法）"
+    method: docx-structure
+    evidence: "标题段落文本正则：编号后紧跟非空字符"
+    notes: "官方规范：各节标题格式 X.X XXXX，编号和标题内容中间空一个汉字，顶格写"
+    fix: "fix_heading_num_space()"
+    source: lnu-undergraduate
+
+  - id: LNU_CONC01
+    module: heading
+    scope: undergraduate
+    severity: minor
+    check_level: Manual
+    description: "末章标题应包含“结论”"
+    expected: "最后一个正文章节标题包含结论/结论与展望"
+    method: docx-structure
+    evidence: "最后一个正文一级标题文本"
+    notes: "当前 runtime 只做文本级检查，仍建议人工确认章节语义。"
+    fix: null
+    source: lnu-undergraduate
+
+  - id: LNU_S03
+    module: backmatter
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "参考文献、附录、致谢标题前必须分页"
+    expected: "pageBreakBefore 或前一段显式分页"
+    method: docx-structure
+    evidence: "目标标题段落前存在分页属性"
+    notes: "当前 runtime 已检查并修复参考文献/附录/致谢前分页符。"
+    fix: "fix_lnu_s03()"
+    source: lnu-undergraduate
+
+  - id: LNU_TITLE01
+    module: frontmatter
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "摘要、目录、序言、致谢等标题按样本双空格写法统一"
+    expected: "如 目  录、致  谢"
+    method: docx-structure
+    evidence: "标题文本紧凑形式与显示文本对比"
+    notes: "当前 runtime 统一摘要/目录/致谢等标题的展示写法。"
+    fix: "fix_lnu_title01()"
+    source: lnu-undergraduate
+
+  - id: LNU_TB03
+    module: table
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "表格内容单倍行距"
+    expected:
+      line_rule: single
+      line_value: 240
+    method: docx-structure
+    evidence: "表格单元格段落 spacing line<=240"
+    notes: "当前 runtime 已检查并修复表格内容行距。"
+    fix: "fix_lnu_tb03()"
+    source: lnu-undergraduate
+
+  - id: LNU_UNIT01
+    module: body
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "正文数字与单位间应保留空格"
+    expected: "如 100 mL、25 cm"
+    method: docx-structure
+    evidence: "正文文本命中数字后紧跟单位的模式"
+    notes: "当前 runtime 针对常见物理单位做文本检查。"
+    fix: "fix_lnu_unit_spacing()"
+    source: lnu-undergraduate
+
+# ========== 辽宁大学规范中已记录但未接入 runtime 的参考项 ==========
+reference_additions:
+
+  # ---------- 图内文字：阿拉伯数字宋体五号 ----------
+  - id: LNU_F04
+    module: figure
+    scope: undergraduate
+    severity: minor
+    check_level: Manual
+    description: "图内附注编号：阿拉伯数字和右半圆括号，如注1）"
+    expected: "图中附注用注1）格式，写在图下方"
+    method: rendered-layout
+    evidence: null
+    notes: "当前仅保留为参考项，不进入 runtime。"
+    fix: null
+    source: lnu-undergraduate
+
+  # ---------- 封面格式 ----------
+  - id: LNU_COV01
+    module: cover
+    scope: undergraduate
+    severity: important
+    check_level: Manual
+    description: "封面包含：题目、学院、专业、姓名、指导教师、完成日期"
+    expected: "封面六个字段全部填写"
+    method: rendered-layout
+    evidence: null
+    notes: "封面仍由用户自行处理，当前仅保留为参考项。"
+    fix: null
+    source: lnu-undergraduate
+
+# ========== 需要禁用的CN-Common规则 ==========
+# （辽宁大学官方格式与CN-Common冲突，禁用CN-Common对应规则）
+disabled_rules:
+  - F03   # CN-Common用图X-Y（横线），辽大用图X.X（点号），由LNU_F01替代
+  - F04   # 同上，表编号，由LNU_F02替代
+  - REF01 # CN-Common检查末尾中/英文句号，辽大参考文献全用英文标点，由LNU_REF01替代
+  - R02   # CN-Common参考文献用Tab制表位，辽大用空格，由LNU_REF02替代
+  - SP01  # 辽大官方文件未要求关闭中英文自动间距；Word默认开启符合GB/T 15834-2011（1/4 em），保持默认
+  - SP02  # 同SP01，辽大未规定关闭中数字自动间距
+
+# ========== Python 代码配置字段（供 load_profile() 读取）==========
+settings:
+  margin_top: 1418           # 上边距（2.5cm）
+  margin_bottom: 1418        # 下边距（2.5cm）
+  margin_left: 1418          # 左边距（2.5cm）
+  margin_right: 1418         # 右边距（2.5cm）
+  margin_gutter: 283         # 装订线（0.5cm）
+  margin_range_min: 1390
+  margin_range_max: 1450
+  body_font: "宋体"
+  body_ascii_font: "Times New Roman"
+  body_size: 24
+  body_line: 360
+  body_indent: 480
+  body_alignment: "both"
+  check_snap_to_grid: true     # 新版样本明确要求取消网格对齐
+  h1_size: 32
+  h2_size: 28
+  h3_size: 24
+  h4_size: 24
+  kw_min: 3
+  kw_max: 5
+  ref_hanging: 420
+  ref_use_tab: false
+  ref_line_spacing: 360
+  ref_font_size: 21
+  ack_font: "仿宋"
+  caption_number_sep: "."
+  figure_blank_line_twips: 360
+  figure_caption_line: 360
+  figure_note_line: 240
+  eq_number_sep: "."          # 公式编号分隔符（CN-Common为"-"，辽大为"."）
+  ref_terminal_punct: "."     # 参考文献末尾标点（None=按CJK判断，辽大强制英文"."）
+  pg01_format: "em_dash"      # 页码格式（plain=纯数字，em_dash=—N—格式）
+  abstract_title_font: "黑体"
+  abstract_title_line: 360
+  abstract_title_after_pt: 0
+  abstract_title_size: 32      # 摘要标题三号（新版样本）
+  abstract_body_font: "宋体"
+  abstract_body_ascii_font: "Times New Roman"
+  abstract_body_size: 24
+  abstract_body_line: 360
+  abstract_body_indent: 480
+  abstract_en_title_font: "Times New Roman"
+  abstract_en_title_size: 32
+  abstract_en_body_font: "Times New Roman"
+  abstract_en_body_ascii_font: "Times New Roman"
+  abstract_en_body_size: 24
+  abstract_en_body_line: 240
+  abstract_en_body_indent: 480
+  kw_font: "黑体"              # 关键词字体（辽大：黑体）
+  kw_bold: false               # 关键词是否加粗（辽大新版：否）
+  kw_half_points: 24          # 关键词字号（辽大：24 half-points = 小四 = 12pt）
+  h1_font: "黑体"
+  h1_spacing_before: 120
+  h1_spacing_after: 120
+  h2_font: "黑体"
+  h2_spacing_before: 120
+  h2_spacing_after: 120
+  h3_font: "黑体"
+  h3_spacing_before: 120
+  h3_spacing_after: 120
+  h4_font: "宋体"
+  h4_spacing_before: 120
+  h4_spacing_after: 120

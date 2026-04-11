@@ -1,0 +1,12 @@
+{
+  "name": "thesis-format-tool",
+  "private": true,
+  "scripts": {
+    "audit": "python3 scripts/thesis_workbench.py audit",
+    "plan": "python3 scripts/thesis_workbench.py plan",
+    "apply": "python3 scripts/thesis_workbench.py apply",
+    "verify": "python3 scripts/thesis_workbench.py verify",
+    "scopes": "python3 scripts/thesis_workbench.py scopes",
+    "test": "python3 -m pytest -q"
+  }
+}
