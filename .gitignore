@@ -14,6 +14,12 @@ env/
 .coverage
 htmlcov/
 
+# Local article API/runtime artifacts
+.article_runtime/
+.tmp_render_artifact/
+.tmp_render_verify_live/
+.tmp_render_probe.docx
+
 # Node artifacts
 node_modules/
 
