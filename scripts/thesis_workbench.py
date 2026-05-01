@@ -5,16 +5,24 @@ import os
 import sys
 
 import audit_thesis
+from _profile_utils import list_profile_catalog
 
 from thesis_tool.scopes import list_scope_definitions, normalize_scope_names
+from thesis_tool.render_verify import build_render_verify_report, render_render_verify_report
 from thesis_tool.workflow import (
     apply_scoped_fix,
     build_document_diagnostics,
+    build_document_normalize,
+    build_document_preflight,
     build_scoped_fix_preview,
     build_scope_plan,
     build_scope_verify,
     render_document_diagnostics_compact,
     render_document_diagnostics,
+    render_document_normalize,
+    render_document_normalize_compact,
+    render_document_preflight,
+    render_document_preflight_compact,
     render_scoped_fix_preview,
     render_scope_plan,
     render_scope_verify,
@@ -23,7 +31,19 @@ from thesis_tool.workflow import (
 
 def add_profile_args(command_parser, *, default="lnu"):
     command_parser.add_argument("--profile", default=default, help="学校 Profile 路径或简称")
-    command_parser.add_argument("--strict-profile", action="store_true", default=False, help="profile 加载失败时直接报错，不回退默认配置")
+    command_parser.add_argument(
+        "--strict-profile",
+        dest="strict_profile",
+        action="store_true",
+        default=None,
+        help="profile 加载失败时直接报错，不回退默认配置",
+    )
+    command_parser.add_argument(
+        "--allow-profile-fallback",
+        dest="strict_profile",
+        action="store_false",
+        help="profile 加载失败时回退到默认 CN-Common 配置",
+    )
 
 
 def build_parser():
@@ -53,11 +73,28 @@ def build_parser():
     apply_parser.add_argument("--toc", action="store_true", default=False, help="同时重建目录")
     apply_parser.add_argument("--dry-run", action="store_true", default=False, help="仅预览将触达的修复范围，不写入文件")
     apply_parser.add_argument("--renumber-headings", action="store_true", default=False, help="显式启用正文标题重编号")
+    apply_parser.add_argument(
+        "--layout-rebalance",
+        action="store_true",
+        default=False,
+        help="显式启用图表跨页排布优化，仅在 figures_tables 范围内生效",
+    )
     apply_parser.add_argument("--force", action="store_true", default=False, help="跳过结构风险守卫，强制执行修复")
 
     audit_parser = subparsers.add_parser("audit", help="执行完整审查")
     audit_parser.add_argument("input_docx", help="输入 .docx 文件路径")
     add_profile_args(audit_parser)
+
+    preflight_parser = subparsers.add_parser("preflight", help="对野生文档做预检，先识别结构风险再决定如何修复")
+    preflight_parser.add_argument("input_docx", help="输入 .docx 文件路径")
+    add_profile_args(preflight_parser)
+    preflight_parser.add_argument("--compact", action="store_true", default=False, help="输出紧凑摘要，便于批量比较")
+
+    normalize_parser = subparsers.add_parser("normalize", help="先做安全预规整，扶正野生文档骨架再进入修复")
+    normalize_parser.add_argument("input_docx", help="输入 .docx 文件路径")
+    add_profile_args(normalize_parser)
+    normalize_parser.add_argument("--output", help="输出 .docx 文件路径")
+    normalize_parser.add_argument("--compact", action="store_true", default=False, help="输出紧凑摘要，便于批量比较")
 
     diagnose_parser = subparsers.add_parser("diagnose", help="输出文档结构诊断，便于定位辽大规则问题")
     diagnose_parser.add_argument("input_docx", help="输入 .docx 文件路径")
@@ -75,6 +112,18 @@ def build_parser():
     )
 
     subparsers.add_parser("scopes", help="列出可用 scope")
+    subparsers.add_parser("profiles", help="列出可用 profile")
+
+    render_verify_parser = subparsers.add_parser("render-verify", help="生成页图证据并输出渲染复核清单")
+    render_verify_parser.add_argument("input_docx", help="输入 .docx 文件路径")
+    add_profile_args(render_verify_parser)
+    render_verify_parser.add_argument("--output-dir", help="页图与 JSON 报告输出目录")
+    render_verify_parser.add_argument(
+        "--scope",
+        action="append",
+        default=None,
+        help="可选：按 scope 复用结构复查结论，可重复传入，或用逗号分隔多个值",
+    )
     return parser
 
 
@@ -95,7 +144,7 @@ def _render_apply_risk_warning(diagnostics: dict, *, renumber_headings: bool, se
 
     if table_risk >= 5:
         lines.append(f"  - 表格伪标题候选: {table_risk} 个（阈值 5）")
-        lines.append("建议: 先运行 diagnose 核对表格内容，避免化合物名或数值误入标题重编号链。")
+        lines.append("建议: 先运行 preflight 核对表格内容，避免化合物名或数值误入标题重编号链。")
 
     if style_conflict >= 1:
         lines.append(f"  - 样式/文本层级冲突: {style_conflict} 个")
@@ -103,7 +152,7 @@ def _render_apply_risk_warning(diagnostics: dict, *, renumber_headings: bool, se
             lines.append("建议: 先检查 headings 相关冲突，再执行 --renumber-headings。")
             should_block = True
         else:
-            lines.append("建议: 可先运行 diagnose 查看冲突详情，必要时再处理 headings scope。")
+            lines.append("建议: 可先运行 preflight 查看冲突详情，必要时再处理 headings scope。")
 
     return lines, should_block
 
@@ -134,6 +183,26 @@ def main():
                 print(f"{scope.id}: {scope.title} - {scope.description}")
             return 0
 
+        if args.command == "profiles":
+            for entry in list_profile_catalog():
+                alias_text = ", ".join(entry["aliases"]) if entry["aliases"] else "—"
+                path_text = entry["path"] or "built-in"
+                school_text = entry["school"] or "通用"
+                support_level_text = entry.get("support_level_label") or "—"
+                scenario_parts = []
+                for scenario in entry.get("support_scenarios") or []:
+                    doc_types = "、".join(scenario.get("document_types") or [])
+                    if doc_types:
+                        scenario_parts.append(f"{scenario['label']}[{doc_types}]/{scenario.get('support_level_label') or support_level_text}")
+                    else:
+                        scenario_parts.append(f"{scenario['label']}/{scenario.get('support_level_label') or support_level_text}")
+                scenario_text = "；".join(scenario_parts) if scenario_parts else "—"
+                print(
+                    f"{entry['id']}: aliases={alias_text}; school={school_text}; "
+                    f"support={support_level_text}; scenarios={scenario_text}; path={path_text}"
+                )
+            return 0
+
         if args.command == "audit":
             results, score, _report, runtime = audit_thesis.audit_docx_with_runtime(
                 args.input_docx,
@@ -154,6 +223,31 @@ def main():
             print(f"未通过规则: {len(failed)}")
             for result in failed:
                 print(f"- {result['id']} {result['name']}")
+            return 0
+
+        if args.command == "preflight":
+            preflight = build_document_preflight(
+                args.input_docx,
+                profile_path=args.profile,
+                strict_profile=args.strict_profile,
+            )
+            if args.compact:
+                print(render_document_preflight_compact(preflight))
+            else:
+                print(render_document_preflight(preflight))
+            return 0
+
+        if args.command == "normalize":
+            normalize = build_document_normalize(
+                args.input_docx,
+                output_path=args.output,
+                profile_path=args.profile,
+                strict_profile=args.strict_profile,
+            )
+            if args.compact:
+                print(render_document_normalize_compact(normalize))
+            else:
+                print(render_document_normalize(normalize))
             return 0
 
         if args.command == "diagnose":
@@ -189,6 +283,7 @@ def main():
                     scopes=args.scope,
                     toc=args.toc,
                     renumber_headings=args.renumber_headings,
+                    layout_rebalance=args.layout_rebalance,
                     strict_profile=args.strict_profile,
                 )
                 print(render_scoped_fix_preview(preview))
@@ -218,6 +313,7 @@ def main():
                 scopes=args.scope,
                 toc=args.toc,
                 renumber_headings=args.renumber_headings,
+                layout_rebalance=args.layout_rebalance,
                 strict_profile=args.strict_profile,
             )
             verification = build_scope_verify(
@@ -244,6 +340,17 @@ def main():
             print(render_scope_verify(verification))
             for line in _render_post_verify_notice(verification):
                 print(line)
+            return 0
+
+        if args.command == "render-verify":
+            report = build_render_verify_report(
+                args.input_docx,
+                output_dir=args.output_dir,
+                profile_path=args.profile,
+                scopes=args.scope,
+                strict_profile=args.strict_profile,
+            )
+            print(render_render_verify_report(report))
             return 0
 
         parser.error(f"未知命令: {args.command}")

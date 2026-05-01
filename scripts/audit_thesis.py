@@ -22,6 +22,7 @@ from _thesis_utils import (
     build_style_map,
     classify_paragraph,
     collect_figure_blocks,
+    collect_table_blocks,
     get_paragraph_text,
     paragraph_has_drawing,
 )
@@ -77,6 +78,7 @@ DEFAULT_CFG = {
     "caption_size_range": (20, 22),
     "caption_size": 21,
     "figure_blank_line_twips": 360,
+    "table_blank_line_twips": 360,
     "figure_caption_line": 360,
     "figure_note_line": 240,
     "ref_hanging": 560,
@@ -85,13 +87,18 @@ DEFAULT_CFG = {
     "kw_min": 3,
     "kw_max": 8,
     "caption_number_sep": "-",
+    "caption_label_gap_spaces": 1,
     "ack_font": None,
     "eq_number_sep": "-",        # 公式编号分隔符，辽大为"."
     "ref_terminal_punct": None,  # None=按CJK自动判断；辽大为"."
     "pg01_format": "plain",      # 辽大为'em_dash"即—N—格式
+    "page_number_font": None,
+    "page_number_size": None,
     "kw_font": None,             # 关键词字体，辽大为"黑体"
     "kw_bold": None,             # 关键词是否加粗，辽大为True
     "kw_half_points": None,      # 关键词字号，辽大为24（小四）
+    "kw_cn_separator": "；",
+    "kw_en_separator": "; ",
     "abstract_title_font": None,
     "abstract_title_size": None,
     "abstract_title_line": None,
@@ -108,6 +115,10 @@ DEFAULT_CFG = {
     "abstract_en_body_line": None,
     "abstract_en_body_indent": None,
     "check_snap_to_grid": False,
+    "relax_strain_suffix_t_spacing": False,
+    "table_blank_line_mode": "spacing",
+    "acknowledgement_placeholder_text": "",
+    "ref_require_type_marker": False,
 }
 
 RULE_DEFINITIONS = [
@@ -164,6 +175,8 @@ RULE_DEFINITIONS = [
 
 LNU_RULE_DEFINITIONS = (
     ("LNU_ACK01", "致谢字体（辽大专用）", "minor"),
+    ("LNU_FMT01", "软回车换行（辽大）", "minor"),
+    ("LNU_FMT02", "图片嵌入型与表格无环绕（辽大）", "minor"),
     ("LNU_F01", "图题点号编号格式（辽大）", "important"),
     ("LNU_F02", "表题点号编号格式（辽大）", "important"),
     ("LNU_F03", "图前图后空行（辽大）", "minor"),
@@ -171,15 +184,19 @@ LNU_RULE_DEFINITIONS = (
     ("LNU_REF01", "参考文献英文半角标点（辽大）", "important"),
     ("LNU_REF02", "参考文献编号空格格式（辽大）", "important"),
     ("LNU_REF03", "参考文献字号五号，1.5倍行距", "important"),
+    ("LNU_REF04", "参考文献文献类型标识（辽大）", "important"),
+    ("LNU_REF05", "参考文献序号连续性（辽大）", "important"),
     ("LNU_TB01", "表格外框1.5pt内线0.5pt", "important"),
     ("LNU_TOC01", "目录标题与条目样式（辽大）", "minor"),
     ("LNU_TOC02", "目录条目行距多倍1.15倍，段后5磅（辽大）", "minor"),
     ("LNU_TOC03", "目录必须自动生成（辽大）", "important"),
     ("LNU_F05", "图表需先文中引用", "important"),
     ("LNU_TB02", "表格内容宋体五号（辽大）", "minor"),
+    ("LNU_TB04", "表块留白与表题贴表（辽大）", "minor"),
     ("LNU_ABS01", "摘要标题格式（辽大）", "important"),
     ("LNU_ABS02", "Abstract标题格式（辽大）", "important"),
     ("LNU_ABS03", "英文摘要正文格式（辽大）", "minor"),
+    ("LNU_ABS04", "中文摘要不含英文半角标点（辽大）", "minor"),
     ("LNU_H01", "标题编号与文字间距", "important"),
     ("LNU_CONC01", "末章标题含结论（辽大）", "minor"),
     ("LNU_S03", "参考文献/致谢前分页符（辽大）", "minor"),
@@ -273,6 +290,8 @@ def is_main_body_context(ctx):
     section = ctx.get("section") or ctx.get("kind")
     if section == "cover":
         return False
+    if is_keyword_paragraph_text(ctx.get("text", "")):
+        return False
     if ctx.get("module") in {"body_caption_note", "appendix_caption_note"}:
         return False
     return ctx.get("kind") == "body" and ctx.get("section") == "body" and not ctx.get("in_table", False)
@@ -322,11 +341,18 @@ def find_missing_spacing_pairs(text, boundary_checker):
     return matches
 
 
+_STRAIN_SUFFIX_T_RE = re.compile(r"\b\d+\s*T[\u4e00-\u9fff]")
+
+
+def is_relaxed_strain_suffix_t_excerpt(text: str | None) -> bool:
+    return bool(_STRAIN_SUFFIX_T_RE.search(text or ""))
+
+
 def warn_profile(message):
     print(f"[WARN] {message}", file=sys.stderr)
 
 
-def load_profile_data(profile_path, strict_profile=False):
+def load_profile_data(profile_path, strict_profile=None):
     return load_profile_bundle(
         profile_path,
         yaml_lib=yaml,
@@ -369,7 +395,7 @@ def build_profile_cfg(profile_id, profile_data, settings):
         if key in settings:
             cfg[key] = settings[key]
 
-    for key in ("kw_min", "kw_max", "kw_font", "kw_bold", "kw_half_points"):
+    for key in ("kw_min", "kw_max", "kw_font", "kw_bold", "kw_half_points", "kw_cn_separator", "kw_en_separator"):
         if key in settings:
             cfg[key] = settings[key]
     for key in (
@@ -408,15 +434,26 @@ def build_profile_cfg(profile_id, profile_data, settings):
         "eq_number_sep",
         "ref_terminal_punct",
         "pg01_format",
+        "page_number_font",
+        "page_number_size",
+        "ref_number_trailing_space",
+        "ref_require_type_marker",
+        "acknowledgement_required",
     ):
         if key in settings:
             cfg[key] = settings[key]
-    for key in ("check_snap_to_grid",):
+    for key in ("check_snap_to_grid", "relax_body_spacing_rules"):
+        if key in settings:
+            cfg[key] = settings[key]
+    for key in ("relax_strain_suffix_t_spacing", "table_blank_line_mode", "acknowledgement_placeholder_text"):
         if key in settings:
             cfg[key] = settings[key]
 
     for key in ("ref_hanging", "ref_tab_min", "ref_line_spacing", "ref_font_size",
                 "abstract_title_after_pt",
+                "caption_label_gap_spaces",
+                "toc_title_font", "toc_title_size", "toc_entry_font", "toc_entry_size",
+                "toc_level1_after_pt", "toc_level2_after_pt", "toc_level3_after_pt",
                 "h1_spacing_before", "h1_spacing_after",
                 "h2_spacing_before", "h2_spacing_after",
                 "h3_spacing_before", "h3_spacing_after",
@@ -441,7 +478,7 @@ def build_profile_cfg(profile_id, profile_data, settings):
         elif rule_id == "H04":
             cfg["h4_bold"] = bool(bold)
 
-    if profile_id == "lnu-undergraduate":
+    if profile_id.startswith("lnu-"):
         cfg["check_snap_to_grid"] = settings.get("check_snap_to_grid", True)
 
     return cfg
@@ -477,6 +514,119 @@ def is_bold(run_elem):
     return val not in ("0", "false", "False", "off")
 
 
+def paragraph_has_math(p_elem):
+    return (
+        p_elem is not None
+        and (
+            p_elem.find(".//m:oMath", MNSMAP) is not None
+            or p_elem.find(".//m:oMathPara", MNSMAP) is not None
+        )
+    )
+
+
+def is_formula_related_body_context(ctx):
+    elem = ctx.get("elem")
+    if elem is None:
+        return False
+    if ctx.get("module") in {"body_equation", "appendix_equation"}:
+        return True
+    return paragraph_has_math(elem)
+
+
+_EQ_LAYOUT_NUM_RE = re.compile(r"^[（(]\s*\d+(?:[.\-]\d+)*\s*[)）]$")
+_EQ_LAYOUT_TEXT_OP_RE = re.compile(r"[=+\-−×*/÷±<>≤≥≈∝∑∫]")
+_EQ_LAYOUT_TEXT_SYMBOL_RE = re.compile(r"[A-Za-zα-ωΑ-Ω]\d*|\d+[A-Za-zα-ωΑ-Ω]|[%‰]")
+
+
+def _compact_table_cell_text(tc_elem):
+    parts = []
+    for p_elem in tc_elem.findall(".//w:p", NSMAP):
+        text = get_paragraph_text(p_elem)
+        if text:
+            parts.append(text)
+    return re.sub(r"\s+", "", "".join(parts))
+
+
+def _looks_like_text_equation_cell(text):
+    compact = re.sub(r"\s+", "", text or "")
+    if len(compact) < 4:
+        return False
+    if "://" in compact:
+        return False
+    if not _EQ_LAYOUT_TEXT_OP_RE.search(compact):
+        return False
+    return _EQ_LAYOUT_TEXT_SYMBOL_RE.search(compact) is not None
+
+
+def is_equation_layout_table(tbl_elem):
+    if tbl_elem is None:
+        return False
+
+    rows = tbl_elem.findall("w:tr", NSMAP)
+    if len(rows) != 1:
+        return False
+    cells = rows[0].findall("w:tc", NSMAP)
+    if len(cells) not in (2, 3):
+        return False
+
+    has_math_object = tbl_elem.find(".//m:oMath", MNSMAP) is not None or tbl_elem.find(".//m:oMathPara", MNSMAP) is not None
+    has_text_equation = any(_looks_like_text_equation_cell(_compact_table_cell_text(tc_elem)) for tc_elem in cells[:-1])
+    if not has_math_object and not has_text_equation:
+        return False
+
+    right_text = _compact_table_cell_text(cells[-1])
+    if not _EQ_LAYOUT_NUM_RE.fullmatch(right_text):
+        return False
+
+    if len(cells) == 3:
+        left_text = _compact_table_cell_text(cells[0])
+        if left_text:
+            return False
+
+    return True
+
+
+def get_non_equation_layout_tables(document_root):
+    tables = document_root.findall(".//w:tbl", NSMAP)
+    return [tbl_elem for tbl_elem in tables if not is_equation_layout_table(tbl_elem)]
+
+
+def paragraph_in_table(p_elem, tbl_elem):
+    return any(id(candidate) == id(p_elem) for candidate in tbl_elem.findall(".//w:p", NSMAP))
+
+
+def paragraph_in_equation_layout_table(document_root, p_elem):
+    if p_elem is None:
+        return False
+    for tbl_elem in document_root.findall(".//w:tbl", NSMAP):
+        if is_equation_layout_table(tbl_elem) and paragraph_in_table(p_elem, tbl_elem):
+            return True
+    return False
+
+
+def is_run_effectively_bold(run_elem, style_map, paragraph_elem=None):
+    r_pr = run_elem.find("w:rPr", NSMAP)
+    if r_pr is not None:
+        bold_elem = r_pr.find("w:b", NSMAP)
+        if bold_elem is not None:
+            val = get_w_attr(bold_elem, "val")
+            return val not in ("0", "false", "False", "off")
+        run_style = get_w_attr(r_pr.find("w:rStyle", NSMAP), "val")
+        if run_style:
+            run_style_props = style_map.get(run_style, {})
+            if run_style_props.get("bold") is not None:
+                return run_style_props.get("bold") is True
+
+    if paragraph_elem is not None:
+        paragraph_style = get_w_attr(paragraph_elem.find("w:pPr/w:pStyle", NSMAP), "val")
+        if paragraph_style:
+            paragraph_style_props = style_map.get(paragraph_style, {})
+            if paragraph_style_props.get("bold") is not None:
+                return paragraph_style_props.get("bold") is True
+
+    return False
+
+
 def is_superscript(run_elem):
     r_pr = run_elem.find("w:rPr", NSMAP)
     if r_pr is None:
@@ -507,14 +657,83 @@ def get_non_empty_runs(p_elem):
     return runs
 
 
+def _default_paragraph_style_props(style_map):
+    return style_map.get("__default_paragraph__", {}) if style_map else {}
+
+
+def _doc_default_style_props(style_map):
+    return style_map.get("__doc_defaults__", {}) if style_map else {}
+
+
+def _paragraph_style_props(p_elem, style_map):
+    style_id = get_w_attr(p_elem.find("w:pPr/w:pStyle", NSMAP), "val")
+    return style_map.get(style_id, {}) if style_map and style_id else {}
+
+
+def _run_style_props(run_elem, style_map):
+    style_id = get_w_attr(run_elem.find("w:rPr/w:rStyle", NSMAP), "val")
+    return style_map.get(style_id, {}) if style_map and style_id else {}
+
+
+def _resolve_effective_prop(direct_value, paragraph_props, default_props, doc_defaults, key, *, zero_when_missing=False):
+    if direct_value is not None:
+        return direct_value
+    for props in (paragraph_props, default_props, doc_defaults):
+        value = props.get(key)
+        if value is not None:
+            return value
+    return 0 if zero_when_missing else None
+
+
 def get_run_size(run_elem):
     size_elem = run_elem.find("w:rPr/w:sz", NSMAP)
     return parse_int(get_w_attr(size_elem, "val"))
 
 
-def get_paragraph_alignment(p_elem):
-    jc = p_elem.find("w:pPr/w:jc", NSMAP)
-    return get_w_attr(jc, "val")
+def get_effective_run_size(run_elem, style_map=None, paragraph_elem=None):
+    direct_value = get_run_size(run_elem)
+    if direct_value is not None or style_map is None:
+        return direct_value
+    for props in (
+        _run_style_props(run_elem, style_map),
+        _paragraph_style_props(paragraph_elem, style_map) if paragraph_elem is not None else {},
+        _default_paragraph_style_props(style_map),
+        _doc_default_style_props(style_map),
+    ):
+        value = props.get("sz")
+        if value is not None:
+            return value
+    return None
+
+
+def get_effective_run_font(run_elem, style_map=None, paragraph_elem=None, attr_name="eastAsia"):
+    r_fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
+    direct_value = get_w_attr(r_fonts, attr_name)
+    if direct_value is not None or style_map is None:
+        return direct_value
+    for props in (
+        _run_style_props(run_elem, style_map),
+        _paragraph_style_props(paragraph_elem, style_map) if paragraph_elem is not None else {},
+        _default_paragraph_style_props(style_map),
+        _doc_default_style_props(style_map),
+    ):
+        value = props.get(attr_name)
+        if value is not None:
+            return value
+    return None
+
+
+def get_paragraph_alignment(p_elem, style_map=None):
+    if style_map is None:
+        jc = p_elem.find("w:pPr/w:jc", NSMAP)
+        return get_w_attr(jc, "val")
+    return _resolve_effective_prop(
+        get_w_attr(p_elem.find("w:pPr/w:jc", NSMAP), "val"),
+        _paragraph_style_props(p_elem, style_map),
+        _default_paragraph_style_props(style_map),
+        _doc_default_style_props(style_map),
+        "jc",
+    )
 
 
 def get_paragraph_first_line(p_elem):
@@ -522,19 +741,38 @@ def get_paragraph_first_line(p_elem):
     return get_w_attr(ind, "firstLine")
 
 
-def get_paragraph_spacing_before(p_elem):
+def _get_effective_paragraph_spacing(p_elem, style_map, attr_name):
     spacing = p_elem.find("w:pPr/w:spacing", NSMAP)
-    return parse_int(get_w_attr(spacing, "before"))
+    direct_value = parse_int(get_w_attr(spacing, attr_name))
+    return _resolve_effective_prop(
+        direct_value,
+        _paragraph_style_props(p_elem, style_map),
+        _default_paragraph_style_props(style_map),
+        _doc_default_style_props(style_map),
+        f"spacing_{attr_name}",
+        zero_when_missing=attr_name in {"before", "after"},
+    )
 
 
-def get_paragraph_spacing_after(p_elem):
-    spacing = p_elem.find("w:pPr/w:spacing", NSMAP)
-    return parse_int(get_w_attr(spacing, "after"))
+def get_paragraph_spacing_before(p_elem, style_map=None):
+    if style_map is None:
+        spacing = p_elem.find("w:pPr/w:spacing", NSMAP)
+        return parse_int(get_w_attr(spacing, "before"))
+    return _get_effective_paragraph_spacing(p_elem, style_map, "before")
 
 
-def get_paragraph_line_spacing(p_elem):
-    spacing = p_elem.find("w:pPr/w:spacing", NSMAP)
-    return parse_int(get_w_attr(spacing, "line"))
+def get_paragraph_spacing_after(p_elem, style_map=None):
+    if style_map is None:
+        spacing = p_elem.find("w:pPr/w:spacing", NSMAP)
+        return parse_int(get_w_attr(spacing, "after"))
+    return _get_effective_paragraph_spacing(p_elem, style_map, "after")
+
+
+def get_paragraph_line_spacing(p_elem, style_map=None):
+    if style_map is None:
+        spacing = p_elem.find("w:pPr/w:spacing", NSMAP)
+        return parse_int(get_w_attr(spacing, "line"))
+    return _get_effective_paragraph_spacing(p_elem, style_map, "line")
 
 
 def count_cjk_chars(text):
@@ -712,6 +950,10 @@ def check_t01(document_root, contexts, style_map):
     for ctx in contexts:
         if not is_main_body_context(ctx):
             continue
+        if ctx.get("protected"):
+            continue
+        if is_formula_related_body_context(ctx):
+            continue
         for run_elem in ctx["elem"].findall(".//w:r", NSMAP):
             run_text = get_run_text(run_elem)
             if not run_text.strip():
@@ -736,6 +978,10 @@ def check_t01(document_root, contexts, style_map):
     affected_positions = set()
     for ctx in contexts:
         if not is_main_body_context(ctx):
+            continue
+        if ctx.get("protected"):
+            continue
+        if is_formula_related_body_context(ctx):
             continue
         for run_elem in ctx["elem"].findall(".//w:r", NSMAP):
             run_text = get_run_text(run_elem)
@@ -764,6 +1010,10 @@ def check_t02(document_root, contexts, style_map):
     positions = []
     for ctx in contexts:
         if not is_main_body_context(ctx):
+            continue
+        if ctx.get("protected"):
+            continue
+        if is_formula_related_body_context(ctx):
             continue
         for run_elem in ctx["elem"].findall(".//w:r", NSMAP):
             run_text = get_run_text(run_elem)
@@ -795,6 +1045,10 @@ def check_t03(document_root, contexts, style_map, cfg):
     for ctx in contexts:
         if not is_main_body_context(ctx):
             continue
+        if ctx.get("protected"):
+            continue
+        if is_formula_related_body_context(ctx):
+            continue
         for run_elem in ctx["elem"].findall(".//w:r", NSMAP):
             run_text = get_run_text(run_elem)
             if not run_text.strip():
@@ -818,6 +1072,10 @@ def check_t04(document_root, contexts, style_map, cfg=None):
     bad_positions = []
     for ctx in contexts:
         if not is_main_body_context(ctx):
+            continue
+        if ctx.get("protected"):
+            continue
+        if is_formula_related_body_context(ctx):
             continue
         spacing = ctx["elem"].find("w:pPr/w:spacing", NSMAP)
         if get_w_attr(spacing, "line") != "360" or get_w_attr(spacing, "lineRule") != "auto":
@@ -844,6 +1102,10 @@ def check_t05(document_root, contexts, style_map):
     for ctx in contexts:
         if not is_main_body_context(ctx):
             continue
+        if ctx.get("protected"):
+            continue
+        if is_formula_related_body_context(ctx):
+            continue
         jc_val = get_w_attr(ctx["elem"].find("w:pPr/w:jc", NSMAP), "val")
         if jc_val == "center":
             continue
@@ -865,6 +1127,10 @@ def check_t06(document_root, contexts, style_map):
     bad_positions = []
     for ctx in contexts:
         if not is_main_body_context(ctx):
+            continue
+        if ctx.get("protected"):
+            continue
+        if is_formula_related_body_context(ctx):
             continue
         jc_val = get_w_attr(ctx["elem"].find("w:pPr/w:jc", NSMAP), "val")
         if jc_val == "center":
@@ -915,6 +1181,10 @@ def check_sp_cjk_latin(document_root, contexts, style_map, cfg):
         if ctx.get("protected") or ctx.get("kind") in {"reference", "caption", "h1", "h2", "h3", "h4"}:
             continue
         matches = find_missing_spacing_pairs(ctx.get("text", ""), _needs_cjk_latin_space)
+        if cfg and cfg.get("relax_body_spacing_rules"):
+            matches = [match for match in matches if not re.search(r"\b\d+\s*T\b", match)]
+        if cfg and cfg.get("relax_strain_suffix_t_spacing"):
+            matches = [match for match in matches if not is_relaxed_strain_suffix_t_excerpt(match)]
         if matches:
             bad_positions.append(ctx["index"])
             if len(samples) < 5:
@@ -935,6 +1205,8 @@ def check_sp_num_cjk(document_root, contexts, style_map, cfg):
         if ctx.get("protected") or ctx.get("kind") in {"reference", "caption", "h1", "h2", "h3", "h4"}:
             continue
         matches = find_missing_spacing_pairs(ctx.get("text", ""), _needs_num_cjk_space)
+        if cfg and cfg.get("relax_body_spacing_rules"):
+            matches = [match for match in matches if not re.search(r"(图|表|式)\d", match)]
         if matches:
             bad_positions.append(ctx["index"])
             if len(samples) < 5:
@@ -1305,9 +1577,9 @@ def check_f02(document_root, contexts, style_map, cfg):
 
 
 def check_tb01(document_root, contexts, style_map):
-    tables = document_root.findall(".//w:tbl", NSMAP)
+    tables = get_non_equation_layout_tables(document_root)
     if not tables:
-        return True, [], "文档无表格"
+        return True, [], "文档无表格或仅含公式布局表"
 
     bad_tables = []
     issues = []
@@ -1378,15 +1650,44 @@ def check_h04(document_root, contexts, style_map, cfg):
     return True, [], "全部四级标题"
 
 
-def check_s01(document_root, contexts, style_map):
+def check_s01(document_root, contexts, style_map, cfg=None):
     """检查各级标题的段前/段后间距是否合规。"""
     issues = []
     affected_positions = []
+    paragraph_tag = f"{{{W_NS}}}p"
+    table_tag = f"{{{W_NS}}}tbl"
+    body = document_root.find("w:body", NSMAP)
+    body_children = list(body) if body is not None else []
+    child_index = {id(elem): idx for idx, elem in enumerate(body_children)}
+
+    def _preceded_by_table_gap_budget(p_elem) -> bool:
+        idx = child_index.get(id(p_elem))
+        if idx is None:
+            return False
+        scan_idx = idx - 1
+        while scan_idx >= 0:
+            candidate = body_children[scan_idx]
+            if candidate.tag == table_tag:
+                return True
+            if candidate.tag != paragraph_tag:
+                scan_idx -= 1
+                continue
+            if get_paragraph_text(candidate).strip():
+                return False
+            scan_idx -= 1
+        return False
+
+    def _heading_spec(level, label):
+        if cfg and any(key in cfg for key in (f"{level}_spacing_before", f"{level}_spacing_after")):
+            expected_before = int(cfg.get(f"{level}_spacing_before", 0) or 0)
+            expected_after = int(cfg.get(f"{level}_spacing_after", 0) or 0)
+            return dict(label=label, exact_before=expected_before, exact_after=expected_after)
+        return dict(label=label, before_min=80, before_max=200, after_min=80, after_max=200)
 
     HEADING_SPECS = {
-        "h1": dict(label="一级标题", before_min=80, before_max=200, after_min=80, after_max=200),
-        "h2": dict(label="二级标题", before_min=80, before_max=200, after_min=80, after_max=200),
-        "h3": dict(label="三级标题", before_min=80, before_max=200, after_min=80, after_max=200),
+        "h1": _heading_spec("h1", "一级标题"),
+        "h2": _heading_spec("h2", "二级标题"),
+        "h3": _heading_spec("h3", "三级标题"),
     }
 
     for kind, spec in HEADING_SPECS.items():
@@ -1400,19 +1701,25 @@ def check_s01(document_root, contexts, style_map):
             after  = parse_int(get_w_attr(spacing, "after"))  if spacing is not None else None
 
             bad_msgs = []
-            if before is None:
-                bad_msgs.append("段前未设置（应≥{}twips）".format(spec["before_min"]))
-            elif before < spec["before_min"]:
-                bad_msgs.append("段前={}，低于{}".format(before, spec["before_min"]))
-            elif before > spec["before_max"]:
-                bad_msgs.append("段前={}，过大（上限{}）".format(before, spec["before_max"]))
+            if "exact_before" in spec:
+                if before != spec["exact_before"]:
+                    bad_msgs.append(f"段前={before}，应为{spec['exact_before']}")
+                if after != spec["exact_after"]:
+                    bad_msgs.append(f"段后={after}，应为{spec['exact_after']}")
+            else:
+                if before is None:
+                    bad_msgs.append("段前未设置（应≥{}twips）".format(spec["before_min"]))
+                elif before < spec["before_min"]:
+                    bad_msgs.append("段前={}，低于{}".format(before, spec["before_min"]))
+                elif before > spec["before_max"] and not _preceded_by_table_gap_budget(ctx["elem"]):
+                    bad_msgs.append("段前={}，过大（上限{}）".format(before, spec["before_max"]))
 
-            if after is None:
-                bad_msgs.append("段后未设置（应≥{}twips）".format(spec["after_min"]))
-            elif after < spec["after_min"]:
-                bad_msgs.append("段后={}，低于{}".format(after, spec["after_min"]))
-            elif after > spec["after_max"]:
-                bad_msgs.append("段后={}，过大（上限{}）".format(after, spec["after_max"]))
+                if after is None:
+                    bad_msgs.append("段后未设置（应≥{}twips）".format(spec["after_min"]))
+                elif after < spec["after_min"]:
+                    bad_msgs.append("段后={}，低于{}".format(after, spec["after_min"]))
+                elif after > spec["after_max"]:
+                    bad_msgs.append("段后={}，过大（上限{}）".format(after, spec["after_max"]))
 
             if bad_msgs:
                 affected_positions.append(ctx["index"])
@@ -1499,59 +1806,80 @@ def check_pg01(document_root, contexts, style_map, cfg=None):
     zip_path = getattr(document_root, "_zip_path", None)
     passed = False
     affected = "全文"
-    for instr_text in document_root.findall(".//w:instrText", NSMAP):
-        if "PAGE" in (instr_text.text or "").upper():
-            passed = True
-            affected = "发现 PAGE 域"
-            break
-    if not passed and zip_path:
+
+    def _iter_footer_page_paragraphs():
+        if not zip_path:
+            return []
+        paragraphs = []
         try:
             with zipfile.ZipFile(zip_path, "r") as zf:
                 footer_files = [n for n in zf.namelist() if n.startswith("word/footer") and n.endswith(".xml")]
                 for fname in footer_files:
                     with zf.open(fname) as f:
                         footer_root = ET.parse(f).getroot()
-                    for instr_text in footer_root.findall(".//w:instrText", NSMAP):
-                        if "PAGE" in (instr_text.text or "").upper():
-                            passed = True
-                            affected = f"{fname} 中发现 PAGE 域"
-                            break
-                    if passed:
-                        break
+                    for p in footer_root.findall(".//w:p", NSMAP):
+                        has_page = any("PAGE" in (it.text or "").upper() for it in p.findall(".//w:instrText", NSMAP))
+                        if has_page:
+                            paragraphs.append((fname, p))
         except Exception:
-            passed = False
+            return []
+        return paragraphs
+
+    for instr_text in document_root.findall(".//w:instrText", NSMAP):
+        if "PAGE" in (instr_text.text or "").upper():
+            passed = True
+            affected = "发现 PAGE 域"
+            break
+    if not passed and zip_path:
+        for fname, _ in _iter_footer_page_paragraphs():
+            passed = True
+            affected = f"{fname} 中发现 PAGE 域"
+            break
     if not passed:
         return False, ["文档中未发现 PAGE 页码域。"], "全文"
 
-    if cfg and cfg.get("pg01_format") == "em_dash":
-        found_em_dash = False
+    page_style = (cfg or {}).get("pg01_format")
+    if page_style in {"em_dash", "hyphen_wrap"}:
+        wrap_char = "—" if page_style == "em_dash" else "-"
+        expected = "—N—" if page_style == "em_dash" else "-N-"
+        found_wrapped = False
         if zip_path:
-            try:
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    footer_files = [n for n in zf.namelist() if n.startswith("word/footer") and n.endswith(".xml")]
-                    for fname in footer_files:
-                        with zf.open(fname) as f:
-                            footer_root = ET.parse(f).getroot()
-                        for p in footer_root.findall(".//w:p", NSMAP):
-                            has_page = any(
-                                "PAGE" in (it.text or "").upper()
-                                for it in p.findall(".//w:instrText", NSMAP)
-                            )
-                            if not has_page:
-                                continue
-                            all_text = "".join(t.text or "" for t in p.findall(".//w:t", NSMAP))
-                            if "—" in all_text:
-                                found_em_dash = True
-                                break
-                        if found_em_dash:
-                            break
-            except Exception:
-                found_em_dash = any("—" in (t.text or "") for t in document_root.findall(f".//{{{W_NS}}}t"))
+            footer_paragraphs = _iter_footer_page_paragraphs()
+            for _, p in footer_paragraphs:
+                all_text = "".join(t.text or "" for t in p.findall(".//w:t", NSMAP))
+                if wrap_char in all_text:
+                    found_wrapped = True
+                    break
         else:
-            found_em_dash = any("—" in (t.text or "") for t in document_root.findall(f".//{{{W_NS}}}t"))
-        if not found_em_dash:
-            issues.append("页码格式应为 —N—（破折号包围），页脚中未检测到破折号")
+            found_wrapped = any(wrap_char in (t.text or "") for t in document_root.findall(f".//{{{W_NS}}}t"))
+        if not found_wrapped:
+            issues.append(f"页码格式应为 {expected}，页脚中未检测到包围符号")
             passed = False
+
+    expected_font = (cfg or {}).get("page_number_font")
+    expected_size = parse_int((cfg or {}).get("page_number_size"))
+    if expected_font or expected_size:
+        footer_paragraphs = _iter_footer_page_paragraphs()
+        for fname, paragraph in footer_paragraphs:
+            for run_elem in paragraph.findall(".//w:r", NSMAP):
+                if not (
+                    run_elem.find("w:fldChar", NSMAP) is not None
+                    or run_elem.find("w:instrText", NSMAP) is not None
+                    or get_run_text(run_elem).strip()
+                ):
+                    continue
+                east_asia = get_effective_run_font(run_elem, style_map, attr_name="eastAsia")
+                size_val = get_effective_run_size(run_elem, style_map)
+                if expected_font and east_asia != expected_font:
+                    issues.append(f"页码字体应为 {expected_font}，实际为 {east_asia or '未设置'} ({fname})")
+                    passed = False
+                    break
+                if expected_size is not None and size_val not in (expected_size, None):
+                    issues.append(f"页码字号应为 {expected_size} half-pts，实际为 {size_val} ({fname})")
+                    passed = False
+                    break
+            if not passed and issues:
+                break
 
     return passed, issues, affected
 
@@ -1611,6 +1939,85 @@ def check_ref01(document_root, contexts, style_map):
     return True, [], "全部参考文献标点正常"
 
 
+def _get_run_text_local(run_elem, w_ns):
+    parts = []
+    for text_elem in run_elem.findall(f".//{{{w_ns}}}t"):
+        if text_elem.text:
+            parts.append(text_elem.text)
+    return "".join(parts)
+
+
+def _is_run_bold_active(rpr, w_ns):
+    if rpr is None:
+        return False
+    bold_elem = rpr.find(f"{{{w_ns}}}b")
+    if bold_elem is None:
+        return False
+    return bold_elem.get(f"{{{w_ns}}}val", "1") not in ("0", "false", "False", "off")
+
+
+def _collect_cn_keyword_style_issues(p_elem, cfg):
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    label_len = len("关键词")
+    kw_font = cfg.get("kw_font") if cfg else None
+    kw_bold = cfg.get("kw_bold") if cfg else None
+    kw_size = cfg.get("kw_half_points") if cfg else None
+    content_font = (
+        (cfg or {}).get("abstract_body_font")
+        or (cfg or {}).get("body_font")
+        or "宋体"
+    )
+    issues = []
+    consumed = 0
+
+    for run_elem in p_elem.findall(f".//{{{w_ns}}}r"):
+        run_text = _get_run_text_local(run_elem, w_ns)
+        if not run_text:
+            continue
+
+        start = consumed
+        end = consumed + len(run_text)
+        consumed = end
+
+        rpr = run_elem.find(f"{{{w_ns}}}rPr")
+        fonts = rpr.find(f"{{{w_ns}}}rFonts") if rpr is not None else None
+        east_asia = fonts.get(f"{{{w_ns}}}eastAsia") if fonts is not None else None
+        size_elem = rpr.find(f"{{{w_ns}}}sz") if rpr is not None else None
+        size_val = size_elem.get(f"{{{w_ns}}}val") if size_elem is not None else None
+        bold_active = _is_run_bold_active(rpr, w_ns)
+
+        if start < label_len < end:
+            issues.append(f"关键词标签与内容应分开设置：标签用{kw_font or '黑体'}，内容用{content_font}")
+            continue
+
+        in_label = end <= label_len
+        if in_label:
+            if kw_font and east_asia != kw_font:
+                issues.append(f"关键词标签字体应为{kw_font}，实为{east_asia or '未设置'}")
+            if kw_bold is True and not bold_active:
+                issues.append("关键词标签应加粗")
+            if kw_bold is False and bold_active:
+                issues.append("关键词标签不应加粗")
+            if kw_size and size_val and int(size_val) != kw_size:
+                issues.append(f"关键词标签字号应为{kw_size} half-pts，实为{size_val}")
+            continue
+
+        if east_asia != content_font:
+            issues.append(f"关键词内容字体应为{content_font}，实为{east_asia or '未设置'}")
+        if bold_active:
+            issues.append("关键词内容不应加粗")
+        if kw_size and size_val and int(size_val) != kw_size:
+            issues.append(f"关键词内容字号应为{kw_size} half-pts，实为{size_val}")
+
+    return issues
+
+
+def _expected_keyword_separator(text, cfg):
+    if is_cn_keywords_paragraph_text(text):
+        return str((cfg or {}).get("kw_cn_separator", "；") or "；")
+    return str((cfg or {}).get("kw_en_separator", "; ") or "; ")
+
+
 def check_kw01(document_root, contexts, style_map, cfg):
     keyword_contexts = []
     for ctx in contexts:
@@ -1627,11 +2034,18 @@ def check_kw01(document_root, contexts, style_map, cfg):
         text = ctx["text"].strip()
         payload = re.sub(r"^(关键词|key\s*words?)\s*[：:]\s*", "", text, count=1, flags=re.IGNORECASE).strip()
         problems = []
+        expected_separator = _expected_keyword_separator(text, cfg)
         if text.endswith(("。", ".")):
             problems.append("末尾带句号")
-        if "；" not in payload and ";" not in payload:
-            problems.append("缺少分号分隔")
         keywords = [item.strip() for item in re.split(r"[；;]", payload) if item.strip()]
+        if len(keywords) >= 2:
+            if expected_separator.strip() == "；":
+                if "；" not in payload or ";" in payload:
+                    problems.append("分隔符应为中文分号“；”")
+            elif ";" not in payload:
+                problems.append(f"分隔符应为“{expected_separator.strip()}”")
+        elif "；" not in payload and ";" not in payload:
+            problems.append("缺少分号分隔")
         if not (cfg["kw_min"] <= len(keywords) <= cfg["kw_max"]):
             problems.append(f"关键词数量为 {len(keywords)}")
         if problems:
@@ -1644,39 +2058,15 @@ def check_kw01(document_root, contexts, style_map, cfg):
     kw_bold_req = cfg.get("kw_bold") if cfg else None
     kw_hp = cfg.get("kw_half_points") if cfg else None
     if kw_font or kw_hp or kw_bold_req is not None:
-        W_LOCAL = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-        for ctx in contexts:
+        for ctx in keyword_contexts:
             text = ctx.get("text", "")
             if is_keyword_paragraph_text(text):
                 p_elem = ctx.get("elem")
                 if p_elem is None:
                     continue
                 is_cn_keywords = is_cn_keywords_paragraph_text(text)
-                for r in p_elem.findall(f".//{{{W_LOCAL}}}r"):
-                    rpr = r.find(f"{{{W_LOCAL}}}rPr")
-                    if rpr is None:
-                        continue
-                    if is_cn_keywords and kw_font:
-                        fonts = rpr.find(f"{{{W_LOCAL}}}rFonts")
-                        ea = fonts.get(f"{{{W_LOCAL}}}eastAsia") if fonts is not None else None
-                        if ea and ea != kw_font:
-                            issues.append(f"关键词字体应为{kw_font}，实为{ea}")
-                    if is_cn_keywords and kw_bold_req:
-                        b = rpr.find(f"{{{W_LOCAL}}}b")
-                        if b is None:
-                            issues.append("关键词应加粗")
-                    elif is_cn_keywords and not kw_bold_req:
-                        b = rpr.find(f"{{{W_LOCAL}}}b")
-                        if b is not None:
-                            bold_val = b.get(f"{{{W_LOCAL}}}val")
-                            if bold_val not in ("0", "false", "False", "off"):
-                                issues.append("关键词不应加粗")
-                    if kw_hp and is_cn_keywords:
-                        sz = rpr.find(f"{{{W_LOCAL}}}sz")
-                        if sz is not None:
-                            val = sz.get(f"{{{W_LOCAL}}}val")
-                            if val and int(val) != kw_hp:
-                                issues.append(f"关键词字号应为{kw_hp} half-pts，实为{val}")
+                if is_cn_keywords:
+                    issues.extend(_collect_cn_keyword_style_issues(p_elem, cfg))
 
     if bad_positions:
         issues = [f"{len(bad_positions)} 个关键词段落格式不符合要求。"] + samples + issues
@@ -1722,6 +2112,8 @@ def check_eq01(document_root, contexts, style_map):
     samples = []
     for ctx in contexts:
         if not is_display_equation_context(ctx):
+            continue
+        if paragraph_in_equation_layout_table(document_root, ctx.get("elem")):
             continue
         jc_val = get_paragraph_alignment(ctx["elem"]) or "left"
         first_line = get_paragraph_first_line(ctx["elem"])
@@ -1797,7 +2189,11 @@ def _check_caption_numbering(contexts, prefix, label, cfg):
     captions = [ctx for ctx in contexts if ctx["kind"] == "caption" and ctx["text"].strip().startswith(prefix)]
     if not captions:
         return True, [], f"文档无{label}"
-    chapter_pat = re.compile(rf"^{prefix}\s*\d+{re.escape(cfg['caption_number_sep'])}\d+")
+    gap_spaces = int((cfg or {}).get("caption_label_gap_spaces", 1) or 1)
+    gap_pattern = r" " * gap_spaces
+    chapter_pat = re.compile(
+        rf"^{prefix}\s*\d+{re.escape(cfg['caption_number_sep'])}\d+(?:{gap_pattern}).+"
+    )
     bad_positions = []
     samples = []
     for ctx in captions:
@@ -1806,10 +2202,10 @@ def _check_caption_numbering(contexts, prefix, label, cfg):
             bad_positions.append(ctx["index"])
             if len(samples) < 5:
                 samples.append(
-                    f"第{ctx['index']}段{label}\"{excerpt(stripped)}\"编号缺少章节号（应为{prefix}X{cfg['caption_number_sep']}Y格式）"
+                    f"第{ctx['index']}段{label}\"{excerpt(stripped)}\"编号或题名空格不符合要求（应为{prefix}X{cfg['caption_number_sep']}Y后接{gap_spaces}个半角空格）"
                 )
     if bad_positions:
-        issues = [f"{len(bad_positions)} 个{label}编号不是章节式（{prefix}X{cfg['caption_number_sep']}Y）格式。"]
+        issues = [f"{len(bad_positions)} 个{label}编号或题名空格不是章节式（{prefix}X{cfg['caption_number_sep']}Y 后 {gap_spaces} 个半角空格）格式。"]
         issues.extend(samples)
         return False, issues, summarize_positions(bad_positions)
     return True, [], f"全部{label}"
@@ -1833,7 +2229,8 @@ def check_f04(document_root, contexts, style_map, cfg):
 
 def check_lnu_ack(document_root, contexts, style_map, cfg):
     ack_font = cfg.get("ack_font")
-    if not ack_font:
+    ack_required = bool(cfg.get("acknowledgement_required"))
+    if not ack_font and not ack_required:
         return True, [], ""
 
     in_ack_section = False
@@ -1871,6 +2268,8 @@ def check_lnu_ack(document_root, contexts, style_map, cfg):
                 break
 
     if not found_ack_heading:
+        if ack_required:
+            return False, ["文档缺少致谢章节。"], "致谢"
         return True, [], "未发现致谢章节"
     if bad_positions:
         issues = [f"{len(bad_positions)} 个致谢正文段落字体不是 {ack_font}。"]
@@ -1881,7 +2280,8 @@ def check_lnu_ack(document_root, contexts, style_map, cfg):
 
 def check_lnu_f01(document_root, contexts, style_map, cfg):
     """LNU_F01: 图题编号格式应为 图X.X（点号）"""
-    pattern = re.compile(r"^图\s*\d+\.\d+")
+    gap_spaces = int((cfg or {}).get("caption_label_gap_spaces", 1) or 1)
+    pattern = re.compile(rf"^图\s*\d+\.\d+{' ' * gap_spaces}.+")
     issues = []
     for ctx in contexts:
         text = ctx.get("text", "").strip()
@@ -1895,7 +2295,8 @@ def check_lnu_f01(document_root, contexts, style_map, cfg):
 
 def check_lnu_f02(document_root, contexts, style_map, cfg):
     """LNU_F02: 表题编号格式应为 表X.X（点号）"""
-    pattern = re.compile(r"^表\s*\d+\.\d+")
+    gap_spaces = int((cfg or {}).get("caption_label_gap_spaces", 1) or 1)
+    pattern = re.compile(rf"^表\s*\d+\.\d+{' ' * gap_spaces}.+")
     issues = []
     for ctx in contexts:
         text = ctx.get("text", "").strip()
@@ -2064,8 +2465,9 @@ def check_lnu_ref01(document_root, contexts, style_map, cfg):
 
 
 def check_lnu_ref02(document_root, contexts, style_map, cfg):
-    """LNU_REF02: 参考文献编号后应跟空格（非Tab），格式 [N] 内容"""
-    pattern = re.compile(r"^\[[1-9]\d{0,2}\] \S")
+    """LNU_REF02: 参考文献编号格式按 profile 要求处理。"""
+    expect_space = bool(cfg.get("ref_number_trailing_space", cfg.get("ref_use_tab", False)))
+    pattern = re.compile(r"^\[[1-9]\d{0,2}\]\s+\S") if expect_space else re.compile(r"^\[[1-9]\d{0,2}\]\S")
     tab_pattern = re.compile(r"^\[\d+\]\t")
     issues = []
     in_ref = False
@@ -2113,30 +2515,33 @@ def check_lnu_tb02(document_root, contexts, style_map, cfg):
 
 
 def check_lnu_abs01(document_root, contexts, style_map, cfg):
-    """LNU_ABS01: 摘要标题格式（黑体三号=32 half-pts，居中，1.5倍行距，段后0磅）"""
+    """LNU_ABS01: 摘要标题格式。"""
     paras = document_root.findall(".//w:p", NSMAP)
     issues = []
     expected_sz = cfg.get("abstract_title_size") or 32
     expected_line = cfg.get("abstract_title_line") or 360
+    expected_after = int((cfg.get("abstract_title_after_pt", 0) or 0) * 20)
     for p in paras:
         runs = p.findall(".//w:r", NSMAP)
         txt = "".join(get_run_text(r) for r in runs).strip()
         if is_abstract_cn_title(txt):
             for r in runs:
-                sz_elem = r.find("w:rPr/w:sz", NSMAP)
-                if sz_elem is not None:
-                    sz_val = parse_int(get_w_attr(sz_elem, "val"))
-                    if sz_val is not None and sz_val != expected_sz:
-                        issues.append(f"「摘要」标题字号应为三号({expected_sz} half-pts)，实际={sz_val}")
-                    break
-            spc = p.find("w:pPr/w:spacing", NSMAP)
-            if spc is not None:
-                after_val = parse_int(get_w_attr(spc, "after"))
-                if after_val is not None and after_val > 10:
-                    issues.append(f"「摘要」段后间距应为0磅，实际={after_val}")
-                line_val = parse_int(get_w_attr(spc, "line"))
-                if line_val is not None and abs(line_val - expected_line) > 20:
-                    issues.append(f"「摘要」标题行距应为{expected_line}(1.5倍)，实际={line_val}")
+                if not get_run_text(r).strip():
+                    continue
+                sz_val = get_effective_run_size(r, style_map, p)
+                if sz_val is not None and sz_val != expected_sz:
+                    issues.append(f"「摘要」标题字号应为三号({expected_sz} half-pts)，实际={sz_val}")
+                east_asia = get_effective_run_font(r, style_map, p, "eastAsia")
+                expected_font = cfg.get("abstract_title_font", "黑体") or "黑体"
+                if east_asia is not None and east_asia != expected_font:
+                    issues.append(f"「摘要」标题字体应为{expected_font}，实际={east_asia}")
+                break
+            after_val = get_paragraph_spacing_after(p, style_map)
+            if abs((after_val or 0) - expected_after) > 10:
+                issues.append(f"「摘要」段后间距应为{expected_after} twips，实际={after_val or 0}")
+            line_val = get_paragraph_line_spacing(p, style_map)
+            if line_val is not None and abs(line_val - expected_line) > 20:
+                issues.append(f"「摘要」标题行距应为{expected_line}，实际={line_val}")
     if not issues:
         return True, [], "摘要标题"
     return False, issues, "摘要标题段落"
@@ -2147,27 +2552,31 @@ def check_lnu_abs02(document_root, contexts, style_map, cfg):
     paras = document_root.findall(".//w:p", NSMAP)
     issues = []
     expected_line = cfg.get("abstract_title_line") or 360
+    expected_after = int((cfg.get("abstract_title_after_pt", 0) or 0) * 20)
+    expected_size = cfg.get("abstract_en_title_size", 32) or 32
+    expected_font = cfg.get("abstract_en_title_font", "Times New Roman") or "Times New Roman"
     for p in paras:
         runs = p.findall(".//w:r", NSMAP)
         txt = "".join(get_run_text(r) for r in runs).strip()
         if txt.lower() == "abstract":
+            visible_runs = [r for r in runs if get_run_text(r).strip()]
             for r in runs:
-                r_pr = r.find("w:rPr", NSMAP)
-                if r_pr is None:
+                if not get_run_text(r).strip():
                     continue
-                sz_elem = r_pr.find("w:sz", NSMAP)
-                if sz_elem is not None:
-                    sz_val = parse_int(get_w_attr(sz_elem, "val"))
-                    if sz_val is not None and sz_val != 32:
-                        issues.append(f"Abstract标题字号应为三号(32 half-pts)，实际={sz_val}")
-                b_elem = r_pr.find("w:b", NSMAP)
-                if b_elem is None:
-                    issues.append("Abstract标题应加粗（缺少 w:b）")
-            spc = p.find("w:pPr/w:spacing", NSMAP)
-            if spc is not None:
-                line_val = parse_int(get_w_attr(spc, "line"))
-                if line_val is not None and abs(line_val - expected_line) > 20:
-                    issues.append(f"Abstract标题行距应为{expected_line}(1.5倍)，实际={line_val}")
+                sz_val = get_effective_run_size(r, style_map, p)
+                if sz_val is not None and sz_val != expected_size:
+                    issues.append(f"Abstract标题字号应为三号({expected_size} half-pts)，实际={sz_val}")
+                ascii_font = get_effective_run_font(r, style_map, p, "ascii")
+                if ascii_font is not None and ascii_font != expected_font:
+                    issues.append(f"Abstract标题字体应为 {expected_font}，实际={ascii_font}")
+            if visible_runs and not any(is_run_effectively_bold(r, style_map, p) for r in visible_runs):
+                issues.append("Abstract标题应加粗")
+            after_val = get_paragraph_spacing_after(p, style_map)
+            if abs((after_val or 0) - expected_after) > 10:
+                issues.append(f"Abstract标题段后间距应为{expected_after} twips，实际={after_val or 0}")
+            line_val = get_paragraph_line_spacing(p, style_map)
+            if line_val is not None and abs(line_val - expected_line) > 20:
+                issues.append(f"Abstract标题行距应为{expected_line}(1.5倍)，实际={line_val}")
             break
     if not issues:
         return True, [], "Abstract标题"
@@ -2182,6 +2591,7 @@ def check_lnu_abs03(document_root, contexts, style_map, cfg):
         return True, [], "英文摘要区段缺失，已跳过"
 
     issues = []
+    expected_line = cfg.get("abstract_en_body_line") or 240
     for p in paras:
         runs = p.findall(".//w:r", NSMAP)
         txt = "".join(get_run_text(r) for r in runs).strip()
@@ -2190,28 +2600,19 @@ def check_lnu_abs03(document_root, contexts, style_map, cfg):
         if not txt or is_keywords_text(txt, "abstract_en"):
             continue
         for r in runs:
-            r_pr = r.find("w:rPr", NSMAP)
-            if r_pr is None:
+            if not get_run_text(r).strip():
                 continue
-            sz_elem = r_pr.find("w:sz", NSMAP)
-            if sz_elem is not None:
-                sz_val = parse_int(get_w_attr(sz_elem, "val"))
-                if sz_val is not None and sz_val != 24:
-                    issues.append(f"英文摘要正文字号应为小四(24 half-pts)，实际={sz_val}，段落：{txt[:30]}")
-                    break
-            r_fonts = r_pr.find("w:rFonts", NSMAP)
-            if r_fonts is not None:
-                ascii_font = get_w_attr(r_fonts, "ascii")
-                if ascii_font is not None and ascii_font != "Times New Roman":
-                    issues.append(f"英文摘要正文字体应为 Times New Roman，实际={ascii_font}，段落：{txt[:30]}")
-                    break
-        p_pr = p.find("w:pPr", NSMAP)
-        if p_pr is not None:
-            spacing = p_pr.find("w:spacing", NSMAP)
-            if spacing is not None:
-                line_val = parse_int(get_w_attr(spacing, "line"))
-                if line_val is not None and line_val > 260:
-                    issues.append(f"英文摘要正文应为单倍行距，实际line={line_val}")
+            sz_val = get_effective_run_size(r, style_map, p)
+            if sz_val is not None and sz_val != 24:
+                issues.append(f"英文摘要正文字号应为小四(24 half-pts)，实际={sz_val}，段落：{txt[:30]}")
+                break
+            ascii_font = get_effective_run_font(r, style_map, p, "ascii")
+            if ascii_font is not None and ascii_font != "Times New Roman":
+                issues.append(f"英文摘要正文字体应为 Times New Roman，实际={ascii_font}，段落：{txt[:30]}")
+                break
+        line_val = get_paragraph_line_spacing(p, style_map)
+        if line_val is not None and abs(line_val - expected_line) > 20:
+            issues.append(f"英文摘要正文行距应为{expected_line}，实际line={line_val}")
         if len(issues) >= 3:
             break
     if not issues:
@@ -2287,14 +2688,90 @@ def check_lnu_tb03(document_root, contexts, style_map, cfg):
     for tbl in document_root.findall(".//w:tbl", NSMAP):
         for cell in tbl.findall(".//w:tc", NSMAP):
             for p in cell.findall(".//w:p", NSMAP):
-                spacing = p.find("w:pPr/w:spacing", NSMAP)
-                if spacing is not None:
-                    line_val = parse_int(get_w_attr(spacing, "line"))
-                    if line_val and line_val > 260:
-                        issues.append(
-                            f"表格内容行距过大(line={line_val})，应为单倍(240)"
-                        )
+                line_val = get_paragraph_line_spacing(p, style_map)
+                if line_val and line_val > 260:
+                    issues.append(f"表格内容行距过大(line={line_val})，应为单倍(240)")
     return (len(issues) == 0), issues, f"发现{len(issues)}处"
+
+
+def check_lnu_tb04(document_root, contexts, style_map, cfg):
+    """LNU_TB04: 表块与上下文应留一空行，表题需紧贴表体。"""
+
+    def _is_blank_layout_paragraph(elem):
+        return (
+            elem is not None
+            and elem.tag == f"{{{W_NS}}}p"
+            and not paragraph_has_drawing(elem)
+            and not get_paragraph_text(elem).strip()
+        )
+
+    gap_twips = cfg.get("table_blank_line_twips") or cfg.get("figure_blank_line_twips") or cfg.get("body_line") or 360
+    blank_line_mode = str(cfg.get("table_blank_line_mode", "spacing") or "spacing")
+    blocks = [block for block in collect_table_blocks(document_root, style_map) if block.get("section") == "body"]
+    if not blocks:
+        return True, [], "文档无正文表块"
+
+    issues = []
+    affected_positions = []
+    for block in blocks:
+        body_children = block["body_children"]
+        caption_elem = block["caption"].elem
+        caption_index = block["caption"].index
+        caption_child_idx = block["caption_index"]
+        end_child_idx = block["end_index"]
+        prev_elem = body_children[caption_child_idx - 1] if caption_child_idx > 0 else None
+        next_elem = None
+        for scan_idx in range(end_child_idx + 1, len(body_children)):
+            candidate = body_children[scan_idx]
+            if candidate.tag == f"{{{W_NS}}}p" or candidate.tag == f"{{{W_NS}}}tbl":
+                next_elem = candidate
+                break
+
+        prev_after = (get_paragraph_spacing_after(prev_elem) or 0) if prev_elem is not None and prev_elem.tag == f"{{{W_NS}}}p" else 0
+        caption_before = get_paragraph_spacing_before(caption_elem) or 0
+        total_before = (0 if _is_blank_layout_paragraph(prev_elem) else prev_after) + caption_before
+        before_ok = _is_blank_layout_paragraph(prev_elem) or total_before >= gap_twips
+
+        blank_between = block.get("blank_between", 0)
+        caption_after = get_paragraph_spacing_after(caption_elem) or 0
+        tight_ok = blank_between == 0 and caption_after == 0
+
+        if next_elem is None:
+            total_after = 0
+            after_ok = True
+        elif block["notes"]:
+            last_note = block["notes"][-1].elem
+            next_before = (get_paragraph_spacing_before(next_elem) or 0) if next_elem is not None and next_elem.tag == f"{{{W_NS}}}p" else 0
+            note_after = get_paragraph_spacing_after(last_note) or 0
+            total_after = note_after + (0 if _is_blank_layout_paragraph(next_elem) else next_before)
+            after_ok = _is_blank_layout_paragraph(next_elem) or total_after >= gap_twips
+        else:
+            next_before = (get_paragraph_spacing_before(next_elem) or 0) if next_elem is not None and next_elem.tag == f"{{{W_NS}}}p" else 0
+            total_after = 0 if _is_blank_layout_paragraph(next_elem) else next_before
+            after_ok = _is_blank_layout_paragraph(next_elem) or total_after >= gap_twips
+
+        if blank_line_mode == "blank_paragraph":
+            before_ok = _is_blank_layout_paragraph(prev_elem) or total_before >= gap_twips
+            after_ok = next_elem is None or _is_blank_layout_paragraph(next_elem) or total_after >= gap_twips
+
+        if before_ok and tight_ok and after_ok:
+            continue
+
+        if not before_ok:
+            issues.append(f"第{caption_index}段对应表块与上文留白为 {total_before} twips，未满足一空行。")
+        if not tight_ok:
+            if blank_between:
+                issues.append(f"第{caption_index}段表题与表体之间存在 {blank_between} 个空白段，应紧贴表格。")
+            elif caption_after:
+                issues.append(f"第{caption_index}段表题段后为 {caption_after} twips，应为 0 以紧贴表格。")
+        if not after_ok:
+            issues.append(f"第{caption_index}段表块结束后与下文留白为 {total_after} twips，未满足一空行。")
+        affected_positions.append(caption_index)
+
+    if issues:
+        header = f"{len(affected_positions)} 个表块版式不符合辽大要求。"
+        return False, [header] + issues[:6], summarize_positions(affected_positions)
+    return True, [], "全部正文表块留白与表题贴表正常"
 
 
 import re as _re
@@ -2310,6 +2787,72 @@ _KNOWN_UNITS = {
     "kJ", "kDa", "Da",
     "rpm",
 }
+
+WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+
+
+def _paragraph_has_soft_break(p_elem):
+    for br in p_elem.findall(".//w:br", NSMAP):
+        br_type = get_w_attr(br, "type")
+        if br_type not in {"page", "column"}:
+            return True
+    return p_elem.find(".//w:cr", NSMAP) is not None
+
+
+def check_lnu_fmt01(document_root, contexts, style_map, cfg):
+    """LNU_FMT01: 正文不应使用软回车（Shift+Enter）充当段落换行。"""
+    issues = []
+    affected_positions = []
+    for ctx in contexts:
+        p_elem = ctx.get("elem")
+        if p_elem is None:
+            continue
+        if ctx.get("section") in {"cover", "toc"}:
+            continue
+        if not _paragraph_has_soft_break(p_elem):
+            continue
+        issues.append(f"第{ctx['index']}段包含软回车，应用 Enter 分段而非 Shift+Enter 换行。")
+        affected_positions.append(ctx["index"])
+        if len(issues) >= 6:
+            break
+
+    if issues:
+        header = f"{len(affected_positions)} 个段落使用了软回车。"
+        return False, [header] + issues, summarize_positions(affected_positions)
+    return True, [], "未发现软回车"
+
+
+def check_lnu_fmt02(document_root, contexts, style_map, cfg):
+    """LNU_FMT02: 图片应为嵌入型，表格应为无环绕。"""
+    issues = []
+    affected_positions = []
+
+    for ctx in contexts:
+        p_elem = ctx.get("elem")
+        if p_elem is None:
+            continue
+        for drawing in p_elem.findall(".//w:drawing", NSMAP):
+            if drawing.find(f"{{{WP_NS}}}anchor") is not None:
+                issues.append(f"第{ctx['index']}段图片使用了浮动/环绕定位，应改为嵌入型。")
+                affected_positions.append(ctx["index"])
+                break
+        if len(issues) >= 6:
+            break
+
+    if len(issues) < 6:
+        for table_idx, table in enumerate(document_root.findall(".//w:tbl", NSMAP), start=1):
+            tbl_pr = table.find("w:tblPr", NSMAP)
+            if tbl_pr is None or tbl_pr.find("w:tblpPr", NSMAP) is None:
+                continue
+            issues.append(f"第{table_idx}个表格使用了环绕/浮动定位，应为无环绕。")
+            affected_positions.append(table_idx)
+            if len(issues) >= 6:
+                break
+
+    if issues:
+        header = f"发现 {len(issues)} 处图片/表格环绕方式不符合辽大 checker 要求。"
+        return False, [header] + issues, summarize_positions(affected_positions)
+    return True, [], "图片均为嵌入型且表格无环绕"
 
 
 def check_lnu_unit01(document_root, contexts, style_map, cfg):
@@ -2336,27 +2879,121 @@ def check_lnu_ref03(document_root, contexts, style_map, cfg):
         p = ctx.get("elem")
         if p is None:
             continue
-        spacing = p.find("w:pPr/w:spacing", NSMAP)
-        if spacing is not None:
-            line_val = parse_int(get_w_attr(spacing, "line"))
-            if line_val is not None and abs(line_val - expected_line) > 30:
-                issues.append(f"参考文献行距应为{expected_line}(1.5倍)，实际={line_val}")
-            before_val = parse_int(get_w_attr(spacing, "before"))
-            after_val = parse_int(get_w_attr(spacing, "after"))
-            if before_val not in (None, 0):
-                issues.append(f"参考文献段前应为0，实际={before_val}")
-            if after_val not in (None, 0):
-                issues.append(f"参考文献段后应为0，实际={after_val}")
+        line_val = get_paragraph_line_spacing(p, style_map)
+        if line_val is not None and abs(line_val - expected_line) > 30:
+            issues.append(f"参考文献行距应为{expected_line}(1.5倍)，实际={line_val}")
+        before_val = get_paragraph_spacing_before(p, style_map)
+        after_val = get_paragraph_spacing_after(p, style_map)
+        if before_val not in (None, 0):
+            issues.append(f"参考文献段前应为0，实际={before_val}")
+        if after_val not in (None, 0):
+            issues.append(f"参考文献段后应为0，实际={after_val}")
         for run in p.findall(".//w:r", NSMAP):
-            sz = run.find("w:rPr/w:sz", NSMAP)
-            if sz is not None:
-                sz_val = parse_int(get_w_attr(sz, "val"))
-                if sz_val is not None and sz_val != expected_size:
-                    issues.append(f"参考文献字号应为{expected_size}(五号)，实际={sz_val}")
-                    break
+            if not get_run_text(run).strip():
+                continue
+            sz_val = get_effective_run_size(run, style_map, p)
+            if sz_val is not None and sz_val != expected_size:
+                issues.append(f"参考文献字号应为{expected_size}(五号)，实际={sz_val}")
+                break
         if len(issues) >= 5:
             break
     return (len(issues) == 0), issues, f"发现{len(issues)}处"
+
+
+def check_lnu_ref04(document_root, contexts, style_map, cfg):
+    """LNU_REF04: 参考文献应带文献类型标识，如 [J]/[M]/[D]。"""
+    if not cfg.get("ref_require_type_marker", False):
+        return True, [], "当前 profile 不要求文献类型标识"
+    issues = []
+    pat = re.compile(r"\[[A-Z]\]")
+    for ctx in iter_reference_section_contexts(contexts, skip_empty=True):
+        text = ctx.get("text", "").strip()
+        if text and not pat.search(text):
+            issues.append(f"缺少文献类型标识: {text[:60]}")
+        if len(issues) >= 5:
+            break
+    return (len(issues) == 0), issues, f"发现{len(issues)}处"
+
+
+_CITATION_NUM_RE = re.compile(r"\[(\d+(?:[-,，、]\d+)*)\]")
+
+
+def _expand_citation_numbers(raw):
+    normalized = str(raw or "").replace("，", ",").replace("、", ",")
+    numbers = []
+    for part in normalized.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start_text, end_text = part.split("-", 1)
+            try:
+                start = int(start_text)
+                end = int(end_text)
+            except ValueError:
+                continue
+            if start <= end:
+                numbers.extend(range(start, end + 1))
+            else:
+                numbers.extend(range(end, start + 1))
+        else:
+            try:
+                numbers.append(int(part))
+            except ValueError:
+                continue
+    return numbers
+
+
+def _collect_body_citation_numbers(contexts):
+    ordered = []
+    seen = set()
+    for ctx in contexts:
+        if ctx.get("effective_section") not in {"body", "appendix"}:
+            continue
+        for match in _CITATION_NUM_RE.finditer(ctx.get("text", "")):
+            for number in _expand_citation_numbers(match.group(1)):
+                if number not in seen:
+                    seen.add(number)
+                    ordered.append(number)
+    return ordered
+
+
+def check_lnu_ref05(document_root, contexts, style_map, cfg):
+    """LNU_REF05: 参考文献序号应连续。"""
+    seen = []
+    for ctx in iter_reference_section_contexts(contexts, skip_empty=True):
+        text = ctx.get("text", "").strip()
+        match = re.match(r"^\[(\d+)\]", text)
+        if match:
+            seen.append((int(match.group(1)), text[:60]))
+    if not seen:
+        return True, [], "未检测到参考文献条目"
+    issues = []
+    body_numbers = _collect_body_citation_numbers(contexts)
+    missing_reference_numbers = [num for num in body_numbers if num not in {item[0] for item in seen}]
+    if missing_reference_numbers:
+        first_missing = missing_reference_numbers[0]
+        issues.append(f"正文引用存在参考文献编号 {first_missing}，但参考文献列表缺少对应条目")
+        return False, issues, f"[{first_missing}]"
+    expected = 1
+    for num, text in seen:
+        if num != expected:
+            issues.append(f"参考文献序号不连续：当前为{num}，规范应为{expected}，条目={text}")
+            break
+        expected += 1
+    if not issues and body_numbers:
+        ref_numbers = [num for num, _ in seen]
+        canonical_order = body_numbers + [num for num in ref_numbers if num not in body_numbers]
+        if canonical_order != ref_numbers:
+            mismatch_index = next(
+                index
+                for index, (expected_num, current_num) in enumerate(zip(canonical_order, ref_numbers), start=1)
+                if expected_num != current_num
+            )
+            issues.append(
+                f"参考文献顺序与正文首次引用顺序不一致：第{mismatch_index}条当前为[{ref_numbers[mismatch_index - 1]}]，应对应[{canonical_order[mismatch_index - 1]}]"
+            )
+    return (len(issues) == 0), issues, f"共检查{len(seen)}条"
 
 
 def check_lnu_tb01(document_root, contexts, style_map, cfg):
@@ -2365,7 +3002,7 @@ def check_lnu_tb01(document_root, contexts, style_map, cfg):
     OUTER_MIN, OUTER_MAX = 14, 22
     INNER_MIN, INNER_MAX = 4, 10
     tbl_count = 0
-    for tbl in document_root.findall(".//w:tbl", NSMAP):
+    for tbl in get_non_equation_layout_tables(document_root):
         tbl_count += 1
         tbl_borders = tbl.find("w:tblPr/w:tblBorders", NSMAP)
         if tbl_borders is None:
@@ -2404,6 +3041,17 @@ def check_lnu_tb01(document_root, contexts, style_map, cfg):
 
 
 def check_lnu_toc02(document_root, contexts, style_map, cfg):
+    def _toc_level(style_val, p_elem):
+        if style_val in {"TOC1", "TOC2", "TOC3"}:
+            return int(style_val[-1])
+        style_name = (style_map.get(style_val or "", {}) or {}).get("name") or ""
+        match = re.search(r"toc\s*([123])", style_name, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        if _looks_like_toc_entry(get_paragraph_text(p_elem)):
+            return 1
+        return None
+
     issues = []
     in_toc = False
     toc_count = 0
@@ -2433,15 +3081,17 @@ def check_lnu_toc02(document_root, contexts, style_map, cfg):
             continue
 
         toc_count += 1
-        spacing = p_pr.find("w:spacing", NSMAP)
-        if spacing is None:
-            continue
-        line_val = parse_int(spacing.get(f"{{{W_NS}}}line"))
-        after_val = parse_int(spacing.get(f"{{{W_NS}}}after"))
-        if line_val is not None and not (256 <= line_val <= 296):
-            issues.append(f"目录条目行距应为多倍1.15倍（276），当前为{line_val}")
-        if after_val is not None and not (80 <= after_val <= 120):
-            issues.append(f"目录条目段后应为5磅（100 twips），当前为{after_val}")
+        level = _toc_level(style_val, p_elem)
+        expected_after = 100
+        if level == 1:
+            expected_after = int((cfg.get("toc_level1_after_pt", 5) or 5) * 20)
+        elif level == 2:
+            expected_after = int((cfg.get("toc_level2_after_pt", 5) or 5) * 20)
+        elif level == 3:
+            expected_after = int((cfg.get("toc_level3_after_pt", 5) or 5) * 20)
+        after_val = get_paragraph_spacing_after(p_elem, style_map)
+        if abs((after_val or 0) - expected_after) > 20:
+            issues.append(f"目录条目段后应为{expected_after} twips，当前为{after_val or 0}")
         if len(issues) >= 5:
             break
     if toc_count == 0 and toc_has_field:
@@ -2450,6 +3100,15 @@ def check_lnu_toc02(document_root, contexts, style_map, cfg):
 
 
 def check_lnu_toc01(document_root, contexts, style_map, cfg):
+    def _toc_level(style_val):
+        if style_val in {"TOC1", "TOC2", "TOC3"}:
+            return int(style_val[-1])
+        style_name = (style_map.get(style_val or "", {}) or {}).get("name") or ""
+        match = re.search(r"toc\s*([123])", style_name, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        return None
+
     toc_contexts = [ctx for ctx in contexts if ctx.get("effective_section") == "toc"]
     if not toc_contexts:
         return True, [], "文档无目录区段"
@@ -2463,7 +3122,7 @@ def check_lnu_toc01(document_root, contexts, style_map, cfg):
     title_style = get_w_attr(title_elem.find("w:pPr/w:pStyle", NSMAP), "val")
     if not _is_toc_heading_style(title_style, style_map):
         issues.append(f"目录标题段落样式应为 TOCHeading，实际={title_style}")
-    title_align = get_paragraph_alignment(title_elem)
+    title_align = get_paragraph_alignment(title_elem, style_map)
     if title_align != "center":
         issues.append(f"目录标题应居中，实际对齐={title_align or '默认'}")
 
@@ -2471,15 +3130,16 @@ def check_lnu_toc01(document_root, contexts, style_map, cfg):
     if not title_runs:
         issues.append("目录标题缺少可见文字 run。")
     else:
+        expected_title_size = cfg.get("toc_title_size", 32) if cfg else 32
         for run_elem in title_runs:
-            size_val = get_run_size(run_elem)
-            if size_val not in (None, 32):
-                issues.append(f"目录标题字号应为三号(32 half-pts)，实际={size_val}")
+            size_val = get_effective_run_size(run_elem, style_map, title_elem)
+            if size_val is not None and size_val != expected_title_size:
+                issues.append(f"目录标题字号应为{expected_title_size} half-pts，实际={size_val}")
                 break
         for run_elem in title_runs:
-            fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
-            east_asia = get_w_attr(fonts, "eastAsia") if fonts is not None else None
-            if east_asia not in (None, "", "黑体"):
+            east_asia = get_effective_run_font(run_elem, style_map, title_elem, "eastAsia")
+            expected_title_font = (cfg.get("toc_title_font", "黑体") if cfg else "黑体")
+            if east_asia is not None and east_asia != expected_title_font:
                 issues.append(f"目录标题字体应为黑体，实际={east_asia}")
                 break
 
@@ -2510,17 +3170,23 @@ def check_lnu_toc01(document_root, contexts, style_map, cfg):
             if not has_right_tab:
                 issues.append(f"第{ctx['index']}段目录条目缺少页码右对齐制表位")
                 break
+            level = _toc_level(p_style)
+            if level == 1:
+                expected_entry_size = cfg.get("toc_level1_size", cfg.get("toc_entry_size", 24)) if cfg else 24
+                expected_entry_font = cfg.get("toc_level1_font", cfg.get("toc_entry_font", "宋体")) if cfg else "宋体"
+            else:
+                expected_entry_size = cfg.get("toc_entry_size", 24) if cfg else 24
+                expected_entry_font = cfg.get("toc_entry_font", "宋体") if cfg else "宋体"
             for run_elem in get_non_empty_runs(p_elem):
-                size_val = get_run_size(run_elem)
-                if size_val not in (None, 24):
-                    issues.append(f"第{ctx['index']}段目录条目字号应为小四(24 half-pts)，实际={size_val}")
+                size_val = get_effective_run_size(run_elem, style_map, p_elem)
+                if size_val is not None and size_val != expected_entry_size:
+                    issues.append(f"第{ctx['index']}段目录条目字号应为{expected_entry_size} half-pts，实际={size_val}")
                     break
-                fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
-                east_asia = get_w_attr(fonts, "eastAsia") if fonts is not None else None
-                ascii_font = get_w_attr(fonts, "ascii") if fonts is not None else None
-                hansi_font = get_w_attr(fonts, "hAnsi") if fonts is not None else None
-                if east_asia not in (None, "", "宋体", "SimSun"):
-                    issues.append(f"第{ctx['index']}段目录条目中文字体应为宋体，实际={east_asia}")
+                east_asia = get_effective_run_font(run_elem, style_map, p_elem, "eastAsia")
+                ascii_font = get_effective_run_font(run_elem, style_map, p_elem, "ascii")
+                hansi_font = get_effective_run_font(run_elem, style_map, p_elem, "hAnsi")
+                if east_asia not in (None, "", expected_entry_font, "SimSun"):
+                    issues.append(f"第{ctx['index']}段目录条目中文字体应为{expected_entry_font}，实际={east_asia}")
                     break
                 if ascii_font not in (None, "", "Times New Roman") or hansi_font not in (None, "", "Times New Roman"):
                     issues.append(
@@ -2602,12 +3268,22 @@ def check_f05(document_root, contexts, style_map):
     samples = []
     for ctx in captions:
         for run_elem in ctx["elem"].findall(".//w:r", NSMAP):
-            if not get_run_text(run_elem).strip():
+            run_text = get_run_text(run_elem)
+            if not run_text.strip():
                 continue
             r_fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
             east_asia = get_w_attr(r_fonts, "eastAsia")
             ascii_font = get_w_attr(r_fonts, "ascii")
-            if east_asia not in ("宋体", "SimSun") or ascii_font != "Times New Roman":
+            has_cjk = bool(CJK_CHAR_RE.search(run_text))
+            has_latin_or_digit = bool(re.search(r"[A-Za-z0-9]", run_text))
+            east_asia_ok = east_asia in ("宋体", "SimSun")
+            ascii_ok = ascii_font == "Times New Roman"
+            if has_cjk and not east_asia_ok:
+                bad_positions.append(ctx["index"])
+                if len(samples) < 3:
+                    samples.append(f"第{ctx['index']}段题注字体 eastAsia={east_asia}，ascii={ascii_font}")
+                break
+            if has_latin_or_digit and not ascii_ok:
                 bad_positions.append(ctx["index"])
                 if len(samples) < 3:
                     samples.append(f"第{ctx['index']}段题注字体 eastAsia={east_asia}，ascii={ascii_font}")
@@ -2662,9 +3338,9 @@ def check_f07(document_root, contexts, style_map):
 
 def check_tb03_line(document_root, contexts, style_map):
     """三线表应有栏目线：第一行每个单元格底边框 sz >= 6（0.75pt）。"""
-    tables = document_root.findall(".//w:tbl", NSMAP)
+    tables = get_non_equation_layout_tables(document_root)
     if not tables:
-        return True, [], "文档无表格"
+        return True, [], "文档无表格或仅含公式布局表"
     bad_tables = []
     issues = []
     for table_index, tbl_elem in enumerate(tables, start=1):
@@ -2742,27 +3418,56 @@ def check_tb03(document_root, contexts, style_map):
     return True, [], "全部较长表格"
 
 
+_PU01_CJK_RE = r"[\u4e00-\u9fff\u3400-\u4dbf]"
+_PU01_HALF_PUNCT_RE = re.compile(
+    rf"(?<={_PU01_CJK_RE})[,;:]|[,;:](?={_PU01_CJK_RE})|(?<={_PU01_CJK_RE})\.(?!\d)|\.(?={_PU01_CJK_RE})"
+)
+
+
+def _has_half_width_punct_in_cjk_context(text: str) -> bool:
+    return _PU01_HALF_PUNCT_RE.search(text or "") is not None
+
+
 def check_pu01(document_root, contexts, style_map, cfg):
     """PU01: 中文正文中不应使用英文半角标点（,.;:） 代替全角标点（，。；：）"""
-    import re as _re
-
-    half_in_cjk = _re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf][,;:]|[,;:][\u4e00-\u9fff\u3400-\u4dbf]")
     skip_kinds = {"reference", "caption"}
     issues = []
     for ctx in contexts:
+        if ctx.get("effective_section") not in {"body", "appendix"}:
+            continue
         if ctx.get("kind") in skip_kinds:
             continue
         elem = ctx.get("elem")
         if elem is not None and elem.find(".//m:oMath", MNSMAP) is not None:
             continue
         txt = ctx.get("text", "")
-        if half_in_cjk.search(txt):
+        if _has_half_width_punct_in_cjk_context(txt):
             snippet = txt.strip()[:50]
             issues.append(f"第{ctx['index']}段正文中存在英文半角标点夹在中文字符中：{snippet}")
         if len(issues) >= 5:
             break
     if not issues:
         return True, [], "全文"
+    return False, issues, f"{len(issues)} 处"
+
+
+def check_lnu_abs04(document_root, contexts, style_map, cfg):
+    """LNU_ABS04: 中文摘要正文不应出现中文语境下的英文半角标点。"""
+    issues = []
+    for ctx in contexts:
+        if ctx.get("module") != "abstract_cn_body":
+            continue
+        elem = ctx.get("elem")
+        if elem is not None and elem.find(".//m:oMath", MNSMAP) is not None:
+            continue
+        txt = ctx.get("text", "")
+        if _has_half_width_punct_in_cjk_context(txt):
+            snippet = txt.strip()[:50]
+            issues.append(f"第{ctx['index']}段中文摘要中存在英文半角标点夹在中文字符中：{snippet}")
+        if len(issues) >= 5:
+            break
+    if not issues:
+        return True, [], "中文摘要正文"
     return False, issues, f"{len(issues)} 处"
 
 
@@ -2828,7 +3533,7 @@ RULE_CHECKERS = {
     "F02": lambda doc, ctxs, sm, cfg: check_f02(doc, ctxs, sm, cfg),
     "TB01": lambda doc, ctxs, sm, cfg: check_tb01(doc, ctxs, sm),
     "H04": lambda doc, ctxs, sm, cfg: check_h04(doc, ctxs, sm, cfg),
-    "S01": lambda doc, ctxs, sm, cfg: check_s01(doc, ctxs, sm),
+    "S01": lambda doc, ctxs, sm, cfg: check_s01(doc, ctxs, sm, cfg),
     "S02": lambda doc, ctxs, sm, cfg: check_s02(doc, ctxs, sm),
     "S03": lambda doc, ctxs, sm, cfg: check_s03(doc, ctxs, sm),
     "FN01": lambda doc, ctxs, sm, cfg, footnotes_root: check_fn01(doc, ctxs, sm, footnotes_root),
@@ -2859,6 +3564,8 @@ RULE_CHECKERS = {
 }
 
 LNU_RULE_CHECKERS = {
+    "LNU_FMT01": lambda doc, ctxs, sm, cfg: check_lnu_fmt01(doc, ctxs, sm, cfg),
+    "LNU_FMT02": lambda doc, ctxs, sm, cfg: check_lnu_fmt02(doc, ctxs, sm, cfg),
     "LNU_F01": lambda doc, ctxs, sm, cfg: check_lnu_f01(doc, ctxs, sm, cfg),
     "LNU_F02": lambda doc, ctxs, sm, cfg: check_lnu_f02(doc, ctxs, sm, cfg),
     "LNU_F03": lambda doc, ctxs, sm, cfg: check_lnu_f03(doc, ctxs, sm, cfg),
@@ -2866,15 +3573,19 @@ LNU_RULE_CHECKERS = {
     "LNU_REF01": lambda doc, ctxs, sm, cfg: check_lnu_ref01(doc, ctxs, sm, cfg),
     "LNU_REF02": lambda doc, ctxs, sm, cfg: check_lnu_ref02(doc, ctxs, sm, cfg),
     "LNU_REF03": check_lnu_ref03,
+    "LNU_REF04": check_lnu_ref04,
+    "LNU_REF05": check_lnu_ref05,
     "LNU_TB01": check_lnu_tb01,
     "LNU_TOC01": check_lnu_toc01,
     "LNU_TOC02": check_lnu_toc02,
     "LNU_TOC03": check_lnu_toc03,
     "LNU_F05": lambda doc, ctxs, sm, cfg: check_lnu_f05(doc, ctxs, sm, cfg),
     "LNU_TB02": lambda doc, ctxs, sm, cfg: check_lnu_tb02(doc, ctxs, sm, cfg),
+    "LNU_TB04": lambda doc, ctxs, sm, cfg: check_lnu_tb04(doc, ctxs, sm, cfg),
     "LNU_ABS01": lambda doc, ctxs, sm, cfg: check_lnu_abs01(doc, ctxs, sm, cfg),
     "LNU_ABS02": lambda doc, ctxs, sm, cfg: check_lnu_abs02(doc, ctxs, sm, cfg),
     "LNU_ABS03": lambda doc, ctxs, sm, cfg: check_lnu_abs03(doc, ctxs, sm, cfg),
+    "LNU_ABS04": lambda doc, ctxs, sm, cfg: check_lnu_abs04(doc, ctxs, sm, cfg),
     "LNU_H01": lambda doc, ctxs, sm, cfg: check_heading_num_space(ctxs),
     "LNU_CONC01": lambda doc, ctxs, sm, cfg: check_lnu_conc01(doc, ctxs, sm, cfg),
     "LNU_S03": lambda doc, ctxs, sm, cfg: check_lnu_s03(doc, ctxs, sm, cfg),
@@ -2886,7 +3597,7 @@ LNU_RULE_CHECKERS = {
 
 def build_rule_definitions(profile_id, disabled_rules=()):
     rule_definitions = list(RULE_DEFINITIONS)
-    if profile_id == "lnu-undergraduate":
+    if profile_id.startswith("lnu-"):
         rule_definitions.extend(LNU_RULE_DEFINITIONS)
     disabled = set(disabled_rules or ())
     if disabled:
@@ -2896,14 +3607,14 @@ def build_rule_definitions(profile_id, disabled_rules=()):
 
 def build_rule_checkers(profile_id, disabled_rules=()):
     rule_checkers = dict(RULE_CHECKERS)
-    if profile_id == "lnu-undergraduate":
+    if profile_id.startswith("lnu-"):
         rule_checkers.update(LNU_RULE_CHECKERS)
     for rule_id in set(disabled_rules or ()):
         rule_checkers.pop(rule_id, None)
     return rule_checkers
 
 
-def build_audit_runtime(profile_path=None, strict_profile=False):
+def build_audit_runtime(profile_path=None, strict_profile=None):
     bundle = load_profile_bundle(
         profile_path,
         yaml_lib=yaml,
@@ -3005,7 +3716,7 @@ def audit_roots(file_path, document_root, styles_root, footnotes_root=None, cfg=
     return results, score, report
 
 
-def audit_docx_with_runtime(file_path, profile_path=None, strict_profile=False):
+def audit_docx_with_runtime(file_path, profile_path=None, strict_profile=None):
     runtime = build_audit_runtime(profile_path, strict_profile=strict_profile)
     document_xml, styles_xml, footnotes_xml = load_docx_xml(file_path)
     document_root = ET.fromstring(document_xml)
@@ -3023,7 +3734,7 @@ def audit_docx_with_runtime(file_path, profile_path=None, strict_profile=False):
     return results, score, report, runtime
 
 
-def audit_docx(file_path, profile_path=None, strict_profile=False):
+def audit_docx(file_path, profile_path=None, strict_profile=None):
     results, score, report, _runtime = audit_docx_with_runtime(
         file_path,
         profile_path=profile_path,
@@ -3036,7 +3747,19 @@ def main():
     parser = argparse.ArgumentParser(description="审查 DOCX 论文格式")
     parser.add_argument("file", help="待审查的 .docx 文件路径")
     parser.add_argument("--profile", default=None, help="学校Profile路径或简称（lnu/cn-common）")
-    parser.add_argument("--strict-profile", action="store_true", default=False, help="profile 加载失败时直接报错，不回退默认配置")
+    parser.add_argument(
+        "--strict-profile",
+        dest="strict_profile",
+        action="store_true",
+        default=None,
+        help="profile 加载失败时直接报错，不回退默认配置",
+    )
+    parser.add_argument(
+        "--allow-profile-fallback",
+        dest="strict_profile",
+        action="store_false",
+        help="profile 加载失败时回退到默认 CN-Common 配置",
+    )
     args = parser.parse_args()
 
     try:

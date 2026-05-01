@@ -20,6 +20,15 @@ _HEADING_KIND_TO_LEVEL = {
     "h4": 4,
 }
 
+READINESS_STRUCTURE_READY = "structure-ready"
+READINESS_RENDER_CHECK_REQUIRED = "render-check-required"
+READINESS_MANUAL_REVIEW_REQUIRED = "manual-review-required"
+READINESS_UNSUPPORTED = "unsupported"
+READINESS_NEEDS_FIX = "needs-fix"
+PREFLIGHT_READY = "ready"
+PREFLIGHT_WARNING = "warning"
+PREFLIGHT_BLOCKED = "blocked"
+
 
 def _filter_scopes(scopes: list[dict], requested_scope_ids: set[str] | None) -> list[dict]:
     if requested_scope_ids is None:
@@ -41,7 +50,63 @@ def _scope_status(scope_failed: list[dict]) -> str:
     return "mixed"
 
 
-def _classify_result_action(result: dict) -> str:
+def classify_scope_readiness(*, autofixable: int, manual_review: int, unsupported: int) -> str:
+    if unsupported > 0:
+        return READINESS_UNSUPPORTED
+    if manual_review > 0:
+        return READINESS_MANUAL_REVIEW_REQUIRED
+    if autofixable > 0:
+        return READINESS_NEEDS_FIX
+    return READINESS_STRUCTURE_READY
+
+
+def _collect_render_check_rules(plan: dict, *, file_path: str, profile_path: str | None, strict_profile: bool | None) -> list[dict]:
+    selected_scope_ids = set(plan["selected_scopes"] or [scope["id"] for scope in plan["scopes"]])
+    if "toc" not in selected_scope_ids:
+        return []
+
+    diagnostics = build_document_diagnostics(
+        file_path,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+    toc_status = str((diagnostics.get("toc") or {}).get("status") or "")
+    if toc_status != "field_only":
+        return []
+
+    toc_scope = next((scope for scope in plan["scopes"] if scope["id"] == "toc"), None)
+    return [
+        {
+            "id": "TOC_REFRESH_REQUIRED",
+            "name": "目录域已注入，仍需在 Word/WPS 中刷新生成可见目录",
+            "check_level": "Rendered",
+            "scope_id": "toc",
+            "scope_title": toc_scope["title"] if toc_scope is not None else "目录",
+            "action": "render_check",
+        }
+    ]
+
+
+def classify_apply_readiness(verification: dict) -> str:
+    readiness = verification.get("readiness") or READINESS_STRUCTURE_READY
+    if readiness == READINESS_STRUCTURE_READY:
+        return READINESS_RENDER_CHECK_REQUIRED
+    return readiness
+
+
+def classify_overall_status(*, autofixable: int, manual_review: int, unsupported: int, has_failures: bool) -> str:
+    if not has_failures:
+        return "verified"
+    if autofixable > 0:
+        return "needs_fix"
+    if manual_review > 0 and unsupported == 0:
+        return "manual_review"
+    if unsupported > 0 and manual_review == 0:
+        return "unsupported"
+    return "mixed"
+
+
+def classify_audit_result_action(result: dict) -> str:
     action = classify_rule_action(result["id"])
     issues = result.get("issues") or []
 
@@ -50,10 +115,15 @@ def _classify_result_action(result: dict) -> str:
     # citations at all, the user must add or confirm citations manually.
     if result["id"] == "C01" and any("全文未发现任何上标格式的方括号引用" in issue for issue in issues):
         return "manual_review"
+    if result["id"] == "KW01":
+        for issue in issues:
+            match = re.search(r"关键词数量为\s*(\d+)", issue)
+            if match and int(match.group(1)) < 3:
+                return "manual_review"
     return action
 
 
-def build_scope_plan(file_path: str, profile_path: str | None = None, scopes=None, strict_profile: bool = False) -> dict:
+def build_scope_plan(file_path: str, profile_path: str | None = None, scopes=None, strict_profile: bool | None = None) -> dict:
     requested_scope_ids = normalize_scope_names(scopes)
     capabilities = load_rule_capabilities()
     results, score, report, runtime = audit_thesis.audit_docx_with_runtime(
@@ -70,7 +140,7 @@ def build_scope_plan(file_path: str, profile_path: str | None = None, scopes=Non
         enriched_result = dict(result)
         enriched_result["check_level"] = capability.get("check_level", "Unknown")
         enriched_result["autofix"] = capability.get("autofix", "?")
-        enriched_result["action"] = _classify_result_action(result)
+        enriched_result["action"] = classify_audit_result_action(result)
         scope_id = scope_for_rule(result["id"])
         if scope_id is None:
             unscoped_failed.append(enriched_result)
@@ -109,6 +179,8 @@ def build_scope_plan(file_path: str, profile_path: str | None = None, scopes=Non
         "file_path": str(Path(file_path)),
         "profile_path": profile_path,
         "profile_id": runtime.profile_id,
+        "requested_profile": runtime.requested_profile,
+        "fallback_used": runtime.fallback_used,
         "profile_display": audit_thesis.format_profile_resolution(
             runtime.profile_id,
             runtime.requested_profile,
@@ -161,7 +233,7 @@ def render_scope_plan(plan: dict) -> str:
     return "\n".join(lines)
 
 
-def build_scope_verify(file_path: str, profile_path: str | None = None, scopes=None, strict_profile: bool = False) -> dict:
+def build_scope_verify(file_path: str, profile_path: str | None = None, scopes=None, strict_profile: bool | None = None) -> dict:
     plan = build_scope_plan(file_path, profile_path=profile_path, scopes=scopes, strict_profile=strict_profile)
     selected_scopes = [scope for scope in plan["scopes"] if scope["failed_count"] > 0]
     needs_manual = sum(scope["manual_review_count"] for scope in selected_scopes)
@@ -187,27 +259,38 @@ def build_scope_verify(file_path: str, profile_path: str | None = None, scopes=N
 
     manual_review_rules.sort(key=lambda item: item["id"])
     unsupported_rules.sort(key=lambda item: item["id"])
-
-    if not selected_scopes:
-        overall_status = "verified"
-    elif autofixable > 0:
-        overall_status = "needs_fix"
-    elif needs_manual > 0 and unsupported == 0:
-        overall_status = "manual_review"
-    elif unsupported > 0 and needs_manual == 0:
-        overall_status = "unsupported"
-    else:
-        overall_status = "mixed"
+    readiness = classify_scope_readiness(
+        autofixable=autofixable,
+        manual_review=needs_manual,
+        unsupported=unsupported,
+    )
+    render_check_rules = _collect_render_check_rules(
+        plan,
+        file_path=file_path,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+    if readiness == READINESS_STRUCTURE_READY and render_check_rules:
+        readiness = READINESS_RENDER_CHECK_REQUIRED
+    overall_status = classify_overall_status(
+        autofixable=autofixable,
+        manual_review=needs_manual,
+        unsupported=unsupported,
+        has_failures=bool(selected_scopes),
+    )
 
     return {
         "file_path": plan["file_path"],
         "profile_path": plan["profile_path"],
         "profile_id": plan.get("profile_id"),
+        "requested_profile": plan.get("requested_profile"),
+        "fallback_used": bool(plan.get("fallback_used")),
         "profile_display": plan.get("profile_display"),
         "score": plan["score"],
         "failed_count": plan["failed_count"],
         "selected_scopes": plan["selected_scopes"],
         "scopes": plan["scopes"],
+        "readiness": readiness,
         "overall_status": overall_status,
         "manual_review_count": needs_manual,
         "unsupported_count": unsupported,
@@ -216,6 +299,9 @@ def build_scope_verify(file_path: str, profile_path: str | None = None, scopes=N
         "unsupported_rules": unsupported_rules,
         "manual_review_rule_ids": [item["id"] for item in manual_review_rules],
         "unsupported_rule_ids": [item["id"] for item in unsupported_rules],
+        "render_check_count": len(render_check_rules),
+        "render_check_rules": render_check_rules,
+        "render_check_rule_ids": [item["id"] for item in render_check_rules],
     }
 
 
@@ -225,6 +311,7 @@ def render_scope_verify(verification: dict) -> str:
         f"Profile: {verification.get('profile_display') or verification.get('profile_id') or verification['profile_path'] or 'default'}",
         f"评分: {verification['score']}/100",
         f"验证状态: {verification['overall_status']}",
+        f"可提交状态: {verification['readiness']}",
         f"未通过规则: {verification['failed_count']}",
     ]
 
@@ -232,19 +319,23 @@ def render_scope_verify(verification: dict) -> str:
         lines.append(f"复查范围: {', '.join(verification['selected_scopes'])}")
 
     failed_scopes = [scope for scope in verification["scopes"] if scope["failed_count"] > 0]
-    if not failed_scopes:
+    render_check_rules = verification.get("render_check_rules") or []
+    if not failed_scopes and not render_check_rules:
         lines.append("结果: 所选范围当前未发现规则问题。")
         return "\n".join(lines)
+    if not failed_scopes:
+        lines.append("结果: 所选范围结构规则已通过，但仍需做渲染复核。")
 
-    lines.append("")
-    lines.append("范围复查结果：")
-    for scope in failed_scopes:
-        lines.append(
-            f"- {scope['title']}（{scope['id']}）: "
-            f"自动修复 {scope['autofixable_count']}，"
-            f"人工确认 {scope['manual_review_count']}，"
-            f"当前不支持 {scope['unsupported_count']}"
-        )
+    if failed_scopes:
+        lines.append("")
+        lines.append("范围复查结果：")
+        for scope in failed_scopes:
+            lines.append(
+                f"- {scope['title']}（{scope['id']}）: "
+                f"自动修复 {scope['autofixable_count']}，"
+                f"人工确认 {scope['manual_review_count']}，"
+                f"当前不支持 {scope['unsupported_count']}"
+            )
 
     manual_review_rules = verification.get("manual_review_rules") or []
     unsupported_rules = verification.get("unsupported_rules") or []
@@ -260,6 +351,15 @@ def render_scope_verify(verification: dict) -> str:
         for item in unsupported_rules:
             lines.append(
                 f"- {item['id']} (unsupported/{item['check_level']}) {item['name']} "
+                f"[scope={item['scope_id']}]"
+            )
+    if render_check_rules:
+        lines.append("")
+        lines.append("仍需渲染复核：")
+        lines.append("提示: 结构层已处理到位，但最终 Word/WPS 显示仍需确认。")
+        for item in render_check_rules:
+            lines.append(
+                f"- {item['id']} ({item['check_level']}) {item['name']} "
                 f"[scope={item['scope_id']}]"
             )
     return "\n".join(lines)
@@ -396,7 +496,24 @@ def _build_heading_renumber_guard(style_text_conflicts: list[dict], table_headin
     }
 
 
-def build_document_diagnostics(file_path: str, profile_path: str | None = None, strict_profile: bool = False) -> dict:
+def classify_document_preflight_status(diagnostics: dict) -> str:
+    renumber_guard = (diagnostics.get("heading_renumber_guard") or {}).get("status")
+    if renumber_guard == "block":
+        return PREFLIGHT_BLOCKED
+
+    toc_status = str((diagnostics.get("toc") or {}).get("status") or "")
+    preface_status = str(diagnostics.get("preface_status") or "")
+    if (
+        renumber_guard == "warn"
+        or toc_status in {"manual_toc", "duplicate_toc", "field_only", "no_toc"}
+        or preface_status in {"zero_based_mismatch", "preface_without_children"}
+    ):
+        return PREFLIGHT_WARNING
+
+    return PREFLIGHT_READY
+
+
+def build_document_diagnostics(file_path: str, profile_path: str | None = None, strict_profile: bool | None = None) -> dict:
     runtime = audit_thesis.build_audit_runtime(profile_path, strict_profile=strict_profile)
     _document_root, style_map, document_model = _load_document_model(file_path)
     toc = _build_toc_diagnostics(document_model, style_map)
@@ -466,6 +583,8 @@ def build_document_diagnostics(file_path: str, profile_path: str | None = None, 
         "file_path": str(Path(file_path)),
         "profile_path": profile_path,
         "profile_id": runtime.profile_id,
+        "requested_profile": runtime.requested_profile,
+        "fallback_used": runtime.fallback_used,
         "profile_display": audit_thesis.format_profile_resolution(
             runtime.profile_id,
             runtime.requested_profile,
@@ -490,6 +609,104 @@ def build_document_diagnostics(file_path: str, profile_path: str | None = None, 
             style_text_conflicts,
             table_heading_candidates,
         ),
+    }
+
+
+def build_document_preflight(file_path: str, profile_path: str | None = None, strict_profile: bool | None = None) -> dict:
+    diagnostics = build_document_diagnostics(
+        file_path,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+    preflight_status = classify_document_preflight_status(diagnostics)
+
+    if preflight_status == PREFLIGHT_BLOCKED:
+        headline = "发现高风险结构冲突，建议先处理后再执行 apply。"
+    elif preflight_status == PREFLIGHT_WARNING:
+        headline = "发现若干结构风险，建议先完成预检关注项。"
+    else:
+        headline = "未发现明显结构风险，可继续按目标 scope 执行修复。"
+
+    return {
+        "file_path": diagnostics["file_path"],
+        "profile_path": diagnostics["profile_path"],
+        "profile_id": diagnostics.get("profile_id"),
+        "requested_profile": diagnostics.get("requested_profile"),
+        "fallback_used": bool(diagnostics.get("fallback_used")),
+        "profile_display": diagnostics.get("profile_display"),
+        "preflight_status": preflight_status,
+        "headline": headline,
+        "toc_status": (diagnostics.get("toc") or {}).get("status"),
+        "preface_status": diagnostics.get("preface_status"),
+        "heading_renumber_guard": dict(diagnostics.get("heading_renumber_guard") or {}),
+        "table_heading_risk_count": len(diagnostics.get("table_heading_candidates") or []),
+        "style_conflict_count": len(diagnostics.get("style_text_conflicts") or []),
+        "recommended_actions": list(diagnostics.get("recommended_actions") or []),
+        "diagnostics": diagnostics,
+    }
+
+
+def build_document_normalize(
+    file_path: str,
+    *,
+    output_path: str | None = None,
+    profile_path: str | None = None,
+    strict_profile: bool | None = None,
+) -> dict:
+    validated_input = audit_thesis.validate_docx_path(file_path)
+    resolved_output_path = output_path or fix_thesis.default_normalize_output_path(validated_input)
+    before = build_document_preflight(
+        validated_input,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+    normalized = fix_thesis.normalize_docx(
+        validated_input,
+        resolved_output_path,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+    after = build_document_preflight(
+        resolved_output_path,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+
+    next_steps: list[str] = []
+    if after.get("preflight_status") == PREFLIGHT_BLOCKED:
+        next_steps.append("仍存在结构阻断，先重新查看 preflight 结果，再决定是否进入 apply。")
+    elif after.get("preflight_status") == PREFLIGHT_WARNING:
+        next_steps.append("结构风险已下降但未清零，建议先 verify 关键 scope，再决定是否 apply。")
+    else:
+        next_steps.append("预规整后未见明显结构阻断，可继续进入 verify 或 apply。")
+
+    if after.get("toc_status") == "field_only":
+        next_steps.append("目录域已就位但仍未刷新，后续请运行 render-verify，并在 Word/WPS 中刷新目录域。")
+
+    return {
+        "file_path": str(Path(validated_input)),
+        "output_path": str(Path(resolved_output_path)),
+        "profile_path": profile_path,
+        "profile_id": normalized.get("profile_id"),
+        "requested_profile": normalized.get("requested_profile"),
+        "fallback_used": bool(normalized.get("fallback_used")),
+        "profile_display": normalized.get("profile_display"),
+        "changed": bool(normalized.get("changed")),
+        "operations": list(normalized.get("operations") or []),
+        "summary": {
+            "operation_count": len(normalized.get("operations") or []),
+            "before_preflight_status": before.get("preflight_status"),
+            "after_preflight_status": after.get("preflight_status"),
+            "before_toc_status": before.get("toc_status"),
+            "after_toc_status": after.get("toc_status"),
+            "before_style_conflict_count": before.get("style_conflict_count", 0),
+            "after_style_conflict_count": after.get("style_conflict_count", 0),
+            "before_table_heading_risk_count": before.get("table_heading_risk_count", 0),
+            "after_table_heading_risk_count": after.get("table_heading_risk_count", 0),
+        },
+        "before": before,
+        "after": after,
+        "next_steps": next_steps,
     }
 
 
@@ -589,6 +806,94 @@ def render_document_diagnostics_compact(diagnostics: dict) -> str:
     return "\n".join(f"{key}={value}" for key, value in values)
 
 
+def render_document_preflight(preflight: dict) -> str:
+    lines = [
+        f"文件: {Path(preflight['file_path']).name}",
+        f"Profile: {preflight.get('profile_display') or preflight.get('profile_id') or preflight['profile_path'] or 'default'}",
+        f"预检状态: {preflight['preflight_status']}",
+        f"结论: {preflight['headline']}",
+        (
+            "风险摘要: "
+            f"toc={preflight.get('toc_status') or '-'}; "
+            f"preface={preflight.get('preface_status') or '-'}; "
+            f"heading_guard={(preflight.get('heading_renumber_guard') or {}).get('status') or '-'}; "
+            f"table_risk={preflight.get('table_heading_risk_count', 0)}; "
+            f"style_conflict={preflight.get('style_conflict_count', 0)}"
+        ),
+        "",
+        "建议动作：",
+    ]
+    for action in preflight.get("recommended_actions") or []:
+        lines.append(f"- {action}")
+    return "\n".join(lines)
+
+
+def render_document_normalize(normalize: dict) -> str:
+    summary = normalize.get("summary") or {}
+    lines = [
+        f"文件: {Path(normalize['file_path']).name}",
+        f"Profile: {normalize.get('profile_display') or normalize.get('profile_id') or normalize.get('profile_path') or 'default'}",
+        f"输出文件: {normalize['output_path']}",
+        f"预规整改动: {'有' if normalize.get('changed') else '无'}",
+        (
+            "预检变化: "
+            f"{summary.get('before_preflight_status')} -> {summary.get('after_preflight_status')}; "
+            f"toc {summary.get('before_toc_status')} -> {summary.get('after_toc_status')}; "
+            f"style_conflict {summary.get('before_style_conflict_count', 0)} -> {summary.get('after_style_conflict_count', 0)}; "
+            f"table_risk {summary.get('before_table_heading_risk_count', 0)} -> {summary.get('after_table_heading_risk_count', 0)}"
+        ),
+        "",
+        "已执行动作：",
+    ]
+    operations = normalize.get("operations") or []
+    if not operations:
+        lines.append("- 未发现需要安全预规整的对象。")
+    else:
+        for item in operations:
+            lines.append(f"- {item['label']} × {item['count']}")
+
+    lines.append("")
+    lines.append("下一步：")
+    for item in normalize.get("next_steps") or []:
+        lines.append(f"- {item}")
+    return "\n".join(lines)
+
+
+def render_document_normalize_compact(normalize: dict) -> str:
+    summary = normalize.get("summary") or {}
+    parts = [
+        ("file", Path(normalize["file_path"]).name),
+        ("profile", normalize.get("profile_display") or normalize.get("profile_id") or normalize.get("profile_path") or "default"),
+        ("changed", str(bool(normalize.get("changed"))).lower()),
+        ("operation_count", str(summary.get("operation_count", 0))),
+        ("before_preflight_status", str(summary.get("before_preflight_status") or "-")),
+        ("after_preflight_status", str(summary.get("after_preflight_status") or "-")),
+        ("before_toc_status", str(summary.get("before_toc_status") or "-")),
+        ("after_toc_status", str(summary.get("after_toc_status") or "-")),
+        ("before_style_conflict_count", str(summary.get("before_style_conflict_count", 0))),
+        ("after_style_conflict_count", str(summary.get("after_style_conflict_count", 0))),
+        ("before_table_heading_risk_count", str(summary.get("before_table_heading_risk_count", 0))),
+        ("after_table_heading_risk_count", str(summary.get("after_table_heading_risk_count", 0))),
+    ]
+    return "; ".join(f"{key}={value}" for key, value in parts)
+
+
+def render_document_preflight_compact(preflight: dict) -> str:
+    values = [
+        ("file", Path(preflight["file_path"]).name),
+        ("profile", preflight.get("profile_display") or preflight.get("profile_id") or preflight["profile_path"] or "default"),
+        ("preflight_status", preflight["preflight_status"]),
+        ("toc_status", str(preflight.get("toc_status") or "-")),
+        ("preface_status", str(preflight.get("preface_status") or "-")),
+        ("heading_renumber_guard_status", str((preflight.get("heading_renumber_guard") or {}).get("status") or "-")),
+        ("heading_renumber_guard_reason", str((preflight.get("heading_renumber_guard") or {}).get("reason") or "-")),
+        ("table_heading_risk_count", str(preflight.get("table_heading_risk_count", 0))),
+        ("style_conflict_count", str(preflight.get("style_conflict_count", 0))),
+        ("recommended_action_count", str(len(preflight.get("recommended_actions") or []))),
+    ]
+    return "\n".join(f"{key}={value}" for key, value in values)
+
+
 def apply_scoped_fix(
     input_path: str,
     output_path: str,
@@ -596,8 +901,9 @@ def apply_scoped_fix(
     scopes=None,
     toc: bool = False,
     renumber_headings: bool = False,
+    layout_rebalance: bool = False,
     dry_run: bool = False,
-    strict_profile: bool = False,
+    strict_profile: bool | None = None,
 ) -> str | dict:
     normalized_scopes = normalize_scope_names(scopes)
     runtime = fix_thesis.build_fix_runtime(
@@ -605,6 +911,7 @@ def apply_scoped_fix(
         toc=toc,
         scopes=normalized_scopes,
         renumber_headings=renumber_headings,
+        layout_rebalance=layout_rebalance,
         dry_run=dry_run,
         strict_profile=strict_profile,
     )
@@ -628,7 +935,8 @@ def build_scoped_fix_preview(
     scopes=None,
     toc: bool = False,
     renumber_headings: bool = False,
-    strict_profile: bool = False,
+    layout_rebalance: bool = False,
+    strict_profile: bool | None = None,
 ) -> dict:
     preview = apply_scoped_fix(
         input_path,
@@ -637,6 +945,7 @@ def build_scoped_fix_preview(
         scopes=scopes,
         toc=toc,
         renumber_headings=renumber_headings,
+        layout_rebalance=layout_rebalance,
         strict_profile=strict_profile,
         dry_run=True,
     )

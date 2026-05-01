@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import glob
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 from docx import Document
+import pytest
 
 from .conftest import RULE_MUTATORS, SCRIPTS_DIR, audit_rule_status, make_compliant_doc
+
+
+_RENDER_DOCX_SCRIPT_READY = bool(
+    glob.glob(os.path.expanduser("~/.codex/plugins/cache/openai-primary-runtime/documents/*/skills/documents/render_docx.py"))
+)
 
 
 def _make_high_risk_lnu_doc(source_path: Path) -> Path:
@@ -106,6 +114,27 @@ def test_workbench_apply_cli_rejects_doc_input(tmp_path):
     assert result.returncode == 2
     assert "仅支持 .docx 文件" in result.stderr
     assert str(doc_path) in result.stderr
+
+
+def test_workbench_profiles_lists_expected_profiles():
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "thesis_workbench.py"),
+            "profiles",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "cn-common" in result.stdout
+    assert "ams-graduate" in result.stdout
+    assert "lnu-checker-2026" in result.stdout
+    assert "support=一等支持" in result.stdout
+    assert "课程作业/基础论文[课程作业、基础论文]/一等支持" in result.stdout
+    assert "学校学位论文[本科毕业论文]/一等支持" in result.stdout
 
 
 def test_workbench_apply_cli_supports_dry_run_without_writing_output(tmp_docx, tmp_path):
@@ -370,6 +399,130 @@ def test_workbench_diagnose_cli_supports_compact_output(tmp_docx):
     assert "recommended_action_count=" in result.stdout
 
 
+def test_workbench_preflight_cli_reports_user_facing_status(tmp_path):
+    source_path = _make_style_conflict_lnu_doc(Path(tmp_path) / "workbench_cli_preflight_blocked.docx")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "thesis_workbench.py"),
+            "preflight",
+            str(source_path),
+            "--profile",
+            "lnu",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "预检状态: blocked" in result.stdout
+    assert "建议动作：" in result.stdout
+
+
+def test_workbench_preflight_cli_supports_compact_output(tmp_path):
+    source_path = _make_high_risk_lnu_doc(Path(tmp_path) / "workbench_cli_preflight_compact.docx")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "thesis_workbench.py"),
+            "preflight",
+            str(source_path),
+            "--profile",
+            "lnu",
+            "--compact",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "file=workbench_cli_preflight_compact.docx" in result.stdout
+    assert "preflight_status=warning" in result.stdout
+    assert "heading_renumber_guard_status=warn" in result.stdout
+
+
+def test_workbench_normalize_cli_reports_preflight_delta(tmp_path):
+    source_path = _make_style_conflict_lnu_doc(Path(tmp_path) / "workbench_cli_normalize.docx")
+    output_path = Path(tmp_path) / "workbench_cli_normalized.docx"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "thesis_workbench.py"),
+            "normalize",
+            str(source_path),
+            "--profile",
+            "lnu",
+            "--output",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output_path.exists()
+    assert "输出文件:" in result.stdout
+    assert "预规整改动: 有" in result.stdout
+    assert "预检变化: blocked -> warning" in result.stdout
+
+
+def test_workbench_normalize_cli_supports_compact_output(tmp_path):
+    source_path = _make_style_conflict_lnu_doc(Path(tmp_path) / "workbench_cli_normalize_compact.docx")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "thesis_workbench.py"),
+            "normalize",
+            str(source_path),
+            "--profile",
+            "lnu",
+            "--compact",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "file=workbench_cli_normalize_compact.docx" in result.stdout
+    assert "before_preflight_status=blocked" in result.stdout
+    assert "after_preflight_status=warning" in result.stdout
+
+
+@pytest.mark.skipif(not _RENDER_DOCX_SCRIPT_READY, reason="requires bundled render_docx.py")
+def test_workbench_render_verify_cli_writes_page_proof(tmp_path):
+    source_path = Path(tmp_path) / "workbench_cli_render_verify.docx"
+    doc = Document()
+    doc.add_heading("Render Verify", level=1)
+    doc.add_paragraph("This is a render verification probe.")
+    doc.save(source_path)
+    output_dir = Path(tmp_path) / "render-proof"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "thesis_workbench.py"),
+            "render-verify",
+            str(source_path),
+            "--profile",
+            "lnu",
+            "--output-dir",
+            str(output_dir),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "渲染证据目录:" in result.stdout
+    assert "生成页图:" in result.stdout
+    assert (output_dir / "page-1.png").exists()
+    assert (output_dir / "render_verify_report.json").exists()
+
+
 def test_workbench_verify_cli_highlights_manual_review_rules(tmp_path):
     source_path = _make_lnu_f05_fail_doc(Path(tmp_path) / "workbench_cli_verify_lnu_f05.docx")
     result = subprocess.run(
@@ -389,6 +542,7 @@ def test_workbench_verify_cli_highlights_manual_review_rules(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
+    assert "可提交状态: manual-review-required" in result.stdout
     assert "仍需人工复核：" in result.stdout
     assert "LNU_F05" in result.stdout
     assert "[提示] 当前结果仍含人工复核项" in result.stdout
@@ -411,7 +565,7 @@ def test_workbench_audit_cli_prints_effective_profile(tmp_docx):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Profile: lnu-undergraduate (requested: lnu)" in result.stdout
+    assert "Profile: lnu-checker-2026 (requested: lnu)" in result.stdout
 
 
 def test_workbench_audit_cli_supports_strict_profile(tmp_docx):
@@ -433,3 +587,44 @@ def test_workbench_audit_cli_supports_strict_profile(tmp_docx):
 
     assert result.returncode == 2
     assert "Profile 加载失败" in result.stderr
+
+
+def test_workbench_audit_cli_defaults_to_strict_profile_for_explicit_profile(tmp_docx):
+    source_path = tmp_docx(make_compliant_doc, filename="workbench_cli_audit_default_strict_source.docx")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "thesis_workbench.py"),
+            "audit",
+            str(source_path),
+            "--profile",
+            "missing-profile.yaml",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "Profile 加载失败" in result.stderr
+
+
+def test_workbench_audit_cli_can_allow_profile_fallback(tmp_docx):
+    source_path = tmp_docx(make_compliant_doc, filename="workbench_cli_audit_allow_fallback_source.docx")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "thesis_workbench.py"),
+            "audit",
+            str(source_path),
+            "--profile",
+            "missing-profile.yaml",
+            "--allow-profile-fallback",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Profile: cn-common (requested: missing-profile.yaml; fallback: cn-common)" in result.stdout

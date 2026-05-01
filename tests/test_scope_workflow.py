@@ -9,10 +9,16 @@ from thesis_tool.scopes import scope_for_rule
 from thesis_tool.workflow import (
     apply_scoped_fix,
     build_document_diagnostics,
+    build_document_normalize,
+    build_document_preflight,
     build_scope_plan,
     build_scope_verify,
     render_document_diagnostics_compact,
     render_document_diagnostics,
+    render_document_normalize,
+    render_document_normalize_compact,
+    render_document_preflight,
+    render_document_preflight_compact,
     render_scope_plan,
     render_scope_verify,
 )
@@ -52,6 +58,19 @@ def _build_lnu_f03_fail_doc(path: Path) -> Path:
     return path
 
 
+def _build_abstract_pu01_scope_doc(path: Path) -> Path:
+    doc = Document()
+    doc.add_paragraph("摘 要")
+    doc.add_paragraph("这是中文,摘要.内容")
+    doc.add_paragraph("关键词：测试；流程；稳定性")
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("This is the English abstract.")
+    _add_heading(doc, "第一章 绪论", level=1, size=30)
+    doc.add_paragraph("这是正文,内容.保留")
+    doc.save(path)
+    return path
+
+
 def test_scope_plan_groups_failed_rules_by_scope(tmp_docx):
     docx_path = _build_multi_violation_doc(
         tmp_docx,
@@ -67,7 +86,7 @@ def test_scope_plan_groups_failed_rules_by_scope(tmp_docx):
     assert scopes["headings"]["failed_count"] >= 1
 
     assert "KW01" in scopes["abstract"]["failed_rules"]
-    assert scopes["abstract"]["status"] == "unsupported"
+    assert scopes["abstract"]["status"] == "manual_review"
     assert scopes["abstract"]["failed_count"] >= 1
 
     rendered = render_scope_plan(plan)
@@ -89,9 +108,10 @@ def test_scope_plan_exposes_action_buckets(tmp_docx):
     assert scopes["headings"]["autofixable_count"] >= 1
     assert scopes["headings"]["unsupported_count"] == 0
 
-    assert scopes["abstract"]["status"] == "unsupported"
+    assert scopes["abstract"]["status"] == "manual_review"
     assert scopes["abstract"]["autofixable_count"] == 0
-    assert scopes["abstract"]["unsupported_count"] >= 1
+    assert scopes["abstract"]["manual_review_count"] >= 1
+    assert scopes["abstract"]["unsupported_count"] == 0
 
     rendered = render_scope_plan(plan)
     assert "可自动修复" in rendered
@@ -137,15 +157,18 @@ def test_scope_verify_can_focus_on_selected_scope(tmp_docx, tmp_path):
 
     body_verify = build_scope_verify(str(fixed_path), scopes=["body_paragraphs"])
     assert body_verify["overall_status"] == "verified"
+    assert body_verify["readiness"] == "structure-ready"
     assert body_verify["failed_count"] == 0
     assert body_verify["selected_scopes"] == ["body_paragraphs"]
 
     headings_verify = build_scope_verify(str(fixed_path), scopes=["headings"])
     assert headings_verify["overall_status"] in {"needs_fix", "unsupported"}
+    assert headings_verify["readiness"] == "needs-fix"
     assert headings_verify["failed_count"] >= 1
 
     rendered = render_scope_verify(headings_verify)
     assert "验证状态:" in rendered
+    assert "可提交状态: needs-fix" in rendered
     assert "正文标题（headings）" in rendered
 
 
@@ -154,12 +177,14 @@ def test_scope_verify_exposes_manual_review_rule_summary_for_lnu_f05(tmp_path):
     verification = build_scope_verify(str(source_path), profile_path="lnu", scopes=["figures"])
 
     assert verification["overall_status"] in {"manual_review", "needs_fix"}
+    assert verification["readiness"] == "manual-review-required"
     assert "LNU_F05" in verification["manual_review_rule_ids"]
     assert verification["unsupported_rule_ids"] == []
     lnu_f05_item = next(item for item in verification["manual_review_rules"] if item["id"] == "LNU_F05")
     assert lnu_f05_item["check_level"] == "Semi"
 
     rendered = render_scope_verify(verification)
+    assert "可提交状态: manual-review-required" in rendered
     assert "仍需人工复核：" in rendered
     assert "LNU_F05" in rendered
     assert "评分较高不等于可直接提交" in rendered
@@ -185,11 +210,13 @@ def test_scope_verify_exposes_unsupported_rule_summary_ids(tmp_docx):
     )
     verification = build_scope_verify(str(source_path), profile_path="cn-common", scopes=["abstract"])
 
-    assert verification["overall_status"] == "unsupported"
-    assert verification["manual_review_rule_ids"] == []
-    assert "KW01" in verification["unsupported_rule_ids"]
+    assert verification["overall_status"] == "manual_review"
+    assert verification["readiness"] == "manual-review-required"
+    assert "KW01" in verification["manual_review_rule_ids"]
+    assert verification["unsupported_rule_ids"] == []
 
     rendered = render_scope_verify(verification)
+    assert "可提交状态: manual-review-required" in rendered
     assert "仍需人工复核：" in rendered
     assert "KW01" in rendered
 
@@ -221,6 +248,30 @@ def test_lnu_s03_is_grouped_under_headings_scope(tmp_docx):
 
 def test_lnu_toc01_is_grouped_under_toc_scope():
     assert scope_for_rule("LNU_TOC01") == "toc"
+
+
+def test_abstract_scope_repairs_lnu_abs04_without_touching_body_pu01(tmp_path):
+    source_path = _build_abstract_pu01_scope_doc(Path(tmp_path) / "abstract_pu01_scope_source.docx")
+
+    before_results, _score, _report = audit_thesis.audit_docx(str(source_path), profile_path="lnu")
+    assert any(item["id"] == "LNU_ABS04" and not item["passed"] for item in before_results)
+    assert any(item["id"] == "PU01" and not item["passed"] for item in before_results)
+
+    fixed_path = Path(tmp_path) / "abstract_pu01_scope_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["abstract"],
+    )
+
+    after_results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    assert any(item["id"] == "LNU_ABS04" and item["passed"] for item in after_results)
+    assert any(item["id"] == "PU01" and not item["passed"] for item in after_results)
+
+    fixed_doc = Document(fixed_path)
+    assert any(paragraph.text == "这是中文，摘要。内容" for paragraph in fixed_doc.paragraphs)
+    assert any(paragraph.text == "这是正文,内容.保留" for paragraph in fixed_doc.paragraphs)
 
 
 def test_headings_scope_also_repairs_acknowledgement_titles(tmp_docx, tmp_path):
@@ -344,6 +395,236 @@ def test_build_document_diagnostics_marks_table_risk_as_warn_not_block(tmp_path)
     assert "heading_renumber_guard_reason=table_risk" in compact
 
 
+def test_build_document_preflight_marks_style_conflict_as_blocked(tmp_path):
+    source_path = Path(tmp_path) / "preflight_blocked.docx"
+    doc = Document()
+    _add_heading(doc, "1 绪论", level=1, size=30)
+    conflict = doc.add_paragraph("3.6 分子对接验证结果")
+    _set_heading(conflict, level=1, size=30)
+    doc.save(source_path)
+
+    preflight = build_document_preflight(str(source_path), profile_path="lnu")
+
+    assert preflight["preflight_status"] == "blocked"
+    assert preflight["heading_renumber_guard"]["status"] == "block"
+    rendered = render_document_preflight(preflight)
+    assert "预检状态: blocked" in rendered
+    compact = render_document_preflight_compact(preflight)
+    assert "preflight_status=blocked" in compact
+
+
+def test_build_document_preflight_marks_table_risk_as_warning(tmp_path):
+    source_path = Path(tmp_path) / "preflight_warning.docx"
+    doc = Document()
+    _add_heading(doc, "1 绪论", level=1, size=30)
+    table = doc.add_table(rows=1, cols=1)
+    table.cell(0, 0).paragraphs[0].text = "1,4-Diaminobutane"
+    doc.save(source_path)
+
+    preflight = build_document_preflight(str(source_path), profile_path="lnu")
+
+    assert preflight["preflight_status"] == "warning"
+    assert preflight["table_heading_risk_count"] >= 1
+    rendered = render_document_preflight(preflight)
+    assert "预检状态: warning" in rendered
+    assert "建议动作：" in rendered
+    compact = render_document_preflight_compact(preflight)
+    assert "preflight_status=warning" in compact
+
+
+def test_build_document_normalize_reduces_style_conflict_risk(tmp_path):
+    source_path = Path(tmp_path) / "normalize_style_conflict.docx"
+    doc = Document()
+    heading = doc.add_paragraph("1 绪论")
+    heading.style = doc.styles["Heading 1"]
+    conflict = doc.add_paragraph("3.6 分子对接验证结果")
+    conflict.style = doc.styles["Heading 1"]
+    doc.add_paragraph("这是正文示例。")
+    doc.save(source_path)
+    output_path = Path(tmp_path) / "normalize_style_conflict_output.docx"
+
+    normalize = build_document_normalize(
+        str(source_path),
+        output_path=str(output_path),
+        profile_path="lnu",
+    )
+
+    assert output_path.exists()
+    assert normalize["changed"] is True
+    assert normalize["summary"]["before_preflight_status"] == "blocked"
+    assert normalize["summary"]["after_preflight_status"] == "warning"
+    assert normalize["summary"]["before_style_conflict_count"] >= 1
+    assert normalize["summary"]["after_style_conflict_count"] == 0
+    assert any(item["id"] == "heading_styles" for item in normalize["operations"])
+
+    rendered = render_document_normalize(normalize)
+    assert "预规整改动: 有" in rendered
+    assert "预检变化: blocked -> warning" in rendered
+
+    compact = render_document_normalize_compact(normalize)
+    assert "file=normalize_style_conflict.docx" in compact
+    assert "after_style_conflict_count=0" in compact
+
+
+def test_build_document_normalize_normalizes_manual_toc_title_and_entries(tmp_path):
+    from docx.oxml.ns import qn
+
+    source_path = Path(tmp_path) / "normalize_manual_toc.docx"
+    doc = Document()
+
+    toc_title = doc.add_paragraph("目录")
+    toc_title_pr = toc_title._p.get_or_add_pPr()
+    toc_title_jc = OxmlElement("w:jc")
+    toc_title_jc.set(qn("w:val"), "left")
+    toc_title_pr.append(toc_title_jc)
+
+    toc_field = doc.add_paragraph("")
+    toc_field_pr = toc_field._p.get_or_add_pPr()
+    toc_field_style = OxmlElement("w:pStyle")
+    toc_field_style.set(qn("w:val"), "TOCField")
+    toc_field_pr.append(toc_field_style)
+    toc_instr = OxmlElement("w:instrText")
+    toc_instr.text = ' TOC \\\\o "1-3" \\\\h \\\\z \\\\u '
+    toc_field.add_run("")._r.append(toc_instr)
+
+    toc_entry = doc.add_paragraph("第一章 绪论\t1")
+    toc_entry_pr = toc_entry._p.get_or_add_pPr()
+    toc_entry_style = OxmlElement("w:pStyle")
+    toc_entry_style.set(qn("w:val"), "TOC1")
+    toc_entry_pr.append(toc_entry_style)
+    toc_entry_spacing = OxmlElement("w:spacing")
+    toc_entry_spacing.set(qn("w:after"), "0")
+    toc_entry_pr.append(toc_entry_spacing)
+
+    _add_heading(doc, "第一章 绪论", level=1, size=30)
+    doc.save(source_path)
+
+    output_path = Path(tmp_path) / "normalize_manual_toc_output.docx"
+    normalize = build_document_normalize(
+        str(source_path),
+        output_path=str(output_path),
+        profile_path="lnu",
+    )
+
+    assert output_path.exists()
+    assert normalize["changed"] is True
+    operation_ids = {item["id"] for item in normalize["operations"]}
+    assert "toc_title" in operation_ids
+    assert "toc_entries" in operation_ids
+
+    normalized_doc = Document(output_path)
+    normalized_title = next(paragraph for paragraph in normalized_doc.paragraphs if paragraph.text.strip() == "目录")
+    title_pr = normalized_title._p.pPr
+    assert title_pr is not None
+    title_style = title_pr.find(qn("w:pStyle"))
+    assert title_style is not None
+    assert title_style.get(qn("w:val")) == "TOCHeading"
+    title_jc = title_pr.find(qn("w:jc"))
+    assert title_jc is not None
+    assert title_jc.get(qn("w:val")) == "center"
+
+    normalized_entry = next(paragraph for paragraph in normalized_doc.paragraphs if "\t1" in paragraph.text)
+    entry_pr = normalized_entry._p.pPr
+    assert entry_pr is not None
+    entry_spacing = entry_pr.find(qn("w:spacing"))
+    assert entry_spacing is not None
+    assert entry_spacing.get(qn("w:after")) == "100"
+
+    assert any(paragraph.text.strip() == "第一章 绪论" for paragraph in normalized_doc.paragraphs)
+
+
+def test_build_document_normalize_keeps_manual_toc_in_warning_state_without_field(tmp_path):
+    from docx.oxml.ns import qn
+
+    source_path = Path(tmp_path) / "normalize_manual_only_toc.docx"
+    doc = Document()
+
+    toc_title = doc.add_paragraph("目录")
+    toc_title_pr = toc_title._p.get_or_add_pPr()
+    toc_title_jc = OxmlElement("w:jc")
+    toc_title_jc.set(qn("w:val"), "left")
+    toc_title_pr.append(toc_title_jc)
+
+    toc_entry = doc.add_paragraph("第一章 绪论\t1")
+    toc_entry_pr = toc_entry._p.get_or_add_pPr()
+    toc_entry_style = OxmlElement("w:pStyle")
+    toc_entry_style.set(qn("w:val"), "TOC1")
+    toc_entry_pr.append(toc_entry_style)
+    toc_entry_spacing = OxmlElement("w:spacing")
+    toc_entry_spacing.set(qn("w:after"), "0")
+    toc_entry_pr.append(toc_entry_spacing)
+
+    _add_heading(doc, "第一章 绪论", level=1, size=30)
+    doc.save(source_path)
+
+    output_path = Path(tmp_path) / "normalize_manual_only_toc_output.docx"
+    normalize = build_document_normalize(
+        str(source_path),
+        output_path=str(output_path),
+        profile_path="lnu",
+    )
+
+    assert output_path.exists()
+    assert normalize["changed"] is True
+    assert normalize["summary"]["before_toc_status"] == "manual_toc"
+    assert normalize["summary"]["after_toc_status"] == "manual_toc"
+    assert normalize["summary"]["before_preflight_status"] == "warning"
+    assert normalize["summary"]["after_preflight_status"] == "warning"
+    assert any(item["id"] == "toc_title" for item in normalize["operations"])
+    assert any(item["id"] == "toc_entries" for item in normalize["operations"])
+    assert any("建议先 verify 关键 scope" in step for step in normalize["next_steps"])
+
+
+def test_build_document_normalize_removes_duplicate_body_toc_title(tmp_path):
+    from docx.oxml.ns import qn
+
+    source_path = Path(tmp_path) / "normalize_duplicate_toc_title.docx"
+    doc = Document()
+
+    toc_title = doc.add_paragraph("目  录")
+    toc_title_pr = toc_title._p.get_or_add_pPr()
+    toc_title_style = OxmlElement("w:pStyle")
+    toc_title_style.set(qn("w:val"), "TOCHeading")
+    toc_title_pr.append(toc_title_style)
+
+    toc_field = doc.add_paragraph("")
+    toc_field_pr = toc_field._p.get_or_add_pPr()
+    toc_field_style = OxmlElement("w:pStyle")
+    toc_field_style.set(qn("w:val"), "TOCField")
+    toc_field_pr.append(toc_field_style)
+    toc_instr = OxmlElement("w:instrText")
+    toc_instr.text = ' TOC \\\\o "1-3" \\\\h \\\\z \\\\u '
+    toc_field.add_run("")._r.append(toc_instr)
+
+    toc_entry = doc.add_paragraph("第一章 绪论\t1")
+    toc_entry_pr = toc_entry._p.get_or_add_pPr()
+    toc_entry_style = OxmlElement("w:pStyle")
+    toc_entry_style.set(qn("w:val"), "TOC1")
+    toc_entry_pr.append(toc_entry_style)
+    doc.add_paragraph("目录")
+    _add_heading(doc, "第一章 绪论", level=1, size=30)
+    doc.add_paragraph("正文内容。")
+    doc.save(source_path)
+
+    output_path = Path(tmp_path) / "normalize_duplicate_toc_title_output.docx"
+    normalize = build_document_normalize(
+        str(source_path),
+        output_path=str(output_path),
+        profile_path="lnu",
+    )
+
+    assert output_path.exists()
+    assert normalize["changed"] is True
+    assert any(item["id"] == "duplicate_toc_title" for item in normalize["operations"])
+
+    normalized_doc = Document(output_path)
+    texts = [paragraph.text.strip() for paragraph in normalized_doc.paragraphs if paragraph.text.strip()]
+    assert texts.count("目录") == 0
+    assert texts.count("目  录") == 1
+    assert "第一章 绪论" in texts
+    assert "正文内容。" in texts
+
+
 def test_build_document_diagnostics_reports_field_only_toc(tmp_path):
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
@@ -355,6 +636,9 @@ def test_build_document_diagnostics_reports_field_only_toc(tmp_path):
     title_style = OxmlElement("w:pStyle")
     title_style.set(qn("w:val"), "TOCHeading")
     title_p_pr.append(title_style)
+    title_jc = OxmlElement("w:jc")
+    title_jc.set(qn("w:val"), "center")
+    title_p_pr.append(title_jc)
 
     field = doc.add_paragraph("")
     field_p_pr = field._p.get_or_add_pPr()
@@ -374,6 +658,45 @@ def test_build_document_diagnostics_reports_field_only_toc(tmp_path):
     assert diagnostics["toc"]["status"] == "field_only"
     assert diagnostics["toc"]["title_count"] == 1
     assert diagnostics["toc"]["field_count"] == 1
+
+
+def test_build_scope_verify_marks_field_only_toc_as_render_check_required(tmp_path):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    source_path = Path(tmp_path) / "verify_field_only_toc.docx"
+    doc = Document()
+    title = doc.add_paragraph("目  录")
+    title_p_pr = title._p.get_or_add_pPr()
+    title_style = OxmlElement("w:pStyle")
+    title_style.set(qn("w:val"), "TOCHeading")
+    title_p_pr.append(title_style)
+    title_jc = OxmlElement("w:jc")
+    title_jc.set(qn("w:val"), "center")
+    title_p_pr.append(title_jc)
+
+    field = doc.add_paragraph("")
+    field_p_pr = field._p.get_or_add_pPr()
+    field_style = OxmlElement("w:pStyle")
+    field_style.set(qn("w:val"), "TOCField")
+    field_p_pr.append(field_style)
+    run = field.add_run("")
+    instr = OxmlElement("w:instrText")
+    instr.text = ' TOC \\\\o "1-3" \\\\h \\\\z \\\\u '
+    run._r.append(instr)
+
+    _add_heading(doc, "1 绪论", level=1, size=30)
+    doc.save(source_path)
+
+    verification = build_scope_verify(str(source_path), profile_path="lnu", scopes=["toc"])
+
+    assert verification["overall_status"] == "verified"
+    assert verification["readiness"] == "render-check-required"
+    assert verification["render_check_rule_ids"] == ["TOC_REFRESH_REQUIRED"]
+
+    rendered = render_scope_verify(verification)
+    assert "结果: 所选范围结构规则已通过，但仍需做渲染复核。" in rendered
+    assert "TOC_REFRESH_REQUIRED" in rendered
 
 
 def test_build_document_diagnostics_detects_lnu_preface_zero_based_mismatch(tmp_path):
@@ -418,7 +741,7 @@ def test_render_document_diagnostics_compact_exposes_stable_summary_keys(tmp_pat
     rendered = render_document_diagnostics_compact(diagnostics)
 
     assert "file=diagnostics_compact_summary.docx" in rendered
-    assert "profile=lnu-undergraduate (requested: lnu)" in rendered
+    assert "profile=lnu-checker-2026 (requested: lnu)" in rendered
     assert "toc_status=no_toc" in rendered
     assert "preface_status=zero_based_mismatch" in rendered
     assert "recommended_action_count=" in rendered

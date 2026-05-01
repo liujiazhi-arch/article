@@ -38,11 +38,12 @@ _NAME_TO_LEVEL = {
 }
 
 HEADING_PATTERNS: dict[int, re.Pattern[str]] = {
-    1: re.compile(r"^(?:第[一二三四五六七八九十百\d]+[章节篇]|\d+(?![.\d])\S)"),
+    1: re.compile(r"^第[一二三四五六七八九十百\d]+[章节篇]"),
     2: re.compile(r"^\d+\.\d+(?!\.\d)\s*\S"),
     3: re.compile(r"^\d+\.\d+\.\d+(?!\.\d)\s*\S"),
     4: re.compile(r"^\d+\.\d+\.\d+\.\d+"),
 }
+ARABIC_H1_PATTERN = re.compile(r"^\d+(?![.\d])\s+\S")
 UNNUMBERED_H1_TITLES = frozenset(
     {
         "绪论",
@@ -189,7 +190,7 @@ def _is_keywords_paragraph(text: str, section_name: str) -> bool:
 
 def _is_caption_note_text(text: str) -> bool:
     stripped = (text or "").strip()
-    return stripped.startswith("注：") or stripped.startswith("注:")
+    return bool(re.match(r"^注(?:[\s\u3000]*[:：]|[\s\u3000]*\d+[)）])", stripped))
 
 
 def _is_section_title(text: str, titles: frozenset[str]) -> bool:
@@ -284,12 +285,15 @@ def match_heading_by_text(text: str) -> int | None:
         return None
     if _looks_like_false_heading_text(text):
         return None
+    stripped = (text or "").strip()
     compact = _normalize_compact_text(text)
     if compact.lower() in _NORMALIZED_UNNUMBERED_H1_TITLES:
         return 1
-    for level in (4, 3, 2, 1):
+    for level in (4, 3, 2):
         if HEADING_PATTERNS[level].match(compact):
             return level
+    if HEADING_PATTERNS[1].match(compact) or ARABIC_H1_PATTERN.match(stripped):
+        return 1
     return None
 
 
@@ -368,6 +372,63 @@ def _get_paragraph_alignment(p_pr, style_props):
 
 def build_style_map(styles_root):
     raw_map = {}
+    default_paragraph_style_id = None
+
+    def _read_int_attr(elem, attr_name):
+        if elem is None:
+            return None
+        raw = elem.get(f"{{{W_NS}}}{attr_name}")
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _extract_style_props(p_pr, r_pr):
+        props = {
+            "jc": None,
+            "spacing_before": None,
+            "spacing_after": None,
+            "spacing_line": None,
+            "spacing_lineRule": None,
+            "sz": None,
+            "bold": None,
+            "eastAsia": None,
+            "ascii": None,
+            "hAnsi": None,
+        }
+        if p_pr is not None:
+            jc_elem = p_pr.find("w:jc", NSMAP)
+            if jc_elem is not None:
+                props["jc"] = jc_elem.get(f"{{{W_NS}}}val")
+            spacing_elem = p_pr.find("w:spacing", NSMAP)
+            if spacing_elem is not None:
+                props["spacing_before"] = _read_int_attr(spacing_elem, "before")
+                props["spacing_after"] = _read_int_attr(spacing_elem, "after")
+                props["spacing_line"] = _read_int_attr(spacing_elem, "line")
+                props["spacing_lineRule"] = spacing_elem.get(f"{{{W_NS}}}lineRule")
+        if r_pr is not None:
+            sz_elem = r_pr.find("w:sz", NSMAP)
+            if sz_elem is not None:
+                props["sz"] = _read_int_attr(sz_elem, "val")
+            props["bold"] = _read_on_off(r_pr.find("w:b", NSMAP))
+            fonts_elem = r_pr.find("w:rFonts", NSMAP)
+            if fonts_elem is not None:
+                props["eastAsia"] = fonts_elem.get(f"{{{W_NS}}}eastAsia")
+                props["ascii"] = fonts_elem.get(f"{{{W_NS}}}ascii")
+                props["hAnsi"] = fonts_elem.get(f"{{{W_NS}}}hAnsi")
+        return props
+
+    doc_defaults = {
+        "name": None,
+        "outlineLvl": None,
+        "basedOn": None,
+        **_extract_style_props(
+            styles_root.find("w:docDefaults/w:pPrDefault/w:pPr", NSMAP),
+            styles_root.find("w:docDefaults/w:rPrDefault/w:rPr", NSMAP),
+        ),
+    }
 
     for style_elem in styles_root.findall(".//w:style", NSMAP):
         style_id = style_elem.get(f"{{{W_NS}}}styleId")
@@ -379,9 +440,10 @@ def build_style_map(styles_root):
         based_on = style_elem.find("w:basedOn", NSMAP)
 
         outline_lvl = None
-        jc = None
-        sz = None
-        bold = None
+        style_props = _extract_style_props(p_pr, r_pr)
+        jc = style_props["jc"]
+        sz = style_props["sz"]
+        bold = style_props["bold"]
 
         # 按样式名称推断 outlineLvl（兼容 outlineLvl 缺失的文档）
         name_elem = style_elem.find("w:name", NSMAP)
@@ -395,19 +457,9 @@ def build_style_map(styles_root):
                 outline_val = outline_elem.get(f"{{{W_NS}}}val")
                 if outline_val is not None and outline_val.isdigit():
                     outline_lvl = int(outline_val)  # XML 值优先覆盖名称推断
-
-            jc_elem = p_pr.find("w:jc", NSMAP)
-            if jc_elem is not None:
-                jc = jc_elem.get(f"{{{W_NS}}}val")
-
-        if r_pr is not None:
-            sz_elem = r_pr.find("w:sz", NSMAP)
-            if sz_elem is not None:
-                sz_val = sz_elem.get(f"{{{W_NS}}}val")
-                if sz_val is not None and sz_val.isdigit():
-                    sz = int(sz_val)
-
-            bold = _read_on_off(r_pr.find("w:b", NSMAP))
+        style_type = style_elem.get(f"{{{W_NS}}}type")
+        if style_type == "paragraph" and style_elem.get(f"{{{W_NS}}}default") in {"1", "true", "True"}:
+            default_paragraph_style_id = style_id
 
         raw_map[style_id] = {
             "name": style_name,
@@ -415,6 +467,13 @@ def build_style_map(styles_root):
             "sz": sz,
             "bold": bold,
             "jc": jc,
+            "spacing_before": style_props["spacing_before"],
+            "spacing_after": style_props["spacing_after"],
+            "spacing_line": style_props["spacing_line"],
+            "spacing_lineRule": style_props["spacing_lineRule"],
+            "eastAsia": style_props["eastAsia"],
+            "ascii": style_props["ascii"],
+            "hAnsi": style_props["hAnsi"],
             "basedOn": based_on.get(f"{{{W_NS}}}val") if based_on is not None else None,
         }
 
@@ -441,7 +500,20 @@ def build_style_map(styles_root):
         base_id = current.get("basedOn")
         if base_id:
             base_style = resolve_style(base_id, visiting | {style_id})
-            for key in ("outlineLvl", "sz", "bold", "jc", "name"):
+            for key in (
+                "outlineLvl",
+                "sz",
+                "bold",
+                "jc",
+                "name",
+                "spacing_before",
+                "spacing_after",
+                "spacing_line",
+                "spacing_lineRule",
+                "eastAsia",
+                "ascii",
+                "hAnsi",
+            ):
                 if current.get(key) is None:
                     current[key] = base_style.get(key)
 
@@ -450,6 +522,14 @@ def build_style_map(styles_root):
 
     for style_id in raw_map:
         resolve_style(style_id, set())
+
+    default_paragraph = dict(doc_defaults)
+    if default_paragraph_style_id is not None:
+        for key, value in resolved_map.get(default_paragraph_style_id, {}).items():
+            if value is not None:
+                default_paragraph[key] = value
+    resolved_map["__doc_defaults__"] = doc_defaults
+    resolved_map["__default_paragraph__"] = default_paragraph
 
     return resolved_map
 
@@ -723,11 +803,15 @@ def _relabel_caption_note_nodes(paragraphs: list[ParagraphNode]) -> list[Paragra
 
         note_module = "body_caption_note" if node.module == "body_caption" else "appendix_caption_note"
         section_name = node.section
+        is_table_caption = (node.text or "").strip().startswith("表")
         lookahead = index + 1
         while lookahead < len(relabeled):
             candidate = relabeled[lookahead]
             if candidate.section != section_name:
                 break
+            if is_table_caption and candidate.module == "table_paragraph":
+                lookahead += 1
+                continue
             if candidate.kind in _HEADING_KINDS or candidate.kind in {"caption", "reference"}:
                 break
             if candidate.module not in {"body_paragraph", "body_other", "appendix_paragraph", "appendix_other"}:
@@ -873,6 +957,79 @@ def collect_figure_blocks(document_root: ET.Element, style_map: dict | None = No
                 "notes": notes,
                 "end_index": k - 1 if notes else j,
                 "last_elem": notes[-1].elem if notes else caption_node.elem,
+                "section": caption_node.section,
+            }
+        )
+        i = max(k, i + 1)
+    return blocks
+
+
+def collect_table_blocks(document_root: ET.Element, style_map: dict | None = None) -> list[dict]:
+    """按 body 直属节点收集表块：表题 -> 表格 -> 表注列表。"""
+    body = document_root.find("w:body", NSMAP)
+    if body is None:
+        return []
+
+    document_model = build_document_model(document_root, style_map or {})
+    node_by_id = {id(node.elem): node for node in document_model.paragraphs}
+    body_children = list(body)
+    body_paragraph_tag = f"{{{W_NS}}}p"
+    body_table_tag = f"{{{W_NS}}}tbl"
+
+    def is_blank_paragraph(elem: ET.Element) -> bool:
+        return elem.tag == body_paragraph_tag and not paragraph_has_drawing(elem) and not get_paragraph_text(elem).strip()
+
+    blocks: list[dict] = []
+    i = 0
+    while i < len(body_children):
+        caption_elem = body_children[i]
+        if caption_elem.tag != body_paragraph_tag:
+            i += 1
+            continue
+
+        caption_node = node_by_id.get(id(caption_elem))
+        caption_text = get_paragraph_text(caption_elem).strip()
+        if (
+            caption_node is None
+            or caption_node.module not in {"body_caption", "appendix_caption"}
+            or not caption_text.startswith("表")
+        ):
+            i += 1
+            continue
+
+        j = i + 1
+        blank_between = 0
+        while j < len(body_children) and is_blank_paragraph(body_children[j]):
+            blank_between += 1
+            j += 1
+        if j >= len(body_children) or body_children[j].tag != body_table_tag:
+            i += 1
+            continue
+
+        table_elem = body_children[j]
+        notes: list[ParagraphNode] = []
+        k = j + 1
+        while k < len(body_children):
+            candidate = body_children[k]
+            if candidate.tag != body_paragraph_tag:
+                break
+            note_node = node_by_id.get(id(candidate))
+            if note_node is None or note_node.module not in {"body_caption_note", "appendix_caption_note"}:
+                break
+            notes.append(note_node)
+            k += 1
+
+        blocks.append(
+            {
+                "body_children": body_children,
+                "caption": caption_node,
+                "caption_index": i,
+                "table": table_elem,
+                "table_index": j,
+                "notes": notes,
+                "blank_between": blank_between,
+                "end_index": k - 1 if notes else j,
+                "last_elem": notes[-1].elem if notes else table_elem,
                 "section": caption_node.section,
             }
         )
