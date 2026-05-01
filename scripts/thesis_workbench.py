@@ -119,6 +119,12 @@ def build_parser():
     add_profile_args(render_verify_parser)
     render_verify_parser.add_argument("--output-dir", help="页图与 JSON 报告输出目录")
     render_verify_parser.add_argument(
+        "--renderer",
+        choices=["auto", "word-pdf", "artifact-tool"],
+        default="auto",
+        help="渲染引擎：默认 auto，优先 Microsoft Word 导出 PDF，不可用时回退 artifact-tool",
+    )
+    render_verify_parser.add_argument(
         "--scope",
         action="append",
         default=None,
@@ -268,6 +274,7 @@ def main():
                 profile_path=args.profile,
                 scopes=args.scope,
                 strict_profile=args.strict_profile,
+                renderer=args.renderer,
             )
             print(render_scope_plan(plan))
             return 0
@@ -349,6 +356,7 @@ def main():
                 profile_path=args.profile,
                 scopes=args.scope,
                 strict_profile=args.strict_profile,
+                renderer=args.renderer,
             )
             print(render_render_verify_report(report))
             return 0

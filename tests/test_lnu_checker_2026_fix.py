@@ -180,6 +180,14 @@ def test_fix_caption_helpers_apply_checker_2026_number_format_and_trim_terminal_
     assert get_paragraph_text(caption) == "图2.1  菌株系统发育树"
 
 
+def test_trim_caption_terminal_punctuation_also_handles_table_caption():
+    caption = _make_paragraph("表2.1  组装统计。", sz=21)
+
+    trim_caption_terminal_punctuation(caption)
+
+    assert get_paragraph_text(caption) == "表2.1  组装统计"
+
+
 def test_fix_reference_punctuation_forces_terminal_period_under_checker_2026():
     paragraph = _make_paragraph("[1] Guo G C. Quantum optics", sz=21)
 

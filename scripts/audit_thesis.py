@@ -74,6 +74,7 @@ DEFAULT_CFG = {
     "h2_bold": False,
     "h3_bold": False,
     "h4_bold": False,
+    "h4_indent": None,
     "h_font": None,
     "caption_size_range": (20, 22),
     "caption_size": 21,
@@ -183,6 +184,7 @@ LNU_RULE_DEFINITIONS = (
     ("LNU_F02", "表题点号编号格式（辽大）", "important"),
     ("LNU_F03", "图前图后空行（辽大）", "minor"),
     ("LNU_F06", "图题图注版式（辽大）", "minor"),
+    ("LNU_F07", "图表同页分页保护（辽大）", "important"),
     ("LNU_REF01", "参考文献英文半角标点（辽大）", "important"),
     ("LNU_REF02", "参考文献编号空格格式（辽大）", "important"),
     ("LNU_REF03", "参考文献字号五号，1.5倍行距", "important"),
@@ -393,7 +395,7 @@ def build_profile_cfg(profile_id, profile_data, settings):
     if "margin_gutter" in settings:
         cfg["margin_gutter"] = settings["margin_gutter"]
 
-    for key in ("h1_size", "h2_size", "h3_size", "h4_size"):
+    for key in ("h1_size", "h2_size", "h3_size", "h4_size", "h4_indent"):
         if key in settings:
             cfg[key] = settings[key]
 
@@ -1650,10 +1652,19 @@ def check_h04(document_root, contexts, style_map, cfg):
                 if east_asia and east_asia not in (expected_h4_font, "SimSun"):
                     run_ok = False
                     break
-        if jc_val != "left" or first_line not in (None, "0") or not run_ok:
+        expected_indent = cfg.get("h4_indent")
+        if expected_indent is None:
+            indent_ok = first_line in (None, "0")
+        else:
+            indent_ok = first_line == str(expected_indent)
+
+        if jc_val != "left" or not indent_ok or not run_ok:
             bad_positions.append(ctx["index"])
             if len(samples) < 3:
-                samples.append(f"第{ctx['index']}段四级标题'{excerpt(ctx['text'])}'格式不符合要求")
+                samples.append(
+                    f"第{ctx['index']}段四级标题'{excerpt(ctx['text'])}'格式不符合要求"
+                    f"（firstLine={first_line}，应为{expected_indent if expected_indent is not None else 0}）"
+                )
 
     if bad_positions:
         issues = [f"{len(bad_positions)} 个 h4 段落格式不符合要求。"]
@@ -2291,8 +2302,8 @@ def check_lnu_ack(document_root, contexts, style_map, cfg):
 
 
 def check_lnu_f01(document_root, contexts, style_map, cfg):
-    """LNU_F01: 图题编号格式应为 图X.X（点号）"""
-    gap_spaces = int((cfg or {}).get("caption_label_gap_spaces", 1) or 1)
+    """LNU_F01: 图题编号格式应为 图X.X 后接两个半角空格。"""
+    gap_spaces = int((cfg or {}).get("caption_label_gap_spaces", 2) or 2)
     pattern = re.compile(rf"^图\s*\d+\.\d+{' ' * gap_spaces}.+")
     issues = []
     for ctx in contexts:
@@ -2306,8 +2317,8 @@ def check_lnu_f01(document_root, contexts, style_map, cfg):
 
 
 def check_lnu_f02(document_root, contexts, style_map, cfg):
-    """LNU_F02: 表题编号格式应为 表X.X（点号）"""
-    gap_spaces = int((cfg or {}).get("caption_label_gap_spaces", 1) or 1)
+    """LNU_F02: 表题编号格式应为 表X.X 后接两个半角空格。"""
+    gap_spaces = int((cfg or {}).get("caption_label_gap_spaces", 2) or 2)
     pattern = re.compile(rf"^表\s*\d+\.\d+{' ' * gap_spaces}.+")
     issues = []
     for ctx in contexts:
@@ -2784,6 +2795,75 @@ def check_lnu_tb04(document_root, contexts, style_map, cfg):
         header = f"{len(affected_positions)} 个表块版式不符合辽大要求。"
         return False, [header] + issues[:6], summarize_positions(affected_positions)
     return True, [], "全部正文表块留白与表题贴表正常"
+
+
+def _onoff_enabled(elem) -> bool:
+    if elem is None:
+        return False
+    val = get_w_attr(elem, "val")
+    return val not in ("0", "false", "False", "off", "none")
+
+
+def _paragraph_onoff_enabled(p_elem, tag_name: str) -> bool:
+    return _onoff_enabled(p_elem.find(f"w:pPr/w:{tag_name}", NSMAP))
+
+
+def _table_row_cant_split_enabled(tr_elem) -> bool:
+    return _onoff_enabled(tr_elem.find("w:trPr/w:cantSplit", NSMAP))
+
+
+def check_lnu_object_pagination(document_root, contexts, style_map, cfg):
+    """LNU_F07: 图、图名、图注以及短表块应设置同页保护，降低跨页断裂风险。"""
+    issues = []
+    affected_positions = []
+    continuation_min_rows = int((cfg or {}).get("table_continuation_min_rows", 6) or 6)
+
+    for block in collect_figure_blocks(document_root, style_map):
+        if block.get("section") not in {"body", "appendix"}:
+            continue
+        caption_index = block["caption"].index
+        block_paragraphs = [block["image"], block["caption"].elem, *[note.elem for note in block["notes"]]]
+        for idx, p_elem in enumerate(block_paragraphs):
+            should_keep_next = idx < len(block_paragraphs) - 1
+            if should_keep_next and not _paragraph_onoff_enabled(p_elem, "keepNext"):
+                issues.append(f"第{caption_index}段对应图块缺少同页保护，图与图名/图注可能跨页断开。")
+                affected_positions.append(caption_index)
+                break
+            if not _paragraph_onoff_enabled(p_elem, "keepLines"):
+                issues.append(f"第{caption_index}段对应图块缺少段内不分页保护。")
+                affected_positions.append(caption_index)
+                break
+
+    for block in collect_table_blocks(document_root, style_map):
+        if block.get("section") not in {"body", "appendix"}:
+            continue
+        caption_index = block["caption"].index
+        if not _paragraph_onoff_enabled(block["caption"].elem, "keepNext"):
+            issues.append(f"第{caption_index}段表题缺少同页保护，表题与表格可能跨页断开。")
+            affected_positions.append(caption_index)
+            continue
+
+        rows = block["table"].findall("w:tr", NSMAP)
+        short_table = len(rows) < continuation_min_rows
+        for row_idx, tr_elem in enumerate(rows):
+            if not _table_row_cant_split_enabled(tr_elem):
+                issues.append(f"第{caption_index}段对应表格行缺少不跨页断行保护。")
+                affected_positions.append(caption_index)
+                break
+            if not short_table:
+                continue
+            row_keep_next = row_idx < len(rows) - 1 or bool(block["notes"])
+            if not row_keep_next:
+                continue
+            if any(not _paragraph_onoff_enabled(p, "keepNext") for p in tr_elem.findall(".//w:p", NSMAP)):
+                issues.append(f"第{caption_index}段对应短表缺少同页保护，短表可能被拆到两页。")
+                affected_positions.append(caption_index)
+                break
+
+    if issues:
+        header = f"{len(set(affected_positions))} 个图表块缺少同页/跨页保护。"
+        return False, [header] + issues[:6], summarize_positions(affected_positions)
+    return True, [], "全部图表块已有同页/跨页保护"
 
 
 import re as _re
@@ -3333,10 +3413,14 @@ def check_f06(document_root, contexts, style_map):
 
 
 def check_f07(document_root, contexts, style_map):
-    """图题末尾不应以句号（。或.）结尾。"""
-    captions = [ctx for ctx in contexts if ctx["kind"] == "caption" and ctx["text"].strip().startswith("图")]
+    """图题/表题末尾不应以句号（。或.）结尾。"""
+    captions = [
+        ctx
+        for ctx in contexts
+        if ctx["kind"] == "caption" and ctx["text"].strip().startswith(("图", "表"))
+    ]
     if not captions:
-        return True, [], "文档无图题"
+        return True, [], "文档无图表题"
     bad_positions = []
     samples = []
     for ctx in captions:
@@ -3344,12 +3428,13 @@ def check_f07(document_root, contexts, style_map):
         if stripped.endswith("。") or stripped.endswith("."):
             bad_positions.append(ctx["index"])
             if len(samples) < 5:
-                samples.append(f"第{ctx['index']}段图题\"{excerpt(stripped)}\"末尾有句号")
+                label = "表题" if stripped.startswith("表") else "图题"
+                samples.append(f"第{ctx['index']}段{label}\"{excerpt(stripped)}\"末尾有句号")
     if bad_positions:
-        issues = [f"{len(bad_positions)} 个图题末尾带有句号（图题不加句号）。"]
+        issues = [f"{len(bad_positions)} 个图题/表题末尾带有句号（题名不加句号）。"]
         issues.extend(samples)
         return False, issues, summarize_positions(bad_positions)
-    return True, [], "全部图题"
+    return True, [], "全部图表题"
 
 
 def check_tb03_line(document_root, contexts, style_map):
@@ -3679,6 +3764,7 @@ LNU_RULE_CHECKERS = {
     "LNU_F05": lambda doc, ctxs, sm, cfg: check_lnu_f05(doc, ctxs, sm, cfg),
     "LNU_TB02": lambda doc, ctxs, sm, cfg: check_lnu_tb02(doc, ctxs, sm, cfg),
     "LNU_TB04": lambda doc, ctxs, sm, cfg: check_lnu_tb04(doc, ctxs, sm, cfg),
+    "LNU_F07": lambda doc, ctxs, sm, cfg: check_lnu_object_pagination(doc, ctxs, sm, cfg),
     "LNU_ABS01": lambda doc, ctxs, sm, cfg: check_lnu_abs01(doc, ctxs, sm, cfg),
     "LNU_ABS02": lambda doc, ctxs, sm, cfg: check_lnu_abs02(doc, ctxs, sm, cfg),
     "LNU_ABS03": lambda doc, ctxs, sm, cfg: check_lnu_abs03(doc, ctxs, sm, cfg),

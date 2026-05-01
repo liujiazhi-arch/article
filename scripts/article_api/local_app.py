@@ -105,6 +105,7 @@ def run_render_verify(
     profile: str = "lnu",
     strict_profile: bool | None = None,
     scopes=None,
+    renderer: str = "auto",
 ) -> dict:
     return app_module.build_render_verify_payload(
         file_path=file_path,
@@ -112,6 +113,7 @@ def run_render_verify(
         profile_path=profile,
         strict_profile=strict_profile,
         scopes=scopes,
+        renderer=renderer,
     )
 
 
@@ -654,6 +656,7 @@ def _build_parser() -> argparse.ArgumentParser:
     render_verify_parser.add_argument("--allow-profile-fallback", dest="strict_profile", action="store_false")
     render_verify_parser.add_argument("--output-dir")
     render_verify_parser.add_argument("--scope", action="append", default=None)
+    render_verify_parser.add_argument("--renderer", choices=["auto", "word-pdf", "artifact-tool"], default="auto")
     render_verify_parser.set_defaults(handler=_handle_render_verify)
 
     profiles_parser = subparsers.add_parser("profiles")
@@ -769,6 +772,7 @@ def _handle_render_verify(args: argparse.Namespace) -> int:
             profile=args.profile,
             strict_profile=args.strict_profile,
             scopes=args.scope,
+            renderer=args.renderer,
         )
     )
     return 0

@@ -2167,9 +2167,9 @@ def fix_body_paragraph(p_elem, cfg=None, runtime=None, style_map=None):
     snap.set(f"{{{W_NS}}}val", "0")
 
 
-def normalize_heading_paragraph_layout(p_pr):
+def normalize_heading_paragraph_layout(p_pr, first_line="0"):
     ind = get_or_create(p_pr, "w:ind")
-    set_attr(ind, "firstLine", "0")
+    set_attr(ind, "firstLine", str(first_line))
     for attr_name in ("firstLineChars", "left", "leftChars", "hanging", "hangingChars"):
         namespaced = f"{{{W_NS}}}{attr_name}"
         if namespaced in ind.attrib:
@@ -3809,8 +3809,11 @@ def fix_heading4(p_elem, cfg=None, heading_style_ids=None, runtime=None):
         for bold_tag in ppr_rpr.findall("w:b", NSMAP) + ppr_rpr.findall("w:bCs", NSMAP):
             ppr_rpr.remove(bold_tag)
 
-    ensure_alignment_and_indent(p_elem, "left", indent=480)
-    normalize_heading_paragraph_layout(p_pr)
+    h4_indent = cfg.get("h4_indent")
+    if h4_indent is None:
+        h4_indent = 0
+    ensure_alignment_and_indent(p_elem, "left", indent=h4_indent)
+    normalize_heading_paragraph_layout(p_pr, first_line=h4_indent)
     h_font = cfg.get("h4_font") or "宋体"
     for run_elem in p_elem.findall(".//w:r", NSMAP):
         if not get_run_text(run_elem).strip():
@@ -4021,7 +4024,7 @@ def fix_superscript_fonts(p_elem):
 
 def trim_caption_terminal_punctuation(p_elem):
     paragraph_text = get_paragraph_text(p_elem).rstrip()
-    if "图" not in paragraph_text or not paragraph_text.endswith(("。", ".")):
+    if not paragraph_text.startswith(("图", "表")) or not paragraph_text.endswith(("。", ".")):
         return
 
     runs = [run_elem for run_elem in p_elem.findall(".//w:r", NSMAP) if get_run_text(run_elem).strip()]

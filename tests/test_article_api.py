@@ -161,6 +161,7 @@ def test_request_models_default_to_auto_strict_profile():
     assert normalize_request.strict_profile is None
     assert normalize_job_request.strict_profile is None
     assert render_verify_request.strict_profile is None
+    assert render_verify_request.renderer == "auto"
     assert verify_request.strict_profile is None
     assert batch_request.strict_profile is None
 
@@ -431,7 +432,8 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
             "document": {"path": "/tmp/demo.docx", "name": "demo.docx"},
             "profile": {"id": "lnu-checker-2026", "requested": "lnu", "fallback_used": False, "display": "lnu"},
             "output_dir": str(output_dir),
-            "render_engine": "artifact-tool",
+            "render_engine": "word-pdf",
+            "render_fallback_used": False,
             "page_count": 2,
             "page_images": [str(output_dir / "page-1.png"), str(output_dir / "page-2.png")],
             "selected_scopes": ["toc"],
@@ -449,11 +451,14 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
         output_dir=str(output_dir),
         profile_path="lnu",
         scopes=["toc"],
+        renderer="word-pdf",
     )
 
     assert payload["status"] == "ok"
     assert payload["operation"] == "render-verify"
     assert payload["summary"]["page_count"] == 2
+    assert payload["summary"]["render_engine"] == "word-pdf"
+    assert payload["summary"]["render_fallback_used"] is False
     assert payload["summary"]["review_item_count"] == 1
     assert payload["summary"]["manual_review_rule_count"] == 1
     assert payload["selected_scopes"] == ["toc"]
@@ -469,7 +474,8 @@ def test_fake_app_render_verify_endpoint_returns_proof_summary(monkeypatch):
             "document": {"path": "/tmp/demo.docx", "name": "demo.docx"},
             "profile": {"id": "lnu-checker-2026", "requested": "lnu", "fallback_used": False, "display": "lnu"},
             "output_dir": "/tmp/render-proof",
-            "render_engine": "artifact-tool",
+            "render_engine": "word-pdf",
+            "render_fallback_used": False,
             "page_count": 1,
             "page_images": ["/tmp/render-proof/page-1.png"],
             "selected_scopes": ["figures_tables"],
@@ -487,12 +493,14 @@ def test_fake_app_render_verify_endpoint_returns_proof_summary(monkeypatch):
             file_path="/tmp/demo.docx",
             profile="lnu",
             scopes=["figures_tables"],
+            renderer="word-pdf",
         )
     )
 
     assert payload["status"] == "ok"
     assert payload["operation"] == "render-verify"
     assert payload["page_count"] == 1
+    assert payload["summary"]["render_engine"] == "word-pdf"
     assert payload["summary"]["review_item_count"] == 1
     assert payload["selected_scopes"] == ["figures_tables"]
 

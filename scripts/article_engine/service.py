@@ -357,6 +357,7 @@ def render_verify_document(
     profile_path: str | None = None,
     scopes=None,
     strict_profile: bool | None = None,
+    renderer: str = "auto",
 ) -> dict[str, Any]:
     return build_render_verify_report(
         file_path,
@@ -364,6 +365,7 @@ def render_verify_document(
         profile_path=profile_path,
         scopes=scopes,
         strict_profile=strict_profile,
+        renderer=renderer,
     )
 
 

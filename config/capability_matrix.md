@@ -96,11 +96,12 @@
 
 | ID | 描述 | check_level | method | 自动修复 | 实现状态 |
 |----|------|------------|--------|----------|----------|
-| LNU_F01 | 图题点号编号格式（图X.X） | Auto | docx-structure | ✓ | ✓ |
-| LNU_F02 | 表题点号编号格式（表X.X） | Auto | docx-structure | ✓ | ✓ |
+| LNU_F01 | 图题点号编号格式（图X.X 后两个半角空格） | Auto | docx-structure | ✓ | ✓ |
+| LNU_F02 | 表题点号编号格式（表X.X 后两个半角空格） | Auto | docx-structure | ✓ | ✓ |
 | LNU_F03 | 图前图后空行（辽大） | Auto | docx-structure | ✓ | ✓ |
 | LNU_F05 | 图表需先文中引用 | Semi | docx-structure | ✗ | ✓ |
 | LNU_F06 | 图题图注版式（辽大） | Auto | docx-structure | ✓ | ✓ |
+| LNU_F07 | 图表块同页/跨页保护（辽大） | Auto | docx-structure | ✓ | ✓ |
 | LNU_FMT01 | 软回车换行 | Auto | docx-structure | ✓ | ✓ |
 | LNU_FMT02 | 图片嵌入型/表格无环绕 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB01 | 表格外框1.5pt内线0.5pt | Auto | docx-structure | ✓ | ✓ |

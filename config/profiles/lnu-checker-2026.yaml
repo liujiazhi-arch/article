@@ -38,8 +38,8 @@ additions:
     scope: undergraduate
     severity: important
     check_level: Auto
-    description: "图编号格式：图X.X"
-    expected_pattern: "^图\\s*\\d+\\.\\d+"
+    description: "图编号格式：图X.X 后接两个半角空格再写图名"
+    expected_pattern: "^图\\s*\\d+\\.\\d+ {2}\\S"
     method: docx-structure
     evidence: "图题段落文本"
     fix: "fix_caption_number_sep(sep='.')"
@@ -50,8 +50,8 @@ additions:
     scope: undergraduate
     severity: important
     check_level: Auto
-    description: "表编号格式：表X.X"
-    expected_pattern: "^表\\s*\\d+\\.\\d+"
+    description: "表编号格式：表X.X 后接两个半角空格再写表名"
+    expected_pattern: "^表\\s*\\d+\\.\\d+ {2}\\S"
     method: docx-structure
     evidence: "表题段落文本"
     fix: "fix_caption_number_sep(sep='.')"
@@ -311,6 +311,17 @@ additions:
     fix: "fix_caption_paragraph()/fix_caption_note_paragraph()"
     source: lnu-checker-2026
 
+  - id: LNU_F07
+    module: figure
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "图表块同页/跨页保护"
+    method: docx-structure
+    evidence: "w:keepNext / w:keepLines / w:cantSplit"
+    fix: "protect_object_blocks_from_pagination()"
+    source: latest-lnu-screenshot-2026-05-01
+
   - id: LNU_H01
     module: heading
     scope: undergraduate
@@ -417,6 +428,7 @@ settings:
   h3_spacing_after: 120
   h4_font: "宋体"
   h4_size: 24
+  h4_indent: 480
   h4_spacing_before: 120
   h4_spacing_after: 120
   kw_min: 3
@@ -432,6 +444,7 @@ settings:
   ref_font_size: 21
   ack_font: "仿宋"
   caption_number_sep: "."
+  # 辽大截图样例中编号与题名之间为两个半角空格，例如“图2.1  中国企业会计监管模式”。
   caption_label_gap_spaces: 2
   figure_blank_line_twips: 360
   table_blank_line_twips: 360

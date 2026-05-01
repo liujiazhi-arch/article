@@ -379,6 +379,44 @@ def test_lnu_tb01_skips_equation_layout_table():
     assert passed, issues
 
 
+def test_f07_rejects_terminal_period_on_table_caption():
+    caption = _make_paragraph("表2.1  组装统计。")
+    ctx = _ctx(1, caption, "表2.1  组装统计。", "caption")
+
+    passed, issues, _ = audit_thesis.check_f07(_doc_with_paragraphs(caption), [ctx], {})
+
+    assert not passed
+    assert any("表题" in issue or "题注" in issue for issue in issues)
+
+
+def test_lnu_object_pagination_rejects_unprotected_figure_and_short_table_blocks():
+    heading = _make_paragraph("第2章 图表说明")
+    heading_p_pr = ET.SubElement(heading, _w("pPr"))
+    heading_style = ET.SubElement(heading_p_pr, _w("pStyle"))
+    heading_style.set(_w("val"), "Heading1")
+    figure_lead = _make_paragraph("如图2.1所示。")
+    image = _make_paragraph("")
+    drawing_run = ET.SubElement(image, _w("r"))
+    ET.SubElement(drawing_run, _w("drawing"))
+    figure_caption = _make_paragraph("图2.1  组装结果")
+
+    table_lead = _make_paragraph("如表2.1所示。")
+    table_caption = _make_paragraph("表2.1  组装统计")
+    table = ET.Element(_w("tbl"))
+    for text in ("项目", "数量"):
+        tr = ET.SubElement(table, _w("tr"))
+        tc = ET.SubElement(tr, _w("tc"))
+        p = ET.SubElement(tc, _w("p"))
+        p.append(_make_run(text))
+
+    doc = _doc_with_paragraphs(heading, figure_lead, image, figure_caption, table_lead, table_caption, table)
+
+    passed, issues, _ = audit_thesis.check_lnu_object_pagination(doc, [], {}, {})
+
+    assert not passed
+    assert any("同页" in issue or "跨页" in issue for issue in issues)
+
+
 def test_tb03_line_skips_equation_layout_table():
     tbl, _ = _make_equation_layout_table("(1.1)")
     doc = _doc_with_paragraphs(tbl)
@@ -594,13 +632,15 @@ def test_ref_single_spacing_violation(lnu_cfg):
 # H04 — four-level heading font check
 # ---------------------------------------------------------------------------
 
-def _make_h4_ctx(east_asia: str) -> dict:
+def _make_h4_ctx(east_asia: str, first_line: str | None = "480") -> dict:
     """Build an h4 context with the given eastAsia font."""
     p = ET.Element(_w("p"))
-    # pPr: left alignment, no firstLine
     p_pr = ET.SubElement(p, _w("pPr"))
     jc = ET.SubElement(p_pr, _w("jc"))
     jc.set(_w("val"), "left")
+    if first_line is not None:
+        ind = ET.SubElement(p_pr, _w("ind"))
+        ind.set(_w("firstLine"), first_line)
     # Run with size=24, no bold, specified font
     r = ET.SubElement(p, _w("r"))
     r_pr = ET.SubElement(r, _w("rPr"))
@@ -621,12 +661,23 @@ def _make_h4_ctx(east_asia: str) -> dict:
 
 
 def test_h4_songti_font_compliant(lnu_cfg):
-    """h4_font=宋体 in LNU; eastAsia=宋体 → passes H04."""
+    """h4_font=宋体 with first-line two-character indent passes H04."""
     assert lnu_cfg.get("h4_font") == "宋体"
     ctx = _make_h4_ctx("宋体")
     doc = _doc_with_paragraphs(ctx["elem"])
     passed, issues, _ = audit_thesis.check_h04(doc, [ctx], {}, lnu_cfg)
     assert passed, issues
+
+
+def test_h4_missing_two_char_indent_violation(lnu_cfg):
+    """LNU h4 must retain the school-required two-character first-line indent."""
+    ctx = _make_h4_ctx("宋体", first_line="0")
+    doc = _doc_with_paragraphs(ctx["elem"])
+
+    passed, issues, _ = audit_thesis.check_h04(doc, [ctx], {}, lnu_cfg)
+
+    assert not passed
+    assert any("缩进" in issue or "firstLine" in issue for issue in issues)
 
 
 def test_h4_heiti_font_violation(lnu_cfg):
@@ -731,29 +782,47 @@ def test_lnu_ref03_flags_wrong_reference_font_size(lnu_cfg):
     assert any("字号" in msg for msg in issues)
 
 
-def test_lnu_f01_accepts_dot_separated_figure_number():
-    caption = _make_paragraph("图2.1 中国企业会计监管模式")
-    ctx = _ctx(1, caption, "图2.1 中国企业会计监管模式", "caption")
+def test_lnu_f01_accepts_dot_separated_figure_number_with_two_half_width_spaces(lnu_cfg):
+    caption = _make_paragraph("图2.1  中国企业会计监管模式")
+    ctx = _ctx(1, caption, "图2.1  中国企业会计监管模式", "caption")
 
-    passed, issues, _ = audit_thesis.check_lnu_f01(_doc_with_paragraphs(caption), [ctx], {}, {})
+    passed, issues, _ = audit_thesis.check_lnu_f01(_doc_with_paragraphs(caption), [ctx], {}, lnu_cfg)
     assert passed, issues
 
 
-def test_lnu_f01_rejects_dash_separated_figure_number():
-    caption = _make_paragraph("图2-1 中国企业会计监管模式")
-    ctx = _ctx(1, caption, "图2-1 中国企业会计监管模式", "caption")
+def test_lnu_f01_rejects_single_space_after_figure_number(lnu_cfg):
+    caption = _make_paragraph("图2.1 中国企业会计监管模式")
+    ctx = _ctx(1, caption, "图2.1 中国企业会计监管模式", "caption")
 
-    passed, issues, _ = audit_thesis.check_lnu_f01(_doc_with_paragraphs(caption), [ctx], {}, {})
+    passed, issues, _ = audit_thesis.check_lnu_f01(_doc_with_paragraphs(caption), [ctx], {}, lnu_cfg)
     assert not passed
     assert issues
 
 
-def test_lnu_f02_accepts_dot_separated_table_number():
+def test_lnu_f01_rejects_dash_separated_figure_number(lnu_cfg):
+    caption = _make_paragraph("图2-1  中国企业会计监管模式")
+    ctx = _ctx(1, caption, "图2-1  中国企业会计监管模式", "caption")
+
+    passed, issues, _ = audit_thesis.check_lnu_f01(_doc_with_paragraphs(caption), [ctx], {}, lnu_cfg)
+    assert not passed
+    assert issues
+
+
+def test_lnu_f02_accepts_dot_separated_table_number_with_two_half_width_spaces(lnu_cfg):
+    caption = _make_paragraph("表2.1  政府与经营者混合战略对策矩阵")
+    ctx = _ctx(1, caption, "表2.1  政府与经营者混合战略对策矩阵", "caption")
+
+    passed, issues, _ = audit_thesis.check_lnu_f02(_doc_with_paragraphs(caption), [ctx], {}, lnu_cfg)
+    assert passed, issues
+
+
+def test_lnu_f02_rejects_single_space_after_table_number(lnu_cfg):
     caption = _make_paragraph("表2.1 政府与经营者混合战略对策矩阵")
     ctx = _ctx(1, caption, "表2.1 政府与经营者混合战略对策矩阵", "caption")
 
-    passed, issues, _ = audit_thesis.check_lnu_f02(_doc_with_paragraphs(caption), [ctx], {}, {})
-    assert passed, issues
+    passed, issues, _ = audit_thesis.check_lnu_f02(_doc_with_paragraphs(caption), [ctx], {}, lnu_cfg)
+    assert not passed
+    assert issues
 
 
 def test_lnu_ref01_rejects_fullwidth_reference_punctuation():

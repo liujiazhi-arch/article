@@ -116,6 +116,7 @@ class RenderVerifyRequest(BaseModel):
     profile: str = Field(default="lnu")
     strict_profile: bool | None = None
     scopes: list[str] | None = None
+    renderer: str = Field(default="auto", pattern="^(auto|word-pdf|artifact-tool)$")
 
 
 class VerifyRequest(BaseModel):
@@ -633,6 +634,7 @@ def _render_verify_kwargs(request: RenderVerifyRequest) -> dict[str, Any]:
         "profile_path": request.profile,
         "scopes": request.scopes,
         "strict_profile": request.strict_profile,
+        "renderer": request.renderer,
     }
 
 
@@ -1219,6 +1221,7 @@ def build_render_verify_payload(
     profile_path: str = "lnu",
     scopes: list[str] | None = None,
     strict_profile: bool | None = None,
+    renderer: str = "auto",
 ) -> dict[str, Any]:
     payload = render_verify_document(
         file_path,
@@ -1226,6 +1229,7 @@ def build_render_verify_payload(
         profile_path=profile_path,
         scopes=scopes,
         strict_profile=strict_profile,
+        renderer=renderer,
     )
     payload.update(
         {
@@ -1238,6 +1242,8 @@ def build_render_verify_payload(
             "status": "ok",
             "summary": {
                 "page_count": payload.get("page_count", 0),
+                "render_engine": payload.get("render_engine"),
+                "render_fallback_used": bool(payload.get("render_fallback_used")),
                 "review_item_count": len(payload.get("review_items") or []),
                 "manual_review_rule_count": len(payload.get("manual_review_rule_ids") or []),
                 "unsupported_rule_count": len(payload.get("unsupported_rule_ids") or []),

@@ -272,6 +272,7 @@ def test_run_render_verify_returns_payload(monkeypatch):
         "/tmp/demo.docx",
         profile="lnu",
         scopes=["toc"],
+        renderer="word-pdf",
     )
 
     assert payload["operation"] == "render-verify"

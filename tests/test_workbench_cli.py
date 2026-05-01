@@ -510,6 +510,8 @@ def test_workbench_render_verify_cli_writes_page_proof(tmp_path):
             "lnu",
             "--output-dir",
             str(output_dir),
+            "--renderer",
+            "artifact-tool",
         ],
         capture_output=True,
         text=True,
@@ -517,6 +519,7 @@ def test_workbench_render_verify_cli_writes_page_proof(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
+    assert "渲染引擎: artifact-tool" in result.stdout
     assert "渲染证据目录:" in result.stdout
     assert "生成页图:" in result.stdout
     assert (output_dir / "page-1.png").exists()

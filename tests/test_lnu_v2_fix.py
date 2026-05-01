@@ -25,6 +25,7 @@ from fix_thesis import (
     fix_abstract_heading,
     fix_abstract_section,
     fix_body_paragraph,
+    fix_heading4,
     fix_half_width_punct_in_cjk,
     fix_sp_cjk_latin,
     fix_cover_layout,
@@ -348,6 +349,16 @@ def test_fix_heading_paragraph_clears_existing_page_break_for_non_h1(lnu_cfg, ln
     fix_heading_paragraph(p, "left", True, cfg=lnu_cfg, runtime=lnu_runtime)
 
     assert p.find("w:pPr/w:pageBreakBefore", NSMAP) is None
+
+
+def test_fix_heading4_preserves_required_two_char_indent(lnu_cfg, lnu_runtime):
+    p = _make_paragraph("1.1.1.1 术语定义")
+
+    fix_heading4(p, cfg=lnu_cfg, runtime=lnu_runtime)
+
+    ind = p.find("w:pPr/w:ind", NSMAP)
+    assert ind is not None
+    assert ind.get(_w("firstLine")) == "480"
 
 
 def test_fix_sp_cjk_latin_handles_empty_intermediate_run():
