@@ -197,7 +197,7 @@ def test_batch_request_supports_local_batch_fields():
     request = BatchRequest(
         operation="apply",
         input_path="/tmp/article-batch",
-        profile="ams",
+        profile="lnu",
         scopes=["headings"],
         recursive=True,
         output_dir="/tmp/article-output",
@@ -206,7 +206,7 @@ def test_batch_request_supports_local_batch_fields():
     )
 
     assert request.operation == "apply"
-    assert request.profile == "ams"
+    assert request.profile == "lnu"
     assert request.recursive is True
     assert request.output_dir == "/tmp/article-output"
     assert request.summary_file == "/tmp/article-summary.json"
@@ -273,7 +273,8 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert profiles_payload["summary"]["default_profile_id"] == "cn-common"
     assert profiles_payload["summary"]["support_scenario_count"] >= 3
     assert any(item["id"] == "school_degree_thesis" for item in profiles_payload["summary"]["support_scenarios"])
-    assert any(item["id"] == "ams-graduate" for item in profiles_payload["profiles"])
+    assert not any(item["id"] == "ams-graduate" for item in profiles_payload["profiles"])
+    assert any(item["id"] == "lnu-checker-2026" for item in profiles_payload["profiles"])
     default_profile = next(item for item in profiles_payload["profiles"] if item["id"] == "cn-common")
     assert default_profile["support_level_label"] == "一等支持"
     assert any(item["label"] == "课程作业/基础论文" for item in default_profile["support_scenarios"])

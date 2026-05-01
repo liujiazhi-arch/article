@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,17 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import audit_thesis  # noqa: E402
 import fix_thesis  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def isolate_article_runtime_roots(monkeypatch, request, tmp_path):
+    if not request.node.nodeid.startswith("tests/test_article"):
+        yield
+        return
+
+    monkeypatch.setenv("ARTICLE_API_STATE_ROOT", str((tmp_path / "article-state").resolve()))
+    monkeypatch.setenv("ARTICLE_API_RUNTIME_ROOT", str((tmp_path / "article-runtime").resolve()))
+    yield
 
 
 TARGET_RULE_IDS = (
@@ -40,7 +53,7 @@ TARGET_RULE_IDS = (
     "KW01",
 )
 
-FIX_ROUNDTRIP_RULE_IDS = ("P01", "T01", "H02", "F07", "TB01")
+FIX_ROUNDTRIP_RULE_IDS = ("P01", "T01", "H02", "F07", "TB01", "PU01")
 
 
 def _find_or_create(parent, tag: str):
@@ -134,9 +147,9 @@ def _set_heading(paragraph, *, level: int, size: int, page_break_before: bool = 
     paragraph.style = f"Heading {level}"
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if level == 1 else WD_ALIGN_PARAGRAPH.LEFT
     before_after = {
-        1: (240, 120),
-        2: (120, 60),
-        3: (60, 60),
+        1: (120, 120),
+        2: (120, 120),
+        3: (120, 120),
         4: (60, 60),
     }
     before, after = before_after[level]
@@ -266,7 +279,8 @@ def _build_base_document() -> Document:
 
     keywords = doc.add_paragraph()
     _set_paragraph_properties(keywords)
-    _set_run_format(keywords.add_run("关键词：测试；审计；修复"), size=24)
+    _set_run_format(keywords.add_run("关键词"), east_asia="黑体", size=24)
+    _set_run_format(keywords.add_run("：测试；审计；修复"), east_asia="宋体", size=24)
 
     figure_caption = doc.add_paragraph()
     _set_caption(figure_caption, "图1-1 实验装置")
@@ -291,6 +305,55 @@ def _build_base_document() -> Document:
     _set_table_borders(table, valid=True)
 
     return doc
+
+
+def _inject_existing_footer_page_field(docx_path: Path):
+    rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+    office_rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+    ns = {"w": w_ns}
+
+    with zipfile.ZipFile(docx_path, "r") as zf:
+        parts = {name: zf.read(name) for name in zf.namelist()}
+
+    rels_root = ET.fromstring(parts["word/_rels/document.xml.rels"])
+    rel = ET.SubElement(rels_root, f"{{{rel_ns}}}Relationship")
+    rel.set("Id", "rIdFooterTest")
+    rel.set("Type", f"{office_rel_ns}/footer")
+    rel.set("Target", "footer1.xml")
+    parts["word/_rels/document.xml.rels"] = ET.tostring(rels_root, encoding="utf-8", xml_declaration=True)
+
+    document_root = ET.fromstring(parts["word/document.xml"])
+    sect_pr = document_root.find("w:body/w:sectPr", ns)
+    assert sect_pr is not None
+    footer_ref = ET.SubElement(sect_pr, f"{{{w_ns}}}footerReference")
+    footer_ref.set(f"{{{w_ns}}}type", "default")
+    footer_ref.set(f"{{{office_rel_ns}}}id", "rIdFooterTest")
+    parts["word/document.xml"] = ET.tostring(document_root, encoding="utf-8", xml_declaration=True)
+
+    footer_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:w="{w_ns}">
+  <w:p>
+    <w:pPr><w:jc w:val="center"/></w:pPr>
+    <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+    <w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r>
+    <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+    <w:r><w:t>1</w:t></w:r>
+    <w:r><w:fldChar w:fldCharType="end"/></w:r>
+  </w:p>
+</w:ftr>"""
+    parts["word/footer1.xml"] = footer_xml.encode("utf-8")
+
+    content_types_root = ET.fromstring(parts["[Content_Types].xml"])
+    override = ET.SubElement(content_types_root, f"{{{ct_ns}}}Override")
+    override.set("PartName", "/word/footer1.xml")
+    override.set("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
+    parts["[Content_Types].xml"] = ET.tostring(content_types_root, encoding="utf-8", xml_declaration=True)
+
+    with zipfile.ZipFile(docx_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, payload in parts.items():
+            zf.writestr(name, payload)
 
 
 def _find_paragraph(doc: Document, prefix: str):
@@ -398,6 +461,11 @@ def _mutate_kw01(doc: Document):
     _set_run_format(run, size=24)
 
 
+def _mutate_pu01(doc: Document):
+    paragraph = _find_paragraph(doc, "这是正文示例")
+    paragraph.runs[0].text = "这是正文,示例.段落"
+
+
 RULE_MUTATORS = {
     "P01": _mutate_p01,
     "T01": _mutate_t01,
@@ -417,6 +485,7 @@ RULE_MUTATORS = {
     "C01": _mutate_c01,
     "R01": _mutate_r01,
     "KW01": _mutate_kw01,
+    "PU01": _mutate_pu01,
 }
 
 
@@ -424,6 +493,7 @@ def make_compliant_doc(path: str | Path) -> Path:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     _build_base_document().save(output_path)
+    _inject_existing_footer_page_field(output_path)
     return output_path
 
 
@@ -435,6 +505,7 @@ def make_violating_doc(path: str | Path, rule_id: str) -> Path:
     doc = _build_base_document()
     RULE_MUTATORS[rule_id](doc)
     doc.save(output_path)
+    _inject_existing_footer_page_field(output_path)
     return output_path
 
 
@@ -461,4 +532,3 @@ def tmp_docx(tmp_path):
         return builder(path)
 
     return _build
-

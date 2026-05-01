@@ -22,6 +22,11 @@ def test_match_heading_by_text_accepts_arabic_number_h1():
     assert match_heading_by_text("5 结论") == 1
 
 
+def test_match_heading_by_text_rejects_quantity_led_body_sentences():
+    assert match_heading_by_text("58条 tRNA 基因共同构成了该菌株较为完整的非编码 RNA 体系") is None
+    assert match_heading_by_text("30个次级代谢基因簇说明 NEAU-HEGS1-5 具有较丰富的次级代谢潜力") is None
+
+
 def test_match_heading_by_text_rejects_scientific_notation_and_decimal_values():
     assert match_heading_by_text("2.80E+08") is None
     assert match_heading_by_text("231.112323") is None
@@ -88,3 +93,18 @@ def test_classify_paragraph_rejects_long_body_sentence_even_with_h1_style():
     }
 
     assert classify_paragraph(p, style_map) == "body"
+
+
+def test_classify_paragraph_rejects_quantity_led_sentence_with_large_font_signal():
+    p = ET.Element(_w("p"))
+    p_pr = ET.SubElement(p, _w("pPr"))
+    jc = ET.SubElement(p_pr, _w("jc"))
+    jc.set(_w("val"), "center")
+    r = ET.SubElement(p, _w("r"))
+    r_pr = ET.SubElement(r, _w("rPr"))
+    sz = ET.SubElement(r_pr, _w("sz"))
+    sz.set(_w("val"), "30")
+    t = ET.SubElement(r, _w("t"))
+    t.text = "30个次级代谢基因簇说明 NEAU-HEGS1-5 具有较丰富的次级代谢潜力"
+
+    assert classify_paragraph(p, {}) == "body"

@@ -11,10 +11,11 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
 from thesis_tool.workflow import apply_scoped_fix, build_scoped_fix_preview, render_scoped_fix_preview
 
-from .conftest import audit_rule_status, make_compliant_doc
+from .conftest import audit_rule_status, make_compliant_doc, make_violating_doc
 
 
 def _paragraph_by_prefix(doc: Document, prefix: str):
@@ -24,9 +25,168 @@ def _paragraph_by_prefix(doc: Document, prefix: str):
     raise AssertionError(f"Paragraph not found: {prefix}")
 
 
+def _normalize_spaces(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def _paragraph_by_normalized_prefix(doc: Document, prefix: str):
+    normalized_prefix = _normalize_spaces(prefix)
+    for paragraph in doc.paragraphs:
+        if _normalize_spaces(paragraph.text).startswith(normalized_prefix):
+            return paragraph
+    raise AssertionError(f"Paragraph not found: {prefix}")
+
+
+def _profile_cfg(profile_path: str = "lnu") -> dict:
+    return fix_thesis.build_fix_runtime(profile_path=profile_path).cfg
+
+
 def _add_mock_drawing(paragraph) -> None:
     run = paragraph.add_run()
     run._r.append(OxmlElement("w:drawing"))
+
+
+def _inject_equation_layout_table(docx_path: Path, eq_number: str = "(1.1)") -> None:
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    m_ns = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+
+    def _w(tag: str) -> str:
+        return f"{{{w_ns}}}{tag}"
+
+    def _m(tag: str) -> str:
+        return f"{{{m_ns}}}{tag}"
+
+    with zipfile.ZipFile(docx_path, "r") as zf:
+        parts = {name: zf.read(name) for name in zf.namelist()}
+
+    root = ET.fromstring(parts["word/document.xml"])
+    body = root.find(_w("body"))
+    assert body is not None
+    sect_pr = body.find(_w("sectPr"))
+    assert sect_pr is not None
+
+    tbl = ET.Element(_w("tbl"))
+    tbl_pr = ET.SubElement(tbl, _w("tblPr"))
+    tbl_borders = ET.SubElement(tbl_pr, _w("tblBorders"))
+    for name in ("top", "bottom", "left", "right", "insideH", "insideV"):
+        border = ET.SubElement(tbl_borders, _w(name))
+        border.set(_w("val"), "single")
+        border.set(_w("sz"), "18")
+        border.set(_w("color"), "000000")
+
+    tr = ET.SubElement(tbl, _w("tr"))
+    ET.SubElement(ET.SubElement(tr, _w("tc")), _w("p"))
+
+    math_tc = ET.SubElement(tr, _w("tc"))
+    math_p = ET.SubElement(math_tc, _w("p"))
+    omath_para = ET.SubElement(math_p, _m("oMathPara"))
+    omath = ET.SubElement(omath_para, _m("oMath"))
+    mr = ET.SubElement(omath, _m("r"))
+    mt = ET.SubElement(mr, _m("t"))
+    mt.text = "E=mc2"
+
+    num_tc = ET.SubElement(tr, _w("tc"))
+    num_p = ET.SubElement(num_tc, _w("p"))
+    run = ET.SubElement(num_p, _w("r"))
+    text = ET.SubElement(run, _w("t"))
+    text.text = eq_number
+
+    body.insert(list(body).index(sect_pr), tbl)
+    parts["word/document.xml"] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    with zipfile.ZipFile(docx_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, payload in parts.items():
+            zf.writestr(name, payload)
+
+
+def _inject_text_equation_layout_table(
+    docx_path: Path,
+    *,
+    eq_number: str = "(1.1)",
+    formula_text: str = "样品得率（%）=(m2-m1)/m0×100",
+) -> None:
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+    def _w(tag: str) -> str:
+        return f"{{{w_ns}}}{tag}"
+
+    with zipfile.ZipFile(docx_path, "r") as zf:
+        parts = {name: zf.read(name) for name in zf.namelist()}
+
+    root = ET.fromstring(parts["word/document.xml"])
+    body = root.find(_w("body"))
+    assert body is not None
+    sect_pr = body.find(_w("sectPr"))
+    assert sect_pr is not None
+
+    tbl = ET.Element(_w("tbl"))
+    tbl_pr = ET.SubElement(tbl, _w("tblPr"))
+    tbl_borders = ET.SubElement(tbl_pr, _w("tblBorders"))
+    for name in ("top", "bottom", "left", "right", "insideH", "insideV"):
+        border = ET.SubElement(tbl_borders, _w(name))
+        border.set(_w("val"), "single" if name in {"top", "bottom"} else "none")
+        border.set(_w("sz"), "18" if name in {"top", "bottom"} else "0")
+        border.set(_w("color"), "000000" if name in {"top", "bottom"} else "auto")
+        border.set(_w("space"), "0")
+
+    tr = ET.SubElement(tbl, _w("tr"))
+    for cell_text in ("", formula_text, eq_number):
+        tc = ET.SubElement(tr, _w("tc"))
+        tc_pr = ET.SubElement(tc, _w("tcPr"))
+        tc_borders = ET.SubElement(tc_pr, _w("tcBorders"))
+        for name in ("top", "left", "bottom", "right"):
+            border = ET.SubElement(tc_borders, _w(name))
+            border.set(_w("val"), "single" if name == "bottom" else "nil")
+            border.set(_w("sz"), "6" if name == "bottom" else "0")
+            border.set(_w("color"), "000000" if name == "bottom" else "auto")
+            border.set(_w("space"), "0")
+        p = ET.SubElement(tc, _w("p"))
+        if cell_text:
+            r = ET.SubElement(p, _w("r"))
+            t = ET.SubElement(r, _w("t"))
+            t.text = cell_text
+
+    body.insert(list(body).index(sect_pr), tbl)
+    parts["word/document.xml"] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    with zipfile.ZipFile(docx_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, payload in parts.items():
+            zf.writestr(name, payload)
+
+
+def _inject_inline_math_into_paragraph(docx_path: Path, paragraph_text: str) -> None:
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    m_ns = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+    ns = {"w": w_ns, "m": m_ns}
+
+    def _w(tag: str) -> str:
+        return f"{{{w_ns}}}{tag}"
+
+    def _m(tag: str) -> str:
+        return f"{{{m_ns}}}{tag}"
+
+    with zipfile.ZipFile(docx_path, "r") as zf:
+        parts = {name: zf.read(name) for name in zf.namelist()}
+
+    root = ET.fromstring(parts["word/document.xml"])
+    target = None
+    for p_elem in root.findall(".//w:p", ns):
+        texts = [t.text or "" for t in p_elem.findall(".//w:t", ns)]
+        if "".join(texts) == paragraph_text:
+            target = p_elem
+            break
+    assert target is not None
+
+    run = ET.SubElement(target, _w("r"))
+    omath = ET.SubElement(run, _m("oMath"))
+    mr = ET.SubElement(omath, _m("r"))
+    mt = ET.SubElement(mr, _m("t"))
+    mt.text = "m"
+
+    parts["word/document.xml"] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    with zipfile.ZipFile(docx_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, payload in parts.items():
+            zf.writestr(name, payload)
 
 
 def _spacing_attrs(paragraph):
@@ -85,6 +245,50 @@ def _inject_existing_footer_page_field(docx_path: Path):
             zf.writestr(name, payload)
 
 
+def _inject_hidden_page_field_body_paragraph(docx_path: Path, display_text: str = "-"):
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    ns = {"w": w_ns}
+
+    def _w(tag: str) -> str:
+        return f"{{{w_ns}}}{tag}"
+
+    with zipfile.ZipFile(docx_path, "r") as zf:
+        parts = {name: zf.read(name) for name in zf.namelist()}
+
+    root = ET.fromstring(parts["word/document.xml"])
+    body = root.find("w:body", ns)
+    assert body is not None
+    sect_pr = body.find(_w("sectPr"))
+    assert sect_pr is not None
+
+    paragraph = ET.Element(_w("p"))
+    p_pr = ET.SubElement(paragraph, _w("pPr"))
+    spacing = ET.SubElement(p_pr, _w("spacing"))
+    spacing.set(_w("line"), "360")
+    spacing.set(_w("lineRule"), "auto")
+
+    def _hidden_run():
+        run = ET.SubElement(paragraph, _w("r"))
+        r_pr = ET.SubElement(run, _w("rPr"))
+        ET.SubElement(r_pr, _w("vanish")).set(_w("val"), "1")
+        return run
+
+    fld_begin = ET.SubElement(_hidden_run(), _w("fldChar"))
+    fld_begin.set(_w("fldCharType"), "begin")
+    instr = ET.SubElement(_hidden_run(), _w("instrText"))
+    instr.text = " PAGE "
+    fld_end = ET.SubElement(_hidden_run(), _w("fldChar"))
+    fld_end.set(_w("fldCharType"), "end")
+    ET.SubElement(_hidden_run(), _w("t")).text = display_text
+
+    body.insert(list(body).index(sect_pr), paragraph)
+    parts["word/document.xml"] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    with zipfile.ZipFile(docx_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, payload in parts.items():
+            zf.writestr(name, payload)
+
+
 def test_scoped_fix_dry_run_returns_preview_without_writing_output(tmp_docx, tmp_path):
     source_path = tmp_docx(make_compliant_doc, filename="scoped_fix_preview_source.docx")
     preview_path = Path(tmp_path) / "scoped_fix_preview_output.docx"
@@ -104,6 +308,18 @@ def test_scoped_fix_dry_run_returns_preview_without_writing_output(tmp_docx, tmp
     assert "dry-run: 是" in rendered
     assert "修复范围: headings" in rendered
     assert "预计会触达的模块" in rendered
+
+
+def test_cleanup_docx_hidden_page_number_artifacts_removes_body_page_field_paragraph(tmp_docx):
+    source_path = tmp_docx(make_compliant_doc, filename="cleanup_hidden_page_field_source.docx")
+    _inject_hidden_page_field_body_paragraph(source_path, "-")
+
+    removed = fix_thesis._cleanup_docx_hidden_page_number_artifacts(str(source_path))
+
+    assert removed == 1
+    doc = Document(source_path)
+    texts = [paragraph.text.strip() for paragraph in doc.paragraphs if paragraph.text.strip()]
+    assert "-" not in texts
 
 
 def test_fix_docx_keeps_heading_numbers_when_renumber_not_enabled(tmp_docx, tmp_path):
@@ -185,6 +401,30 @@ def test_heading_style_prepass_identifies_and_repairs_heading_like_paragraphs(tm
     assert preview_after["heading_style_candidates"] == 0
 
 
+def test_body_scope_does_not_promote_heading_like_paragraphs_via_heading_prepass(tmp_docx, tmp_path):
+    source_path = tmp_docx(make_compliant_doc, filename="body_scope_no_heading_prepass_source.docx")
+    doc = Document(source_path)
+    heading = _paragraph_by_prefix(doc, "1.1 研究背景")
+    heading.style = doc.styles["Normal"]
+    heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "body_scope_no_heading_prepass_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="cn-common",
+        scopes=["body_paragraphs"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    fixed_heading = _paragraph_by_prefix(fixed_doc, "1.1 研究背景")
+    h02_status = audit_rule_status(fixed_path, "H02")
+
+    assert fixed_heading.style.name == "Normal"
+    assert not h02_status["rule"]["passed"]
+
+
 def test_body_scope_demotes_misstyled_heading_paragraph_to_body_style(tmp_path):
     source_path = Path(tmp_path) / "body_scope_demote_heading_style.docx"
     doc = Document()
@@ -205,6 +445,30 @@ def test_body_scope_demotes_misstyled_heading_paragraph_to_body_style(tmp_path):
     fixed_doc = Document(fixed_path)
     fixed_paragraph = fixed_doc.paragraphs[1]
     assert fixed_paragraph.style.name == "Normal"
+
+
+def test_body_scope_clears_residual_page_break_before_on_demoted_body_paragraph(tmp_path):
+    source_path = Path(tmp_path) / "body_scope_clear_page_break_source.docx"
+    doc = Document()
+    heading = doc.add_paragraph("1 绪论")
+    heading.style = doc.styles["Heading 1"]
+    paragraph = doc.add_paragraph("这是一个被误套用标题样式的正文句子。")
+    paragraph.style = doc.styles["Heading 1"]
+    paragraph.paragraph_format.page_break_before = True
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "body_scope_clear_page_break_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["body_paragraphs"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    fixed_paragraph = fixed_doc.paragraphs[1]
+    assert fixed_paragraph.style.name == "Normal"
+    assert fixed_paragraph.paragraph_format.page_break_before is not True
 
 
 def test_body_scope_preserves_figure_note_paragraph_formatting(tmp_path):
@@ -328,6 +592,381 @@ def test_figures_scope_moves_post_figure_analysis_before_figure_block(tmp_path):
     assert lnu_f06["passed"], lnu_f06["issues"]
 
 
+def test_layout_rebalance_is_opt_in_and_does_not_change_default_flow(tmp_path):
+    source_path = Path(tmp_path) / "layout_rebalance_opt_in_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.2 基因组组装结果").style = doc.styles["Heading 2"]
+    doc.add_paragraph("组装结果显示连续性良好，图2.1 与表2.1共同支持该判断。")
+    table_caption = doc.add_paragraph("表2.1 基因组组装统计")
+    table_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "层次"
+    table.cell(0, 1).text = "N50"
+    table.cell(1, 0).text = "Contig"
+    table.cell(1, 1).text = "522958"
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    caption = doc.add_paragraph("图2.1 基因组组装评估结果图")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "layout_rebalance_opt_in_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph_info = [
+        (idx, paragraph.text.strip(), bool(paragraph._p.xpath(".//w:drawing")))
+        for idx, paragraph in enumerate(fixed_doc.paragraphs)
+    ]
+    idx_table_caption = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("表2.1 "))
+    idx_figure_caption = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("图2.1 "))
+    assert idx_table_caption < idx_figure_caption
+
+
+def test_layout_rebalance_moves_figure_block_after_existing_reference(tmp_path):
+    source_path = Path(tmp_path) / "layout_rebalance_enabled_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.2 基因组组装结果").style = doc.styles["Heading 2"]
+    doc.add_paragraph("组装结果显示连续性良好，图2.1 与表2.1共同支持该判断。")
+    table_caption = doc.add_paragraph("表2.1 基因组组装统计")
+    table_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "层次"
+    table.cell(0, 1).text = "N50"
+    table.cell(1, 0).text = "Contig"
+    table.cell(1, 1).text = "522958"
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    caption = doc.add_paragraph("图2.1 基因组组装评估结果图")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "layout_rebalance_enabled_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+        layout_rebalance=True,
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph_info = [
+        (idx, paragraph.text.strip(), bool(paragraph._p.xpath(".//w:drawing")))
+        for idx, paragraph in enumerate(fixed_doc.paragraphs)
+    ]
+    idx_ref = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("组装结果显示连续性良好"))
+    idx_table_caption = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("表2.1 "))
+    idx_drawing = next(idx for idx, text, has_drawing in paragraph_info if has_drawing)
+    idx_figure_caption = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("图2.1 "))
+
+    assert idx_ref < idx_drawing < idx_figure_caption < idx_table_caption
+    assert not any(text.startswith("相关结果如图") for _, text, _ in paragraph_info if text)
+
+
+def test_layout_rebalance_prefers_earliest_reference_in_same_subsection(tmp_path):
+    source_path = Path(tmp_path) / "layout_rebalance_earliest_anchor_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 结果分析").style = doc.styles["Heading 2"]
+    doc.add_paragraph("不同改性条件结果如图2.1A、B所示。")
+    doc.add_paragraph("进一步地，24 h结果如图2.1C所示。")
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    caption = doc.add_paragraph("图2.1 不同改性条件筛选组样品的溶胀率与溶失率")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    note = doc.add_paragraph("注：（A）0.5～24 h 溶胀率变化曲线；（B）24 h 溶胀率；（C）24 h 溶失率。")
+    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "layout_rebalance_earliest_anchor_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+        layout_rebalance=True,
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph_info = [
+        (idx, paragraph.text.strip(), bool(paragraph._p.xpath(".//w:drawing")))
+        for idx, paragraph in enumerate(fixed_doc.paragraphs)
+    ]
+    idx_first_ref = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("不同改性条件结果如图2.1A"))
+    idx_second_ref = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("进一步地，24 h结果如图2.1C"))
+    idx_drawing = next(idx for idx, text, has_drawing in paragraph_info if has_drawing)
+    idx_caption = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("图2.1 "))
+
+    assert idx_first_ref < idx_drawing < idx_caption < idx_second_ref
+
+
+def test_layout_rebalance_can_cross_h3_when_reference_is_earlier_in_same_h2(tmp_path):
+    source_path = Path(tmp_path) / "layout_rebalance_cross_h3_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 结果分析").style = doc.styles["Heading 2"]
+    doc.add_paragraph("2.1.2 溶胀特性分析").style = doc.styles["Heading 3"]
+    doc.add_paragraph("具体结果如图2.1A、B所示。")
+    doc.add_paragraph("2.1.3 溶失特性分析").style = doc.styles["Heading 3"]
+    doc.add_paragraph("24 h结果如图2.1C所示。")
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    caption = doc.add_paragraph("图2.1 不同改性条件筛选组样品的溶胀率与溶失率")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    note = doc.add_paragraph("注：（A）0.5～24 h 溶胀率变化曲线；（B）24 h 溶胀率；（C）24 h 溶失率。")
+    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "layout_rebalance_cross_h3_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+        layout_rebalance=True,
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph_info = [
+        (idx, paragraph.text.strip(), bool(paragraph._p.xpath(".//w:drawing")))
+        for idx, paragraph in enumerate(fixed_doc.paragraphs)
+    ]
+    idx_first_ref = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("具体结果如图2.1A"))
+    idx_h3 = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("2.1.3 溶失特性分析"))
+    idx_drawing = next(idx for idx, text, has_drawing in paragraph_info if has_drawing)
+    idx_caption = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("图2.1 "))
+
+    assert idx_first_ref < idx_drawing < idx_caption < idx_h3
+
+
+def test_layout_rebalance_does_not_insert_synthetic_lead_when_spaced_reference_already_exists(tmp_path):
+    source_path = Path(tmp_path) / "layout_rebalance_spaced_reference_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 结果分析").style = doc.styles["Heading 2"]
+    doc.add_paragraph("2.1.2 溶胀特性分析").style = doc.styles["Heading 3"]
+    doc.add_paragraph("具体结果如图 2.1 A、B 所示。")
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    caption = doc.add_paragraph("图2.1 不同改性条件筛选组样品的溶胀率与溶失率")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    note = doc.add_paragraph("注：（A）0.5～24 h 溶胀率变化曲线；（B）24 h 溶胀率。")
+    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "layout_rebalance_spaced_reference_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+        layout_rebalance=True,
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph_texts = [paragraph.text.strip() for paragraph in fixed_doc.paragraphs if paragraph.text.strip()]
+    assert "相关结果如图2.1所示。" not in paragraph_texts
+
+
+def test_layout_rebalance_does_not_touch_non_figure_scopes(tmp_path):
+    source_path = Path(tmp_path) / "layout_rebalance_non_figure_scope_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.2 基因组组装结果").style = doc.styles["Heading 2"]
+    doc.add_paragraph("组装结果显示连续性良好，图2.1 与表2.1共同支持该判断。")
+    table_caption = doc.add_paragraph("表2.1 基因组组装统计")
+    table_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "层次"
+    table.cell(0, 1).text = "N50"
+    table.cell(1, 0).text = "Contig"
+    table.cell(1, 1).text = "522958"
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    caption = doc.add_paragraph("图2.1 基因组组装评估结果图")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "layout_rebalance_non_figure_scope_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["headings"],
+        layout_rebalance=True,
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph_texts = [paragraph.text.strip() for paragraph in fixed_doc.paragraphs if paragraph.text.strip()]
+    assert paragraph_texts[-2:] == ["表2.1 基因组组装统计", "图2.1 基因组组装评估结果图"]
+
+
+def test_layout_rebalance_can_move_table_block_to_reference_anchor(tmp_path):
+    source_path = Path(tmp_path) / "layout_rebalance_table_anchor_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.3 基因组组分分析").style = doc.styles["Heading 2"]
+    doc.add_paragraph("相关统计见表2.1。")
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    figure_caption = doc.add_paragraph("图2.1 基因组组分分析结果图")
+    figure_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table_caption = doc.add_paragraph("表2.1 基因组组分统计")
+    table_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "类型"
+    table.cell(0, 1).text = "数量"
+    table.cell(1, 0).text = "CDS"
+    table.cell(1, 1).text = "7118"
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "layout_rebalance_table_anchor_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+        layout_rebalance=True,
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph_info = [
+        (idx, paragraph.text.strip(), bool(paragraph._p.xpath(".//w:drawing")))
+        for idx, paragraph in enumerate(fixed_doc.paragraphs)
+    ]
+    idx_ref = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("相关统计见表2.1"))
+    idx_table_caption = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("表2.1 "))
+    idx_figure_caption = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("图2.1 "))
+
+    assert idx_ref < idx_table_caption < idx_figure_caption
+
+
+def test_layout_rebalance_still_inserts_lead_when_only_later_section_mentions_table(tmp_path):
+    source_path = Path(tmp_path) / "layout_rebalance_later_reference_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 基因组组装结果").style = doc.styles["Heading 2"]
+    doc.add_paragraph("本节先给出表格。")
+    table_caption = doc.add_paragraph("表2.1 基因组组装统计")
+    table_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "层次"
+    table.cell(0, 1).text = "N50"
+    table.cell(1, 0).text = "Contig"
+    table.cell(1, 1).text = "522958"
+    doc.add_paragraph("2.2 讨论").style = doc.styles["Heading 2"]
+    doc.add_paragraph("后文将结合表2.1进一步讨论。")
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "layout_rebalance_later_reference_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+        layout_rebalance=True,
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph_texts = [paragraph.text.strip() for paragraph in fixed_doc.paragraphs if paragraph.text.strip()]
+    idx_lead = paragraph_texts.index("相关结果如表2.1所示。")
+    idx_caption = next(i for i, text in enumerate(paragraph_texts) if _normalize_spaces(text) == "表2.1 基因组组装统计")
+    idx_heading = paragraph_texts.index("2.2 讨论")
+
+    assert idx_lead < idx_caption < idx_heading
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    lnu_f05 = next(item for item in results if item["id"] == "LNU_F05")
+    assert lnu_f05["passed"], lnu_f05["issues"]
+
+
+def test_figures_scope_clears_borders_on_equation_layout_tables(tmp_path):
+    source_path = Path(tmp_path) / "equation_layout_table_source.docx"
+    doc = Document()
+    doc.add_paragraph("第1章 绪论").style = doc.styles["Heading 1"]
+    doc.add_paragraph("其中公式如下。")
+    doc.save(source_path)
+    _inject_equation_layout_table(source_path, "(1.1)")
+
+    fixed_path = Path(tmp_path) / "equation_layout_table_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    with zipfile.ZipFile(fixed_path, "r") as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    equation_tables = [
+        tbl
+        for tbl in root.findall(".//w:tbl", ns)
+        if audit_thesis.is_equation_layout_table(tbl)
+    ]
+    assert len(equation_tables) == 1
+
+    tbl_borders = equation_tables[0].find("w:tblPr/w:tblBorders", ns)
+    assert tbl_borders is not None
+    for border_name in ("top", "bottom", "left", "right", "insideH", "insideV"):
+        border = tbl_borders.find(f"w:{border_name}", ns)
+        assert border is not None
+        assert border.get(qn("w:val")) == "nil"
+        assert border.get(qn("w:sz")) == "0"
+
+
+def test_figures_scope_clears_borders_on_text_equation_layout_tables(tmp_path):
+    source_path = Path(tmp_path) / "text_equation_layout_table_source.docx"
+    doc = Document()
+    doc.add_paragraph("第1章 绪论").style = doc.styles["Heading 1"]
+    doc.add_paragraph("筛选阶段样品得率按式（1.1）计算：")
+    doc.save(source_path)
+    _inject_text_equation_layout_table(source_path, eq_number="(1.1)")
+
+    fixed_path = Path(tmp_path) / "text_equation_layout_table_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    with zipfile.ZipFile(fixed_path, "r") as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    equation_tables = [
+        tbl
+        for tbl in root.findall(".//w:tbl", ns)
+        if audit_thesis.is_equation_layout_table(tbl)
+    ]
+    assert len(equation_tables) == 1
+
+    tbl_borders = equation_tables[0].find("w:tblPr/w:tblBorders", ns)
+    assert tbl_borders is not None
+    for border_name in ("top", "bottom", "left", "right", "insideH", "insideV"):
+        border = tbl_borders.find(f"w:{border_name}", ns)
+        assert border is not None
+        assert border.get(qn("w:val")) == "nil"
+        assert border.get(qn("w:sz")) == "0"
+
+    for tc_borders in equation_tables[0].findall(".//w:tcPr/w:tcBorders", ns):
+        for border_name in ("top", "bottom", "left", "right"):
+            border = tc_borders.find(f"w:{border_name}", ns)
+            assert border is not None
+            assert border.get(qn("w:val")) == "nil"
+            assert border.get(qn("w:sz")) == "0"
+
+
 def test_figures_scope_converts_existing_blank_separator_to_structured_spacing(tmp_path):
     source_path = Path(tmp_path) / "lnu_figure_blank_separator_source.docx"
     doc = Document()
@@ -366,6 +1005,280 @@ def test_figures_scope_converts_existing_blank_separator_to_structured_spacing(t
     assert note_after == "360"
 
 
+def test_figures_scope_normalizes_table_block_spacing_and_caption_attachment(tmp_path):
+    source_path = Path(tmp_path) / "lnu_table_block_spacing_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 基因组组装结果").style = doc.styles["Heading 2"]
+    doc.add_paragraph("组装统计结果如下所示。")
+
+    caption = doc.add_paragraph("表2.1 基因组组装统计")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    caption.paragraph_format.space_after = 6
+    doc.add_paragraph("")
+
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "层次"
+    table.cell(0, 1).text = "N50"
+    table.cell(1, 0).text = "Contig"
+    table.cell(1, 1).text = "522958"
+
+    doc.add_paragraph("2.2 基因组组分分析").style = doc.styles["Heading 2"]
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "lnu_table_block_spacing_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    fixed_caption = _paragraph_by_normalized_prefix(fixed_doc, "表2.1 基因组组装统计")
+    fixed_next_heading = _paragraph_by_prefix(fixed_doc, "2.2 基因组组分分析")
+    caption_before, caption_after, _ = _spacing_attrs(fixed_caption)
+    next_before, _, _ = _spacing_attrs(fixed_next_heading)
+    cfg = _profile_cfg("lnu")
+
+    body_children = list(fixed_doc.element.body.iterchildren())
+    caption_idx = next(
+        i
+        for i, elem in enumerate(body_children)
+        if elem.tag == qn("w:p") and _normalize_spaces("".join(elem.itertext())).startswith("表2.1 基因组组装统计")
+    )
+
+    assert body_children[caption_idx + 1].tag == qn("w:tbl")
+    assert caption_before == "360"
+    assert caption_after == "0"
+    if cfg.get("table_blank_line_mode") == "blank_paragraph":
+        assert body_children[caption_idx + 2].tag == qn("w:p")
+        assert not "".join(body_children[caption_idx + 2].itertext()).strip()
+        assert next_before in (None, "0")
+    else:
+        assert next_before == "360"
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    lnu_tb04 = next(item for item in results if item["id"] == "LNU_TB04")
+    assert lnu_tb04["passed"], lnu_tb04["issues"]
+
+
+def test_body_scope_splits_inline_citation_in_protected_math_paragraph(tmp_path):
+    source_path = Path(tmp_path) / "protected_math_citation_source.docx"
+    paragraph_text = "该方法的计算过程参考相关文献[45]。"
+
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph(paragraph_text)
+    doc.save(source_path)
+    _inject_inline_math_into_paragraph(source_path, paragraph_text)
+
+    fixed_path = Path(tmp_path) / "protected_math_citation_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["body_paragraphs"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph = next(p for p in fixed_doc.paragraphs if "该方法的计算过程参考相关文献" in p.text)
+    citation_runs = [run for run in paragraph.runs if run.text == "[45]"]
+    assert len(citation_runs) == 1
+    assert citation_runs[0].font.superscript is True
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    c04 = next(item for item in results if item["id"] == "C04")
+    assert c04["passed"], c04["issues"]
+
+
+def test_figures_scope_adds_spacing_between_caption_note_prefix_and_number(tmp_path):
+    source_path = Path(tmp_path) / "caption_note_num_spacing_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    caption = doc.add_paragraph("图2.1 明胶样品的起泡性与起泡稳定性")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    note = doc.add_paragraph("注1) 起泡性数据为 3 次平行测定结果。")
+    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph("下文继续讨论起泡稳定性结果。")
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "caption_note_num_spacing_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    fixed_note = next(p for p in fixed_doc.paragraphs if p.text.startswith("注"))
+    assert fixed_note.text.startswith("注1)")
+
+
+def test_figures_scope_treats_spaced_colon_table_note_as_caption_note(tmp_path):
+    source_path = Path(tmp_path) / "caption_note_spaced_colon_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 正式实验样品得率").style = doc.styles["Heading 2"]
+    doc.add_paragraph("正式实验结果见表2.1。")
+
+    caption = doc.add_paragraph("表2.1 正式实验各组样品得率")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "组别"
+    table.cell(0, 1).text = "得率"
+    table.cell(1, 0).text = "A"
+    table.cell(1, 1).text = "85.0"
+
+    note = doc.add_paragraph("注 ：正式实验各组样品初始投料质量均为 1.00 g，数据以平均值 ± 标准差表示（n = 3）。")
+    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph("2.2 后续分析").style = doc.styles["Heading 2"]
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "caption_note_spaced_colon_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables", "body_paragraphs", "headings"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    fixed_note = next(p for p in fixed_doc.paragraphs if p.text.startswith("注"))
+    note_before, _note_after, _ = _spacing_attrs(fixed_note)
+    assert fixed_note.text.startswith("注：") or fixed_note.text.startswith("注 ：")
+    assert note_before == "0"
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    s03 = next(item for item in results if item["id"] == "S03")
+    lnu_tb04 = next(item for item in results if item["id"] == "LNU_TB04")
+    assert s03["passed"], s03["issues"]
+    assert lnu_tb04["passed"], lnu_tb04["issues"]
+
+
+def test_heading_and_table_scopes_keep_heading_spacing_after_table_block(tmp_path):
+    source_path = Path(tmp_path) / "lnu_heading_table_spacing_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 基因组组装结果").style = doc.styles["Heading 2"]
+    doc.add_paragraph("组装统计结果如下所示。")
+
+    caption = doc.add_paragraph("表2.1 基因组组装统计")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "层次"
+    table.cell(0, 1).text = "N50"
+    table.cell(1, 0).text = "Contig"
+    table.cell(1, 1).text = "522958"
+
+    next_heading = doc.add_paragraph("2.2 基因组组分分析")
+    next_heading.style = doc.styles["Heading 2"]
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "lnu_heading_table_spacing_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["headings", "figures_tables"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    fixed_next_heading = _paragraph_by_prefix(fixed_doc, "2.2 基因组组分分析")
+    next_before, next_after, _ = _spacing_attrs(fixed_next_heading)
+    cfg = _profile_cfg("lnu")
+    body_children = list(fixed_doc.element.body.iterchildren())
+    caption_idx = next(
+        i
+        for i, elem in enumerate(body_children)
+        if elem.tag == qn("w:p") and _normalize_spaces("".join(elem.itertext())).startswith("表2.1 基因组组装统计")
+    )
+
+    assert body_children[caption_idx + 1].tag == qn("w:tbl")
+    if cfg.get("table_blank_line_mode") == "blank_paragraph":
+        assert body_children[caption_idx + 2].tag == qn("w:p")
+        assert not "".join(body_children[caption_idx + 2].itertext()).strip()
+        assert next_before == "120"
+    else:
+        assert next_before == "360"
+    assert next_after == "120"
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    s01 = next(item for item in results if item["id"] == "S01")
+    lnu_tb04 = next(item for item in results if item["id"] == "LNU_TB04")
+    assert s01["passed"], s01["issues"]
+    assert lnu_tb04["passed"], lnu_tb04["issues"]
+
+
+def test_figures_scope_allows_table_block_at_document_end(tmp_path):
+    source_path = Path(tmp_path) / "lnu_table_block_at_document_end_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 基因组组装结果").style = doc.styles["Heading 2"]
+    paragraph = doc.add_paragraph("组装统计结果如下所示。")
+    paragraph.paragraph_format.space_after = Pt(18)
+
+    caption = doc.add_paragraph("表2.1 基因组组装统计")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    caption.paragraph_format.space_after = 6
+
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "层次"
+    table.cell(0, 1).text = "N50"
+    table.cell(1, 0).text = "Contig"
+    table.cell(1, 1).text = "522958"
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "lnu_table_block_at_document_end_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    lnu_tb04 = next(item for item in results if item["id"] == "LNU_TB04")
+    assert lnu_tb04["passed"], lnu_tb04["issues"]
+
+
+def test_figures_scope_sets_repeat_header_for_long_tables(tmp_path):
+    source_path = Path(tmp_path) / "tb03_repeat_header_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 基因组组装结果").style = doc.styles["Heading 2"]
+    doc.add_paragraph("长表结果如下所示。")
+    doc.add_paragraph("表2.1 长表统计")
+    table = doc.add_table(rows=6, cols=2)
+    for row_idx in range(6):
+        table.cell(row_idx, 0).text = f"项目{row_idx + 1}"
+        table.cell(row_idx, 1).text = f"数值{row_idx + 1}"
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "tb03_repeat_header_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    with zipfile.ZipFile(fixed_path) as zf:
+        document_xml = ET.fromstring(zf.read("word/document.xml"))
+    first_table = document_xml.find(".//w:tbl", {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"})
+    assert first_table is not None
+    first_row = first_table.find("w:tr", {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"})
+    assert first_row is not None
+    assert first_row.find("w:trPr/w:tblHeader", {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}) is not None
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    tb03 = next(item for item in results if item["id"] == "TB03")
+    assert tb03["passed"], tb03["issues"]
+
+
 def test_heading_and_figure_scopes_share_gap_budget_without_over_spacing(tmp_path):
     source_path = Path(tmp_path) / "lnu_heading_figure_spacing_source.docx"
     doc = Document()
@@ -399,7 +1312,9 @@ def test_heading_and_figure_scopes_share_gap_budget_without_over_spacing(tmp_pat
     _, note_after, _ = _spacing_attrs(fixed_doc.paragraphs[idx_note])
 
     assert drawing_before == "360"
-    assert note_after == "240"
+    next_heading = next(paragraph for paragraph in fixed_doc.paragraphs if paragraph.text.startswith("2.2 "))
+    next_before, _, _ = _spacing_attrs(next_heading)
+    assert int(note_after or 0) + int(next_before or 0) == 360
 
     results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
     lnu_f03 = next(item for item in results if item["id"] == "LNU_F03")
@@ -443,6 +1358,17 @@ def test_fix_docx_writes_reopenable_docx(tmp_docx, tmp_path):
         assert zip_handle.testzip() is None
     reopened = Document(fixed_path)
     assert len(reopened.paragraphs) > 0
+
+
+def test_fix_docx_keeps_page_break_before_reference_heading_in_default_flow(tmp_docx, tmp_path):
+    source_path = tmp_docx(make_violating_doc, filename="default_fix_keeps_reference_break_source.docx", rule_id="T01")
+    fixed_path = Path(tmp_path) / "default_fix_keeps_reference_break_fixed.docx"
+
+    fix_thesis.fix_docx(str(source_path), str(fixed_path))
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path))
+    s02 = next(item for item in results if item["id"] == "S02")
+    assert s02["passed"], s02["issues"]
 
 
 def test_fix_docx_validation_failure_keeps_existing_output(tmp_docx, tmp_path, monkeypatch):

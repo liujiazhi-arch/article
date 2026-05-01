@@ -60,6 +60,13 @@ def _make_field_only_toc_lnu_doc(source_path: Path) -> Path:
     title_jc = OxmlElement("w:jc")
     title_jc.set(qn("w:val"), "center")
     title_p_pr.append(title_jc)
+    title_run = title.runs[0]
+    title_run.font.name = "Times New Roman"
+    title_run._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:eastAsia"), "黑体")
+    title_run.font.size = None
+    title_sz = OxmlElement("w:sz")
+    title_sz.set(qn("w:val"), "32")
+    title_run._element.get_or_add_rPr().append(title_sz)
 
     field = doc.add_paragraph("")
     field_p_pr = field._p.get_or_add_pPr()
@@ -98,16 +105,16 @@ def test_audit_document_returns_structured_payload(tmp_docx):
     assert failed_by_id["KW01"]["action"] == "manual_review"
 
 
-def test_audit_document_supports_second_profile_alias(tmp_docx):
+def test_audit_document_supports_lnu_profile_alias(tmp_docx):
     source_path = _build_mutated_doc(
         tmp_docx,
-        filename="article_engine_ams_audit.docx",
+        filename="article_engine_lnu_audit.docx",
         rule_ids=("H02",),
     )
 
-    payload = audit_document(str(source_path), profile_path="ams")
+    payload = audit_document(str(source_path), profile_path="lnu")
 
-    assert payload["profile"]["id"] == "ams-graduate"
+    assert payload["profile"]["id"] == "lnu-checker-2026"
 
 
 def test_audit_document_defaults_to_strict_profile_for_explicit_profile(tmp_docx):
