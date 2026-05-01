@@ -3,9 +3,12 @@ from __future__ import annotations
 import re
 from typing import Callable, Iterator
 
+from backmatter_title_utils import (
+    is_acknowledgement_title,
+    is_appendix_title,
+    is_reference_title,
+)
 
-_REFERENCE_HEADING = "参考文献"
-_REFERENCE_STOP_TITLES = {"致谢", "附录", "abstract"}
 _CHAPTER_HEADING_RE = re.compile(r"^第.+[章节篇]")
 
 
@@ -14,7 +17,7 @@ def normalize_reference_section_text(text: str | None) -> str:
 
 
 def is_reference_heading_text(text: str | None) -> bool:
-    return normalize_reference_section_text(text) == _REFERENCE_HEADING
+    return is_reference_title(text)
 
 
 def is_reference_section_stop_text(text: str | None) -> bool:
@@ -22,7 +25,12 @@ def is_reference_section_stop_text(text: str | None) -> bool:
     if not stripped:
         return False
     normalized = normalize_reference_section_text(stripped)
-    return normalized in _REFERENCE_STOP_TITLES or bool(_CHAPTER_HEADING_RE.match(stripped))
+    return (
+        is_acknowledgement_title(stripped)
+        or is_appendix_title(stripped)
+        or normalized == "abstract"
+        or bool(_CHAPTER_HEADING_RE.match(stripped))
+    )
 
 
 def iter_reference_section_contexts(contexts, *, skip_empty: bool = False) -> Iterator[dict]:
