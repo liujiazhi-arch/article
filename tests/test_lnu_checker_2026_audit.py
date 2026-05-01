@@ -365,6 +365,28 @@ def test_checker_2026_text02_detects_toc_entry_mixed_spacing():
     assert any("目录条目" in issue for issue in issues)
 
 
+def test_checker_2026_text02_detects_toc_entry_half_width_punctuation():
+    runtime = _checker_runtime_or_xfail()
+    paragraph = _make_paragraph("研究背景,方法")
+    contexts = [
+        {
+            "index": 2,
+            "elem": paragraph,
+            "text": "研究背景,方法",
+            "kind": "body",
+            "section": "toc",
+            "effective_section": "toc",
+            "module": "toc_entry",
+            "protected": False,
+        }
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_text_compact(_make_doc_root(paragraph), contexts, {}, runtime.cfg, "toc")
+
+    assert not passed
+    assert any("半角标点" in issue for issue in issues)
+
+
 def test_checker_2026_text03_keeps_references_out_of_compact_body_rule():
     runtime = _checker_runtime_or_xfail()
     paragraph = _make_paragraph("[1] Guo G C. Quantum optics[M]. Beijing: Higher Education Press, 2005.")

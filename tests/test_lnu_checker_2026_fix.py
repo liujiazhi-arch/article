@@ -271,6 +271,15 @@ def test_fix_lnu_compact_text_restores_allowed_heading_number_space():
     assert get_paragraph_text(paragraph) == "1.2 CRISPR技术基础"
 
 
+def test_fix_half_width_punct_can_target_lnu_toc_scope():
+    paragraph = _make_paragraph("1.1 研究背景,方法\t2", sz=24)
+    document = _make_doc_root(paragraph)
+
+    fix_thesis.fix_half_width_punct_in_cjk(document, allowed_ids={id(paragraph)})
+
+    assert get_paragraph_text(paragraph) == "1.1 研究背景，方法\t2"
+
+
 def test_normalize_lnu_figure_block_layout_enforces_one_blank_line_gap():
     import pytest
 

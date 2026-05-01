@@ -11,8 +11,7 @@ PROFILE_ALIASES = {
     "lnu": os.path.join(PROFILE_DIR, "lnu-checker-2026.yaml"),
     "lnu-checker-2026": os.path.join(PROFILE_DIR, "lnu-checker-2026.yaml"),
     "lnu-checker": os.path.join(PROFILE_DIR, "lnu-checker-2026.yaml"),
-    "lnu-undergraduate-legacy": os.path.join(PROFILE_DIR, "lnu-undergraduate.yaml"),
-    "lnu-undergraduate": os.path.join(PROFILE_DIR, "lnu-undergraduate.yaml"),
+    "lnu-undergraduate": os.path.join(PROFILE_DIR, "lnu-checker-2026.yaml"),
 }
 
 _DEFAULT_SUPPORT_LEVEL = {

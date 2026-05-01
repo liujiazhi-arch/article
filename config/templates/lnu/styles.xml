@@ -2,7 +2,7 @@
 <!--
   辽宁大学本科毕业论文 styles.xml
   依据：辽宁大学官方论文格式样本（lnu-undergraduate-format-template.doc）
-        + lnu-undergraduate.yaml Profile
+        + lnu-checker-2026.yaml Profile
   生成日期：2026-03-26
   用途：由 inject_template_components() 注入，替换用户文档的 Word 样式库，
         确保"新输入段落"和"清除格式后"都能继承正确的辽大基准样式。

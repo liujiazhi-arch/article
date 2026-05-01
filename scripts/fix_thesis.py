@@ -458,10 +458,13 @@ def _summarize_fix_targets(document_model, scope_flags: ScopeFlags):
     return dict(sorted(module_counts.items()))
 
 
-def _collect_text_cleanup_allowed_ids(ctx: FixExecutionContext, *, include_abstract_cn_punct: bool) -> set[int]:
+def _collect_text_cleanup_allowed_ids(ctx: FixExecutionContext, *, include_abstract_cn_punct: bool, include_toc_punct: bool = False) -> set[int]:
     allowed_ids: set[int] = set()
     for node in ctx.document_model.paragraphs:
         if node.kind == "reference" or node.module in _TEXT_CLEANUP_SKIP_MODULES:
+            continue
+        if include_toc_punct and node.section == "toc" and ctx.scope_flags.toc:
+            allowed_ids.add(id(node.elem))
             continue
         if node.section == "body" and ctx.scope_flags.body:
             allowed_ids.add(id(node.elem))
@@ -5711,7 +5714,11 @@ def _apply_text_cleanup_passes(ctx: FixExecutionContext):
             allowed_ids=ellipsis_ids,
             protected_ids=ctx.protected_ids,
         )
-    punct_ids = _collect_text_cleanup_allowed_ids(ctx, include_abstract_cn_punct=True)
+    punct_ids = _collect_text_cleanup_allowed_ids(
+        ctx,
+        include_abstract_cn_punct=True,
+        include_toc_punct=is_lnu_profile(ctx.runtime),
+    )
     if punct_ids:
         fix_half_width_punct_in_cjk(
             ctx.document_root,
