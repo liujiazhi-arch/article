@@ -43,21 +43,10 @@ CLI
 - `disabled_rules`：禁用当前 runtime 规则
 - `additions`：当前已接入 runtime 的扩展规则
 - `reference_additions` / `reference_overrides`：规范记录或待实现项，不进入当前 runtime
-- `meta.catalog`：profile catalog 对外展示字段，当前用于表达第一阶段支持场景、文档类型、支持级别
 
 注意：
 
 - `lnu-checker-2026.yaml` 的 active additions 已与当前 runtime 对齐
-
-## 第一阶段支持场景
-
-当前 profile catalog 需要明确区分这三类一等支持场景，并让 CLI / `/profiles` / `article-local profiles` 都能看见：
-
-- `课程作业/基础论文`
-- `普通论文或综述`
-- `学校学位论文`
-
-其中 `cn-common` 承担前两类通用场景，学校 profile 承担第三类学校学位论文场景。
 
 ## 当前规则规模
 

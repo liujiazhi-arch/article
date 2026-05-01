@@ -42,6 +42,35 @@ python3 scripts/thesis_workbench.py verify 修复后_正文段落.docx --profile
 python3 scripts/thesis_workbench.py scopes
 ```
 
+如果要使用 `pyproject.toml` 里声明的 console scripts（包括 `article-local`、`article-api`、`article-doctor` 等），优先直接安装当前仓库：
+
+```bash
+python3 -m pip install -e '.[api]'
+```
+
+如果还要跑开发回归或 live HTTP smoke，再补开发依赖：
+
+```bash
+python3 -m pip install -e '.[api,dev]'
+```
+
+## 第一阶段支持场景
+
+当前 profile catalog 会显式标出 `support_scenarios`、`document_types` 和 `support_level`，第一阶段先落这三类一等支持场景：
+
+- `课程作业/基础论文`：基于 `cn-common`，适合作业稿、课程论文、通用基础论文
+- `普通论文或综述`：基于 `cn-common`，适合普通论文、文献综述等非学校专属模板场景
+- `学校学位论文`：基于学校 profile，当前只维护 `lnu-checker-2026` 一套辽大规则
+
+查看方式：
+
+```bash
+python3 scripts/thesis_workbench.py profiles
+article-local profiles
+```
+
+如果要接本地网页或外部调用，`GET /profiles` 返回的 profile catalog 也会直接带这些场景字段。
+
 ## Scope
 
 - `page`：页边距、页码、页脚等页面层设置
@@ -68,6 +97,64 @@ python3 scripts/thesis_workbench.py scopes
 - `headings` 默认只修格式，不自动改写标题编号；只有显式传入 `--renumber-headings` 才会重编号。
 - `apply --dry-run` 会输出预计触达模块、待补 Heading 样式段落数和目录/重编号状态，但不会写出文件。
 - 若启用了 `--toc`，输出文档打开后如目录页码未刷新，请在 Word 中 `Ctrl+A` 后按 `F9` 更新域。
+- 工具当前默认保留现有封面，不再对封面文字和封面布局做自动归一化；后续修复默认只动正文、目录、图表、参考文献等正文链路。除非你明确要求，否则不再碰任何人的封面。
+
+## WPS 版式复核
+
+这套工具当前分两层工作：
+
+- 结构层：由 `audit / diagnose / apply / verify` 保证 OOXML 规则正确。
+- 渲染层：由 Word/WPS 实际打开或导出 PDF，确认视觉版式是否紧凑。
+
+如果用户明确说“以 WPS 排版结果为准”，尤其是遇到下面几类现象：
+
+- 公式下方突然出现粗横线
+- 图表不跨页，但页底或页中出现大块空白
+- 前面空白刚消掉，后面又冒出新的空白页或空白段
+
+推荐不要只跑 `figures_tables`，而是按下面顺序处理：
+
+```bash
+python3 scripts/thesis_workbench.py audit 你的论文.docx --profile lnu
+python3 scripts/thesis_workbench.py apply 你的论文.docx --profile lnu \
+  --scope headings \
+  --scope figures_tables \
+  --layout-rebalance \
+  --output 修复后_WPS复核版.docx
+python3 scripts/thesis_workbench.py verify 修复后_WPS复核版.docx --profile lnu \
+  --scope headings \
+  --scope figures_tables
+```
+
+如果用户已经回头改过正文内容，尤其是实验结果里的图表引用句、图注/表注、公式附近描述句，推荐把正文一起联动重跑：
+
+```bash
+python3 scripts/thesis_workbench.py apply 你的论文.docx --profile lnu \
+  --scope body_paragraphs \
+  --scope headings \
+  --scope figures_tables \
+  --layout-rebalance \
+  --output 修复后_正文联动版.docx
+```
+
+原因：
+
+- 有些 WPS 留白不是图块 spacing 问题，而是后续标题残留了 `pageBreakBefore`。
+- 有些公式横线不是公式对象自身问题，而是“公式布局表”被误当成普通三线表。
+- `--layout-rebalance` 解决的是图表对象块锚点位置，不会自动清理标题分页属性，所以图表问题经常需要和 `headings` 联动看。
+- 正文一旦改写，图表引用句、图注/表注细节和公式附近引用上标都可能重新变化，所以只修图表往往不够。
+
+当前已经内化进工具的经验包括：
+
+- 公式布局表会跳过普通三线表修复，并清理历史边框残留。
+- 含公式的正文段在保护公式对象的同时，仍会继续拆正文内的 `[N]` 引用上标。
+- 公式下方“其中/式中”说明段里的英文符号会统一回正文风格：英文字体用 `Times New Roman`，像 `m1/m2/V1/A10/W0` 这类变量后缀会落成下角标。
+- 图表重排会优先回到同一 `h2` 小节内更早的有效引用点。
+- `h3/h4` 不再阻断图表回扫。
+- 图表注释段也会补 `注 1)` 这类中数字间距。
+- 普通非 `h1` 标题会清理遗留的 `pageBreakBefore`，减少 WPS 里的后置空白页。
+
+更完整的事故分析与排障记忆见 `references/lnu/lnu-implementation-memory.md`。
 
 ## 主链架构
 
@@ -111,8 +198,7 @@ python3 scripts/thesis_workbench.py scopes
 │   ├── sources.yaml
 │   ├── profiles/
 │   │   ├── CN-Common.yaml
-│   │   ├── lnu-checker-2026.yaml
-│   │   └── lnu-undergraduate.yaml
+│   │   └── lnu-checker-2026.yaml
 │   └── templates/
 │       └── lnu/
 ├── references/
@@ -152,7 +238,364 @@ python3 scripts/thesis_workbench.py scopes
 python3 -m pytest -q
 ```
 
-当前全量回归基线：`142 passed`
+当前全量回归基线：`523 passed, 6 skipped, 1 xfailed`
+
+## Article 后端原型
+
+`article` 分身当前已经有可调用的本地后端原型，主入口在：
+
+- `scripts/article_engine/service.py`
+- `scripts/article_api/app.py`
+- `scripts/article_api/jobs.py`
+- `scripts/article_api/storage.py`
+- `scripts/article_api/uploads.py`
+
+推荐先用项目自己的 console script，而不是手写 `PYTHONPATH` 启动。
+
+最省事的本地安装方式：
+
+```bash
+python3 scripts/install_article_local.py
+```
+
+如果你要更靠近“可交付给本地用户”的非 editable 安装，而不是继续把运行环境绑在当前仓库源码上，优先走：
+
+```bash
+python3 scripts/install_article_local.py --install-mode wheel
+```
+
+如果你已经在 wheel 路径上迭代本地交付，安装脚本现在还支持：
+
+```bash
+python3 scripts/install_article_local.py --install-mode wheel --upgrade
+python3 scripts/install_article_local.py --install-mode wheel --rollback
+```
+
+脚本默认会：
+
+- 在 `~/.article/venv` 创建虚拟环境
+- 安装当前仓库的 `.[api]`
+- 初始化 `~/.article/state` 和 `~/.article/runtime`
+- 写出 `~/.article/article-local.env`
+- 直接返回一组可复制执行的 `quickstart` 命令（`doctor / serve / maintain / backup / restore`）
+
+补充说明：
+
+- `--python` 既可以传绝对路径，也可以直接传 `python3.12` 这类在 `PATH` 里的解释器名。
+- `--install-mode editable` 保持当前开发态安装；`--install-mode wheel` 会先在 `--artifact-dir` 构建 wheel，再从 wheel 做本地安装，更适合交付和升级验证。
+- `--upgrade` 会自动切到 wheel 安装并把本次交付显式记为升级；`--rollback` 也会自动走 wheel 历史并尝试回装上一版。
+- 用同一组 roots 重跑安装脚本时，已有 env 文件会被视为同内容 no-op；如果你改了 roots 或想强制刷新 env 文件，再加 `--overwrite-env`。
+
+如果你只想验证安装链路，不拉依赖，也不做初始化：
+
+```bash
+python3 scripts/install_article_local.py --no-deps --skip-init
+```
+
+最小本地安装：
+
+```bash
+python3 -m pip install -U pip
+python3 -m pip install -e '.[api]'
+```
+
+如果还要跑 article 的 live HTTP smoke 或补开发依赖，再装：
+
+```bash
+python3 -m pip install -e '.[api,dev]'
+```
+
+如果你已经用安装脚本写出了 env 文件，后续可以直接：
+
+```bash
+source ~/.article/article-local.env
+article-local doctor
+article-local serve
+```
+
+如果你没有 `source` env 文件，也可以继续显式走 `~/.article/venv/bin/article-local ...`。
+
+安装完成后会得到这些本地命令：
+
+- `article-local`：统一入口，所有子命令都从这里走
+- `article-api`：等价于 `article-local serve`
+- `article-doctor`：等价于 `article-local doctor`
+- `article-maintain`：等价于 `article-local maintain`
+- `article-backup`：等价于 `article-local backup`
+- `article-restore`：等价于 `article-local restore`
+
+先看帮助最稳妥：
+
+```bash
+article-local --help
+article-local init --help
+article-local serve --help
+article-local profiles --help
+article-local batch --help
+article-api --help
+article-doctor --help
+article-maintain --help
+```
+
+当前可用 profile 可以直接列出来：
+
+```bash
+article-local profiles
+python3 scripts/thesis_workbench.py profiles
+```
+
+现在 `profiles` 输出除了 profile id / alias / school，也会带第一阶段支持场景、文档类型和支持级别，方便前端或调用方直接决定入口文案。
+
+如果后面接本地网页，不想先写一层 CLI 包装，`article-api` 现在也直接暴露了：
+
+- `GET /profiles`
+- `POST /batch`
+- `POST /jobs/batch`
+- `GET /jobs?operation=batch&status=succeeded&limit=10`
+- `GET /jobs/batches/recent`
+
+如果要本地启动 API，优先保证当前解释器里已经安装 `.[api]`；其中会包含：
+
+- `fastapi`
+- `uvicorn`
+- `python-multipart`
+
+如果要跑 live HTTP smoke，再额外保证解释器里有：
+
+- `httpx`
+
+安装后，推荐这样启动：
+
+```bash
+article-api --state-root ~/.article/state --runtime-root ~/.article/runtime
+```
+
+不走安装、只想临时从源码目录启动时，再退回模块方式：
+
+```bash
+PYTHONPATH=scripts python3 -m uvicorn article_api.app:create_app --factory
+```
+
+本地应用壳层完整命令示例：
+
+```bash
+article-local serve --state-root ~/.article/state --runtime-root ~/.article/runtime
+article-local doctor --state-root ~/.article/state --runtime-root ~/.article/runtime
+article-local maintain --state-root ~/.article/state --runtime-root ~/.article/runtime --vacuum
+article-local backup ~/Desktop/article-backup.zip --state-root ~/.article/state --runtime-root ~/.article/runtime
+article-local restore ~/Desktop/article-backup.zip --state-root ~/.article/state --runtime-root ~/.article/runtime --force
+
+article-api --state-root ~/.article/state --runtime-root ~/.article/runtime
+article-doctor --state-root ~/.article/state --runtime-root ~/.article/runtime
+article-maintain --state-root ~/.article/state --runtime-root ~/.article/runtime --vacuum
+article-backup ~/Desktop/article-backup.zip --state-root ~/.article/state --runtime-root ~/.article/runtime
+article-restore ~/Desktop/article-backup.zip --state-root ~/.article/state --runtime-root ~/.article/runtime --force
+```
+
+`article-local` 是统一入口；`article-api`、`article-doctor`、`article-maintain`、`article-backup`、`article-restore` 是安装后可直接调用的等价便捷别名。
+
+推荐按这条本地用户流程使用：
+
+### 1. 先初始化本地运行壳
+
+```bash
+article-local init \
+  --state-root ~/.article/state \
+  --runtime-root ~/.article/runtime \
+  --write-env ~/.article/article-local.env
+```
+
+`init` 会做这几件事：
+
+- 初始化 SQLite 状态库
+- 预创建 `jobs / uploads / staging` 目录
+- 可选写出环境变量文件
+- 直接返回下一步应该执行的 `doctor` / `serve` 命令
+
+如果写了 env 文件，后续可以在 shell 里加载：
+
+```bash
+source ~/.article/article-local.env
+```
+
+如果当前 `article-local` 是从已安装的虚拟环境里执行的，生成的 env 文件还会把对应 `venv/bin` 预加到 `PATH`，这样后续可以直接敲 `article-local`、`article-api`、`article-doctor`。
+
+如果你不想依赖环境变量，也可以始终在每条命令里显式传 `--state-root` / `--runtime-root`。
+
+### 2. 首次启动前先跑 doctor
+
+```bash
+article-local doctor --state-root ~/.article/state --runtime-root ~/.article/runtime
+```
+
+`doctor` 现在优先给出“本地后端运维摘要”，重点看：
+
+- `summary.headline`：当前能不能直接启动
+- `summary.issues`：阻断项或运行告警
+- `summary.recommended_actions`：下一步建议动作
+- `checks`：storage、runtime_root、single-worker recovery、retention 的只读状态
+- `workflow`：当前根目录下可直接复制执行的 `serve / maintain / backup / restore` 命令
+
+建议场景：
+
+1. 首次安装后先跑一次 doctor
+2. 改过根目录或恢复过备份后再跑一次 doctor
+3. 异常退出、怀疑任务卡死时再跑一次 doctor
+
+### 3. 再启动本地 API
+
+```bash
+article-local serve --state-root ~/.article/state --runtime-root ~/.article/runtime
+```
+
+### 4. 运行中优先看只读 ops 接口
+
+- `GET /ready`：检查 state root / schema / runtime_root 是否可用
+- `GET /profiles`：返回当前可见 profile catalog，包含支持场景/文档类型/支持级别，供本地网页直接渲染学校/模板选择器
+- `GET /ops/summary`：运维总览，先看它
+- `GET /ops/storage`：只读看 SQLite 健康、schema、索引、表行数
+- `GET /ops/runtime`：只读看 single-worker、active futures、recovery、heartbeat
+
+### 5. 日常维护
+
+```bash
+article-local maintain --state-root ~/.article/state --runtime-root ~/.article/runtime
+article-local maintain --state-root ~/.article/state --runtime-root ~/.article/runtime --vacuum
+```
+
+建议：
+
+1. 日常只跑 `maintain`
+2. 做过大量 cleanup 后，再按需补一次 `--vacuum`
+3. 如果 doctor 报 storage 异常，先 `maintain`，再决定是否 restore
+
+### 5.1 本地批量处理
+
+```bash
+article-local batch audit ~/Desktop/论文目录 --profile lnu --recursive
+article-local batch plan ~/Desktop/论文目录 --profile lnu --recursive --summary-file ~/Desktop/article-batch-plan.json
+article-local batch verify ~/Desktop/论文目录 --profile lnu --recursive --scope references
+article-local batch apply ~/Desktop/论文目录 --profile lnu --recursive --scope headings --output-dir ~/Desktop/article-batch-output
+```
+
+批量入口当前提供：
+
+- `audit / plan / verify / apply`
+- 目录级 `--recursive`
+- `--summary-file` 导出 JSON 汇总
+- `apply` 时按相对路径写出结果，不把全部文件挤到同一层目录
+
+同一套能力现在也能直接走 HTTP：
+
+```bash
+curl -X POST http://127.0.0.1:8000/batch \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "operation": "audit",
+    "input_path": "'"$HOME"'/Desktop/论文目录",
+    "profile": "lnu",
+    "recursive": true
+  }'
+```
+
+如果你希望批量处理也进入后端任务历史，而不是同步等待返回，现在还可以直接走异步 job：
+
+```bash
+curl -X POST http://127.0.0.1:8000/jobs/batch \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "operation": "audit",
+    "input_path": "'"$HOME"'/Desktop/论文目录",
+    "profile": "lnu",
+    "recursive": true,
+    "summary_file": "'"$HOME"'/Desktop/article-batch-summary.json"
+  }'
+```
+
+然后继续复用现有 job 接口：
+
+- `GET /jobs`
+- `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/result`
+- `POST /jobs/{job_id}/retry`
+
+这样本地网页后面就能直接做“批量任务列表 / 最近结果 / 重试失败任务”。
+
+如果只是想先拉一个最小测试版任务面板，当前直接拿下面两个读接口就够了：
+
+- `GET /jobs?operation=batch&status=succeeded&limit=20`
+- `GET /jobs/batches/recent?status=succeeded&limit=20`
+
+### 6. 备份与恢复
+
+```bash
+article-local backup ~/Desktop/article-backup.zip \
+  --state-root ~/.article/state \
+  --runtime-root ~/.article/runtime
+
+article-local restore ~/Desktop/article-backup.zip \
+  --state-root ~/.article/state \
+  --runtime-root ~/.article/runtime \
+  --force
+```
+
+当前 restore 约定：
+
+- 默认要求目标目录为空
+- 只有显式 `--force` 才覆盖目标目录
+- 会校验 backup manifest 的 schema 兼容性
+- restore 前后都建议各跑一次 `article-local doctor`
+
+当前 API 原型包含：
+
+- 同步接口：`/health`、`/ready`、`/version`、`/profiles`、`/audit`、`/plan`、`/verify`、`/apply`、`/batch`
+- upload 接口：`/uploads/docx`、`/uploads`、`/uploads/{upload_id}`、`/uploads/{upload_id}/cleanup`
+- job 接口：`/jobs/verify`、`/jobs/apply`、`/jobs/batch`、`/jobs`、`/jobs/{job_id}`、`/jobs/{job_id}/inspect`、`/jobs/{job_id}/result`、`/jobs/{job_id}/cleanup`、`/jobs/{job_id}/retry`、`/jobs/{job_id}/artifacts/{artifact_role}/download`
+- ops 接口：`/ops/retention/sweep`、`/ops/retention/run-defaults`、`/ops/summary`、`/ops/storage`、`/ops/runtime`
+
+运行和排障时，先记住这几个边界：
+
+- SQLite 状态根默认在 `.article_runtime/`；测试或并行运行时，优先显式隔离 `ARTICLE_API_STATE_ROOT`。
+- `runtime_root` 用于 upload、job workspace 和运行产物；它和 SQLite 状态根不是一回事。
+- `job.status` 只表示生命周期：`queued` / `running` / `succeeded` / `failed`。
+- `summary.business_status` 才表示业务结论，不要把 worker timeout 或人工复核语义塞进 `job.status`。
+- runtime 当前已补最小单 worker 元数据：`worker_model` / `lease_state` / `last_heartbeat_at` / `heartbeat_count`；它们只用于运行观测，不扩张 lifecycle 枚举。
+- `wait_for_job(timeout=...)` 只是调用侧等待超时，不应改持久化状态。
+- `cleanup` 只清理 job workspace 和 job 产物快照，不负责删除 upload registry 下的源文件；upload 生命周期由 upload cleanup 单独管理。
+- upload-backed retry 会重新从 upload registry 取源文件；公开 `request` 仍不得泄漏内部执行 `file_path`。
+- `runtime.events` 当前已提供最小结构化事件流：`job_queued`、`worker_started`、`attempt_started`、`attempt_failed`、`retry_scheduled`、`attempt_succeeded`、`job_failed`、`job_succeeded`、`recovered_as_failed`。
+- 如果 worker 已返回，但后续在 summary / artifact 冻结阶段抛出异常，job 会立即落成 `failed`，而不是先写出不一致状态再等 stale recovery 兜底。
+- `POST /ops/retention/sweep` 当前提供最小 retention automation：按 age threshold 清理已完成 job 和 upload，并把 cleanup 审计 `policy` 标记为 `retention`；默认仍不启后台守护。
+- `POST /ops/retention/run-defaults` 当前支持读取环境变量里的 retention 默认值执行 sweep。
+- 当前还支持机会式 autorun retention：在本地单机 API 的写操作入口按间隔检查是否需要自动 sweep，不启独立后台线程。
+- `GET /ready` 当前提供最小 readiness：检查 SQLite 状态根与 schema version 是否可读，并确认 `runtime_root` 可写。
+- `GET /version` 当前固定返回服务版本与 API 版本约定。
+- `GET /ops/summary` 当前优先提供本地运维总览：总体状态、checks、job/upload/cleanup 摘要、runtime 摘要、retention 摘要。
+- `GET /ops/storage` 当前保留底层存储详情，同时额外给出 schema / 索引 / db 大小 / integrity 的运维摘要。
+- `GET /ops/runtime` 当前保留底层 runtime snapshot，同时额外给出 single-worker / recovery / heartbeat 的运维摘要。
+- `article-doctor` 会直接输出上述本地运维摘要，适合不启动 HTTP 时做本机自检。
+- `article-maintain` 当前提供最小存储维护：`ANALYZE`，可选 `VACUUM`，并返回维护摘要和最新存储摘要。
+- `article-backup` / `article-restore` 当前提供最小本机备份恢复：按“状态数据”和“运行产物”分层打包，不把 upload/job/runtime 语义混进 SQLite 状态层；restore 会校验备份 manifest 的 schema 兼容性，并拒绝越界写出恢复根目录。
+- `ARTICLE_API_RUNTIME_ROOT` 现在可以像 `ARTICLE_API_STATE_ROOT` 一样通过环境变量显式覆盖默认运行目录。
+- storage 当前已进入显式 migration chain：`0 -> 1 -> 2`；其中 `2` 会补索引治理，不再靠“直接写到最新版本号”完成升级。
+- `ARTICLE_API_JOB_HEARTBEAT_STALE_SECONDS` 当前只用于运行观测，不改变 lifecycle；超过阈值的活动 job 会在 runtime 摘要里标记为 stale heartbeat。
+- `ARTICLE_API_JOB_RECOVERY_GRACE_SECONDS` 当前控制“无 active future 时延迟多久再收口为 failed”；它只影响恢复判定时机，不扩 lifecycle，不改变冻结结果语义。
+- 当前本地单机原型已显式不做：`cancel`、`priority`、`queue backpressure`、多 worker 调度。
+- 依赖 SQLite 状态根的 article 测试不要并行跑多套共享默认状态根；要么串行，要么显式隔离 `ARTICLE_API_STATE_ROOT`。
+
+Article 后端相关回归：
+
+```bash
+python3 -m pytest -q tests/test_article_api.py tests/test_article_jobs.py tests/test_article_storage.py tests/test_article_uploads.py tests/test_article_engine.py tests/test_article_http_smoke.py tests/test_article_local_app.py tests/test_packaging_metadata.py
+/Users/apple/Desktop/article/.venv/bin/python -m pytest -q tests/test_article_http_smoke.py
+python3 -m pytest -q
+```
+
+当前基线：
+
+- article 后端全套：`148 passed`
+- live HTTP smoke：`6 passed`
+- 全量回归：`523 passed, 6 skipped, 1 xfailed`
 
 ## 依赖
 
