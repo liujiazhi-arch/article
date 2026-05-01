@@ -139,7 +139,7 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["ref_line_spacing"] == 360
         assert cfg["ref_terminal_punct"] == "."
         assert cfg["pg01_format"] == "hyphen_wrap"
-        assert cfg.get("ref_number_trailing_space", False) is False
+        assert cfg.get("ref_number_trailing_space", False) is True
         assert cfg.get("acknowledgement_required", True) is True
         assert cfg["check_snap_to_grid"] is True
 

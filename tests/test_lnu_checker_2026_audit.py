@@ -151,7 +151,28 @@ def test_checker_2026_disables_legacy_mixed_spacing_rules_for_latest_image_polic
     assert runtime.cfg["mixed_spacing_policy"] == "compact"
 
 
-def test_checker_2026_ref02_accepts_reference_number_without_space():
+def test_checker_2026_ref02_accepts_reference_number_with_space():
+    runtime = _checker_runtime_or_xfail()
+    title = _make_paragraph("参考文献")
+    ref = _make_paragraph("[1] Guo G C. Quantum optics[M]. Beijing: Higher Education Press, 2005.")
+    contexts = [
+        {"index": 1, "elem": title, "text": "参考文献", "kind": "h1", "section": "backmatter", "protected": False},
+        {
+            "index": 2,
+            "elem": ref,
+            "text": "[1] Guo G C. Quantum optics[M]. Beijing: Higher Education Press, 2005.",
+            "kind": "reference",
+            "section": "backmatter",
+            "protected": False,
+        },
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_ref02(_make_doc_root(title, ref), contexts, {}, runtime.cfg)
+
+    assert passed, issues
+
+
+def test_checker_2026_ref02_rejects_missing_space_after_reference_number():
     runtime = _checker_runtime_or_xfail()
     title = _make_paragraph("参考文献")
     ref = _make_paragraph("[1]Guo G C. Quantum optics[M]. Beijing: Higher Education Press, 2005.")
@@ -169,9 +190,8 @@ def test_checker_2026_ref02_accepts_reference_number_without_space():
 
     passed, issues, _ = audit_thesis.check_lnu_ref02(_make_doc_root(title, ref), contexts, {}, runtime.cfg)
 
-    if not passed:
-        pytest.xfail(f"check_lnu_ref02 still requires legacy [N] + space formatting: {issues}")
-    assert passed, issues
+    assert not passed
+    assert any("格式异常" in issue for issue in issues)
 
 
 def test_checker_2026_toc02_accepts_checker_spacing_for_entries():

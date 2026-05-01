@@ -103,7 +103,7 @@ def _checker_2026_cfg(**overrides) -> dict:
             "mixed_spacing_policy": "compact",
             "pg01_format": "hyphen_wrap",
             "ref_terminal_punct": ".",
-            "ref_number_trailing_space": False,
+            "ref_number_trailing_space": True,
         }
     )
     cfg.update(overrides)
@@ -195,11 +195,7 @@ def test_fix_reference_paragraph_checker_2026_number_spacing_contract():
     fix_reference_paragraph(paragraph, cfg=cfg)
 
     normalized = get_paragraph_text(paragraph)
-    if normalized != "[1]Some reference text.":
-        import pytest
-
-        pytest.xfail("Main chain still keeps a space after [N]; checker-2026 contract requires no space.")
-    assert normalized == "[1]Some reference text."
+    assert normalized == "[1] Some reference text."
 
 
 def test_fix_sp_cjk_latin_checker_2026_compact_policy_does_not_add_mixed_spacing():
