@@ -1,0 +1,480 @@
+meta:
+  id: lnu-checker-2026
+  extends: CN-Common
+  school: 辽宁大学
+  dept: 教务处
+  scope: undergraduate
+  pub_date: "2026-04-17"
+  access_date: "2026-04-17"
+  doc_url: null
+  catalog:
+    support_level:
+      id: primary
+      label: 一等支持
+    support_scenarios:
+      - id: school_degree_thesis
+        label: 学校学位论文
+        document_types:
+          - 本科毕业论文
+  notes: |
+    以用户 2026-05-01 提供的辽宁大学最新格式要求截图为最高优先级。
+    本 profile 用于替换旧的 lnu-undergraduate 主链设定。
+    旧 profile 保留为历史兼容版本：lnu-undergraduate-legacy。
+    若本 profile 与 2026-04-17 checker 批注或旧版官方样本冲突，以本次截图为准。
+
+disabled_rules:
+  - F03
+  - F04
+  - REF01
+  - R02
+  - SP01
+  - SP02
+  - SP_CJK_LATIN
+  - SP_NUM_CJK
+
+additions:
+  - id: LNU_F01
+    module: figure
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "图编号格式：图X.X"
+    expected_pattern: "^图\\s*\\d+\\.\\d+"
+    method: docx-structure
+    evidence: "图题段落文本"
+    fix: "fix_caption_number_sep(sep='.')"
+    source: lnu-checker-2026
+
+  - id: LNU_F02
+    module: figure
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "表编号格式：表X.X"
+    expected_pattern: "^表\\s*\\d+\\.\\d+"
+    method: docx-structure
+    evidence: "表题段落文本"
+    fix: "fix_caption_number_sep(sep='.')"
+    source: lnu-checker-2026
+
+  - id: LNU_TB01
+    module: table
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "表格外框1.5pt，内线0.5pt"
+    method: docx-structure
+    evidence: "表格边框"
+    fix: "fix_table_borders(top_bottom_sz=18, header_sz=6)"
+    source: lnu-checker-2026
+
+  - id: LNU_TB02
+    module: table
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "表格内容宋体五号"
+    method: docx-structure
+    evidence: "表格单元格段落 run 字号"
+    fix: "fix_table_cell_font(east_asia='宋体', half_points=21)"
+    source: lnu-checker-2026
+
+  - id: LNU_TB04
+    module: table
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "表块与上下文留白，表题贴表"
+    method: docx-structure
+    evidence: "表题与表体及下文间距"
+    fix: "normalize_lnu_table_block_layout()"
+    source: lnu-checker-2026
+
+  - id: LNU_FMT01
+    module: format
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "不使用软回车伪造段落"
+    method: docx-structure
+    evidence: "w:br/w:cr 软换行"
+    fix: "fix_soft_line_breaks()"
+    source: lnu-checker-2026
+
+  - id: LNU_FMT02
+    module: format
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "图片嵌入型环绕，表格无环绕"
+    method: docx-structure
+    evidence: "wp:anchor / w:tblpPr"
+    fix: "normalize_object_wrapping()"
+    source: lnu-checker-2026
+
+  - id: LNU_REF01
+    module: reference
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "参考文献末尾句点与尾节点规范"
+    method: docx-structure
+    evidence: "参考文献段落结尾标点"
+    fix: "fix_reference_punctuation(profile='lnu-checker-2026')"
+    source: lnu-checker-2026
+
+  - id: LNU_REF02
+    module: reference
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "参考文献编号格式：[N]后无空格"
+    expected_pattern: "^\\[\\d+\\]\\S"
+    method: docx-structure
+    evidence: "参考文献段落文本"
+    fix: "fix_lnu_ref02(profile='lnu-checker-2026')"
+    source: lnu-checker-2026
+
+  - id: LNU_REF03
+    module: reference
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "参考文献条目：宋体五号，1.5倍行距"
+    method: docx-structure
+    evidence: "参考文献字号和行距"
+    fix: "fix_reference_paragraph(profile='lnu-checker-2026')"
+    source: lnu-checker-2026
+
+  - id: LNU_REF04
+    module: reference
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "参考文献需包含文献类型标识"
+    method: docx-structure
+    evidence: "文献条目中的 [J]/[M]/[D] 等类型标识"
+    fix: "fix_lnu_ref04()"
+    source: lnu-checker-2026
+
+  - id: LNU_REF05
+    module: reference
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "参考文献序号连续"
+    method: docx-structure
+    evidence: "参考文献序号连续性"
+    fix: "reorder_references_by_appearance()"
+    source: lnu-checker-2026
+
+  - id: LNU_ACK01
+    module: acknowledgement
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "致谢正文：仿宋，小四"
+    method: docx-structure
+    evidence: "致谢正文段落"
+    fix: "fix_lnu_ack01()"
+    source: lnu-checker-2026
+
+  - id: LNU_ABS01
+    module: abstract
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "摘要/Abstract 标题段前后 0"
+    method: docx-structure
+    evidence: "摘要标题段落 spacing after"
+    fix: "fix_lnu_abs01()"
+    source: lnu-checker-2026
+
+  - id: LNU_ABS02
+    module: abstract
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "Abstract 标题格式"
+    method: docx-structure
+    evidence: "Abstract 标题段落"
+    fix: "fix_lnu_abs02()"
+    source: lnu-checker-2026
+
+  - id: LNU_ABS03
+    module: abstract
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "英文摘要正文：单倍行距"
+    method: docx-structure
+    evidence: "Abstract 正文段落 spacing line"
+    fix: "fix_lnu_abs03()"
+    source: lnu-checker-2026
+
+  - id: LNU_ABS04
+    module: abstract
+    scope: undergraduate
+    severity: minor
+    check_level: Semi
+    description: "中文摘要正文不含英文半角标点"
+    method: docx-structure
+    evidence: "中文摘要正文段落文本"
+    fix: "fix_half_width_punct_in_cjk()"
+    source: lnu-checker-2026
+
+  - id: LNU_TEXT01
+    module: abstract
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "中文摘要混排空格紧凑化"
+    method: docx-structure
+    evidence: "中文摘要正文与关键词文本"
+    fix: "fix_lnu_compact_text()"
+    source: latest-lnu-screenshot-2026-05-01
+
+  - id: LNU_TOC01
+    module: toc
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "目录标题黑体三号，条目宋体小四"
+    method: docx-structure
+    evidence: "TOCHeading / TOC1-3 样式"
+    fix: "fix_insert_toc()"
+    source: lnu-checker-2026
+
+  - id: LNU_TOC02
+    module: toc
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "目录条目多倍 1.15 行距，段前 0，段后 5 磅"
+    method: docx-structure
+    evidence: "目录段落 spacing line/after"
+    fix: "fix_insert_toc()"
+    source: lnu-checker-2026
+
+  - id: LNU_TOC03
+    module: toc
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "目录必须自动生成"
+    method: docx-structure
+    evidence: "TOC 域"
+    fix: "fix_insert_toc()"
+    source: lnu-checker-2026
+
+  - id: LNU_TEXT02
+    module: toc
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "目录条目混排空格紧凑化"
+    method: docx-structure
+    evidence: "目录条目文本"
+    fix: "fix_lnu_compact_text()"
+    source: latest-lnu-screenshot-2026-05-01
+
+  - id: LNU_F03
+    module: figure
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "图前空 1 行"
+    method: docx-structure
+    evidence: "图块前留白"
+    fix: "fix_lnu_figure_block_spacing()"
+    source: lnu-checker-2026
+
+  - id: LNU_F05
+    module: figure
+    scope: undergraduate
+    severity: important
+    check_level: Semi
+    description: "图表需先文中引用"
+    method: docx-structure
+    evidence: "图表出现前正文引用"
+    fix: null
+    source: lnu-checker-2026
+
+  - id: LNU_F06
+    module: figure
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "图题/图注版式"
+    method: docx-structure
+    evidence: "图题/图注行距和字体"
+    fix: "fix_caption_paragraph()/fix_caption_note_paragraph()"
+    source: lnu-checker-2026
+
+  - id: LNU_H01
+    module: heading
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "标题编号与文字间距"
+    method: docx-structure
+    evidence: "标题段落文本"
+    fix: "fix_heading_num_space()"
+    source: lnu-checker-2026
+
+  - id: LNU_CONC01
+    module: heading
+    scope: undergraduate
+    severity: minor
+    check_level: Manual
+    description: "末章标题应包含结论"
+    method: docx-structure
+    evidence: "最后一个正文一级标题"
+    fix: null
+    source: lnu-checker-2026
+
+  - id: LNU_S03
+    module: backmatter
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "参考文献、附录、致谢标题前分页"
+    method: docx-structure
+    evidence: "分页符"
+    fix: "fix_lnu_s03()"
+    source: lnu-checker-2026
+
+  - id: LNU_TITLE01
+    module: frontmatter
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "摘要、目录、序言、致谢等标题双空格样式"
+    method: docx-structure
+    evidence: "标题文本"
+    fix: "fix_lnu_title01()"
+    source: lnu-checker-2026
+
+  - id: LNU_TB03
+    module: table
+    scope: undergraduate
+    severity: important
+    check_level: Auto
+    description: "表格内容单倍行距"
+    method: docx-structure
+    evidence: "表格单元格段落 line"
+    fix: "fix_lnu_tb03()"
+    source: lnu-checker-2026
+
+  - id: LNU_UNIT01
+    module: body
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "正文数字与单位间空格"
+    method: docx-structure
+    evidence: "正文文本"
+    fix: "fix_lnu_unit_spacing()"
+    source: lnu-checker-2026
+
+  - id: LNU_TEXT03
+    module: body
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "正文混排空格紧凑化"
+    method: docx-structure
+    evidence: "正文段落与正文标题文本"
+    fix: "fix_lnu_compact_text(); fix_heading_num_space(); fix_lnu_unit_spacing()"
+    source: latest-lnu-screenshot-2026-05-01
+
+settings:
+  margin_top: 1418
+  margin_bottom: 1418
+  margin_left: 1418
+  margin_right: 1418
+  margin_gutter: 283
+  margin_range_min: 1390
+  margin_range_max: 1450
+  body_font: "宋体"
+  body_ascii_font: "Times New Roman"
+  body_size: 24
+  body_line: 360
+  body_indent: 480
+  body_alignment: "both"
+  check_snap_to_grid: true
+  h1_font: "黑体"
+  h1_size: 32
+  h1_spacing_before: 120
+  h1_spacing_after: 120
+  h2_font: "黑体"
+  h2_size: 28
+  h2_spacing_before: 120
+  h2_spacing_after: 120
+  h3_font: "黑体"
+  h3_size: 24
+  h3_spacing_before: 120
+  h3_spacing_after: 120
+  h4_font: "宋体"
+  h4_size: 24
+  h4_spacing_before: 120
+  h4_spacing_after: 120
+  kw_min: 3
+  kw_max: 5
+  kw_font: "黑体"
+  kw_bold: false
+  kw_half_points: 24
+  kw_cn_separator: "；"
+  kw_en_separator: "; "
+  ref_hanging: 420
+  ref_use_tab: false
+  ref_line_spacing: 360
+  ref_font_size: 21
+  ack_font: "仿宋"
+  caption_number_sep: "."
+  caption_label_gap_spaces: 2
+  figure_blank_line_twips: 360
+  table_blank_line_twips: 360
+  figure_caption_line: 360
+  figure_note_line: 240
+  eq_number_sep: "."
+  ref_terminal_punct: "."
+  pg01_format: "hyphen_wrap"
+  page_number_font: "宋体"
+  page_number_size: 21
+  toc_title: "目  录"
+  toc_max_level: 3
+  toc_title_font: "黑体"
+  toc_title_size: 32
+  toc_entry_font: "宋体"
+  toc_entry_size: 24
+  toc_entry_line: 276
+  toc_level1_font: "宋体"
+  toc_level1_size: 24
+  toc_level1_after_pt: 5
+  toc_level2_after_pt: 5
+  toc_level3_after_pt: 5
+  abstract_title_font: "黑体"
+  abstract_title_line: 360
+  abstract_title_after_pt: 0
+  abstract_title_size: 32
+  abstract_body_font: "宋体"
+  abstract_body_ascii_font: "Times New Roman"
+  abstract_body_size: 24
+  abstract_body_line: 360
+  abstract_body_indent: 480
+  abstract_en_title_font: "Times New Roman"
+  abstract_en_title_size: 32
+  abstract_en_body_font: "Times New Roman"
+  abstract_en_body_ascii_font: "Times New Roman"
+  abstract_en_body_size: 24
+  abstract_en_body_line: 240
+  abstract_en_body_indent: 480
+  ref_require_type_marker: true
+  ref_number_trailing_space: false
+  acknowledgement_required: true
+  relax_body_spacing_rules: true
+  relax_strain_suffix_t_spacing: true
+  mixed_spacing_policy: "compact"
+  table_blank_line_mode: "blank_paragraph"
+  acknowledgement_placeholder_text: ""

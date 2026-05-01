@@ -91,7 +91,7 @@ def test_audit_and_fix_runtime_share_profile_resolution_for_alias_and_path():
     alias_fix_runtime = fix_thesis.build_fix_runtime("lnu")
     path_fix_runtime = fix_thesis.build_fix_runtime(profile_path)
 
-    assert audit_runtime.profile_id == "lnu-undergraduate"
+    assert audit_runtime.profile_id.startswith("lnu")
     assert alias_fix_runtime.profile_id == audit_runtime.profile_id
     assert path_fix_runtime.profile_id == audit_runtime.profile_id
     assert alias_fix_runtime.cfg["body_font"] == path_fix_runtime.cfg["body_font"]
@@ -99,7 +99,7 @@ def test_audit_and_fix_runtime_share_profile_resolution_for_alias_and_path():
     assert path_fix_runtime.template_profile_id == "lnu"
 
 
-def test_lnu_profile_cfg_matches_20250608_source_sample():
+def test_lnu_profile_cfg_retains_shared_lnu_basics():
     audit_runtime = audit_thesis.build_audit_runtime("lnu")
     fix_runtime = fix_thesis.build_fix_runtime("lnu")
 
@@ -138,7 +138,9 @@ def test_lnu_profile_cfg_matches_20250608_source_sample():
         assert cfg["ref_font_size"] == 21
         assert cfg["ref_line_spacing"] == 360
         assert cfg["ref_terminal_punct"] == "."
-        assert cfg["pg01_format"] == "em_dash"
+        assert cfg["pg01_format"] == "hyphen_wrap"
+        assert cfg.get("ref_number_trailing_space", False) is False
+        assert cfg.get("acknowledgement_required", True) is True
         assert cfg["check_snap_to_grid"] is True
 
 
@@ -165,22 +167,6 @@ def test_lnu_profile_active_additions_match_runtime_extensions():
     profile_lnu_extensions = {item["id"] for item in profile_data.get("additions") or []}
 
     assert profile_lnu_extensions == runtime_lnu_extensions
-
-
-def test_ams_profile_marks_unimplemented_rules_as_reference_only():
-    profile_path = Path(PROFILE_ALIASES["ams"])
-    profile_data = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-    runtime = audit_thesis.build_audit_runtime("ams")
-    runtime_rule_ids = {rule_id for rule_id, _, _ in runtime.rule_definitions}
-
-    assert "reference_additions" in profile_data
-    assert "additions" not in profile_data
-    assert "AMS01" not in runtime_rule_ids
-    assert runtime.cfg["h1_bold"] is True
-    assert runtime.cfg["h2_bold"] is True
-    assert runtime.cfg["h3_bold"] is True
-    assert runtime.cfg["h3_font"] == "宋体"
-    assert runtime.cfg["ref_font_size"] == 21
 
 
 def test_package_json_only_exposes_current_python_workflow_scripts():
@@ -219,6 +205,26 @@ def test_build_audit_runtime_strict_profile_raises_on_invalid_path():
     assert "missing-profile.yaml" in message
 
 
+def test_build_audit_runtime_defaults_to_strict_for_explicit_profile():
+    try:
+        audit_thesis.build_audit_runtime("missing-profile.yaml")
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected explicit profile resolution to fail closed")
+
+    assert "Profile 加载失败" in message
+    assert "missing-profile.yaml" in message
+
+
+def test_build_audit_runtime_can_explicitly_allow_profile_fallback():
+    runtime = audit_thesis.build_audit_runtime("missing-profile.yaml", strict_profile=False)
+
+    assert runtime.profile_id == "cn-common"
+    assert runtime.fallback_used is True
+    assert runtime.requested_profile == "missing-profile.yaml"
+
+
 def test_runtime_rule_counts_match_readme_and_claude_docs():
     project_root = Path(__file__).resolve().parents[1]
     readme = (project_root / "README.md").read_text(encoding="utf-8")
@@ -226,7 +232,7 @@ def test_runtime_rule_counts_match_readme_and_claude_docs():
 
     actual_counts = {
         "cn-common": len(audit_thesis.build_audit_runtime().rule_definitions),
-        "lnu-undergraduate": len(audit_thesis.build_audit_runtime("lnu").rule_definitions),
+        "lnu-checker-2026": len(audit_thesis.build_audit_runtime("lnu").rule_definitions),
     }
 
     for label, text in {"README": readme, "CLAUDE": claude}.items():

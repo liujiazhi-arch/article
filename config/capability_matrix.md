@@ -73,7 +73,7 @@
 | TB01 | 三线表边框 | Auto | docx-structure | ✓ | ✓ |
 | TB02 | 三线表无多余竖线 | Auto | docx-structure | ✓ | ✓ |
 | TB03_LINE | 三线表栏目线 | Auto | docx-structure | ✓ | ✓ |
-| TB03 | 续表表头重复 | Semi | docx-structure | ✗ | ✓ |
+| TB03 | 续表表头重复 | Auto | docx-structure | ✓ | ✓ |
 
 ## 正文引用、关键词与参考文献
 
@@ -89,7 +89,7 @@
 | R04 | 参考文献编号不使用上标 | Auto | docx-structure | ✓ | ✓ |
 | R05 | 参考文献编号格式 | Auto | docx-structure | ✗ | ✓ |
 | REF01 | 参考文献末尾标点 | Auto | docx-structure | ✓ | ✓ |
-| KW01 | 关键词数量与样式 | Auto | docx-structure | ✗ | ✓ |
+| KW01 | 关键词数量与样式 | Auto | docx-structure | ✓ | ✓ |
 | KW02 | 关键词末尾标点 | Auto | docx-structure | ✓ | ✓ |
 
 ## 辽宁大学扩展（LNU）
@@ -101,21 +101,30 @@
 | LNU_F03 | 图前图后空行（辽大） | Auto | docx-structure | ✓ | ✓ |
 | LNU_F05 | 图表需先文中引用 | Semi | docx-structure | ✗ | ✓ |
 | LNU_F06 | 图题图注版式（辽大） | Auto | docx-structure | ✓ | ✓ |
+| LNU_FMT01 | 软回车换行 | Auto | docx-structure | ✓ | ✓ |
+| LNU_FMT02 | 图片嵌入型/表格无环绕 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB01 | 表格外框1.5pt内线0.5pt | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB02 | 表格内容宋体五号 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB03 | 表格内容单倍行距 | Auto | docx-structure | ✓ | ✓ |
+| LNU_TB04 | 表块留白与表题贴表 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF01 | 参考文献英文半角标点 | Semi | docx-structure | ✓ | ✓ |
 | LNU_REF02 | 参考文献编号空格格式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF03 | 参考文献字号五号，1.5倍行距 | Auto | docx-structure | ✓ | ✓ |
+| LNU_REF04 | 参考文献文献类型标识 | Auto | docx-structure | ✓ | ✓ |
+| LNU_REF05 | 参考文献序号连续性 | Auto | docx-structure | ✓ | ✓ |
 | LNU_ABS01 | 中文摘要标题格式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_ABS02 | Abstract 标题格式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_ABS03 | 英文摘要正文格式 | Auto | docx-structure | ✓ | ✓ |
+| LNU_ABS04 | 中文摘要不含英文半角标点 | Semi | docx-structure | ✓ | ✓ |
+| LNU_TEXT01 | 摘要混排空格紧凑化 | Auto | docx-structure | ✓ | ✓ |
+| LNU_TEXT02 | 目录条目混排空格紧凑化 | Auto | docx-structure | ✓ | ✓ |
+| LNU_TEXT03 | 正文混排空格紧凑化 | Auto | docx-structure | ✓ | ✓ |
 | LNU_ACK01 | 致谢正文格式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_H01 | 标题编号与文字间距 | Auto | docx-structure | ✓ | ✓ |
 | LNU_CONC01 | 末章标题含结论 | Manual | docx-structure | ✗ | ✓ |
 | LNU_S03 | 参考文献/附录/致谢前分页符 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TITLE01 | 摘要/目录/序言/致谢双空格标题 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TOC01 | 目录标题与条目样式 | Auto | docx-structure | ✓ | ✓ |
-| LNU_TOC02 | 目录条目1.15倍行距、段后5磅 | Auto | docx-structure | ✓ | ✓ |
+| LNU_TOC02 | 目录条目段后5磅 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TOC03 | 目录必须自动生成 | Auto | docx-structure | ✓ | ✓ |
 | LNU_UNIT01 | 数字与单位间空格 | Auto | docx-structure | ✓ | ✓ |

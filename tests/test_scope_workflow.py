@@ -250,6 +250,12 @@ def test_lnu_toc01_is_grouped_under_toc_scope():
     assert scope_for_rule("LNU_TOC01") == "toc"
 
 
+def test_lnu_compact_text_rules_are_grouped_by_active_scope():
+    assert scope_for_rule("LNU_TEXT01") == "abstract"
+    assert scope_for_rule("LNU_TEXT02") == "toc"
+    assert scope_for_rule("LNU_TEXT03") == "body_paragraphs"
+
+
 def test_abstract_scope_repairs_lnu_abs04_without_touching_body_pu01(tmp_path):
     source_path = _build_abstract_pu01_scope_doc(Path(tmp_path) / "abstract_pu01_scope_source.docx")
 
@@ -639,6 +645,12 @@ def test_build_document_diagnostics_reports_field_only_toc(tmp_path):
     title_jc = OxmlElement("w:jc")
     title_jc.set(qn("w:val"), "center")
     title_p_pr.append(title_jc)
+    title_run = title.runs[0]
+    title_run.font.name = "Times New Roman"
+    title_run._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:eastAsia"), "黑体")
+    title_sz = OxmlElement("w:sz")
+    title_sz.set(qn("w:val"), "32")
+    title_run._element.get_or_add_rPr().append(title_sz)
 
     field = doc.add_paragraph("")
     field_p_pr = field._p.get_or_add_pPr()
@@ -674,6 +686,12 @@ def test_build_scope_verify_marks_field_only_toc_as_render_check_required(tmp_pa
     title_jc = OxmlElement("w:jc")
     title_jc.set(qn("w:val"), "center")
     title_p_pr.append(title_jc)
+    title_run = title.runs[0]
+    title_run.font.name = "Times New Roman"
+    title_run._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:eastAsia"), "黑体")
+    title_sz = OxmlElement("w:sz")
+    title_sz.set(qn("w:val"), "32")
+    title_run._element.get_or_add_rPr().append(title_sz)
 
     field = doc.add_paragraph("")
     field_p_pr = field._p.get_or_add_pPr()

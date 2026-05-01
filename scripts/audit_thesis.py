@@ -114,8 +114,10 @@ DEFAULT_CFG = {
     "abstract_en_body_size": None,
     "abstract_en_body_line": None,
     "abstract_en_body_indent": None,
+    "toc_entry_line": 276,
     "check_snap_to_grid": False,
     "relax_strain_suffix_t_spacing": False,
+    "mixed_spacing_policy": "spaced",
     "table_blank_line_mode": "spacing",
     "acknowledgement_placeholder_text": "",
     "ref_require_type_marker": False,
@@ -197,6 +199,9 @@ LNU_RULE_DEFINITIONS = (
     ("LNU_ABS02", "Abstract标题格式（辽大）", "important"),
     ("LNU_ABS03", "英文摘要正文格式（辽大）", "minor"),
     ("LNU_ABS04", "中文摘要不含英文半角标点（辽大）", "minor"),
+    ("LNU_TEXT01", "摘要混排空格紧凑化（辽大）", "minor"),
+    ("LNU_TEXT02", "目录条目混排空格紧凑化（辽大）", "minor"),
+    ("LNU_TEXT03", "正文混排空格紧凑化（辽大）", "minor"),
     ("LNU_H01", "标题编号与文字间距", "important"),
     ("LNU_CONC01", "末章标题含结论（辽大）", "minor"),
     ("LNU_S03", "参考文献/致谢前分页符（辽大）", "minor"),
@@ -221,6 +226,11 @@ FRONTMATTER_SECTIONS = {"abstract_cn", "abstract_en", "toc"}
 CJK_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
 DIGIT_CHAR_RE = re.compile(r"\d")
+TEXT_COMPACT_SPACE_RE = re.compile(
+    r"(?<=[\u4e00-\u9fff])[\u0020\u00a0\u3000]+(?=[A-Za-z0-9])|"
+    r"(?<=[A-Za-z0-9])[\u0020\u00a0\u3000]+(?=[\u4e00-\u9fff])"
+)
+TEXT_PUNCT_SPACE_RE = re.compile(r"[\u0020\u00a0\u3000]+(?=[，。；：！？、])|(?<=[，。；：！？、])[\u0020\u00a0\u3000]+")
 NUM_CJK_EXCEPTIONS = sorted(
     [
         "组件",
@@ -445,7 +455,7 @@ def build_profile_cfg(profile_id, profile_data, settings):
     for key in ("check_snap_to_grid", "relax_body_spacing_rules"):
         if key in settings:
             cfg[key] = settings[key]
-    for key in ("relax_strain_suffix_t_spacing", "table_blank_line_mode", "acknowledgement_placeholder_text"):
+    for key in ("relax_strain_suffix_t_spacing", "mixed_spacing_policy", "table_blank_line_mode", "acknowledgement_placeholder_text"):
         if key in settings:
             cfg[key] = settings[key]
 
@@ -453,6 +463,8 @@ def build_profile_cfg(profile_id, profile_data, settings):
                 "abstract_title_after_pt",
                 "caption_label_gap_spaces",
                 "toc_title_font", "toc_title_size", "toc_entry_font", "toc_entry_size",
+                "toc_entry_line",
+                "toc_level1_font", "toc_level1_size",
                 "toc_level1_after_pt", "toc_level2_after_pt", "toc_level3_after_pt",
                 "h1_spacing_before", "h1_spacing_after",
                 "h2_spacing_before", "h2_spacing_after",
@@ -3092,6 +3104,10 @@ def check_lnu_toc02(document_root, contexts, style_map, cfg):
         after_val = get_paragraph_spacing_after(p_elem, style_map)
         if abs((after_val or 0) - expected_after) > 20:
             issues.append(f"目录条目段后应为{expected_after} twips，当前为{after_val or 0}")
+        expected_line = int((cfg.get("toc_entry_line", 276) if cfg else 276) or 276)
+        line_val = get_paragraph_line_spacing(p_elem, style_map)
+        if line_val is not None and abs(line_val - expected_line) > 20:
+            issues.append(f"目录条目行距应为{expected_line}，当前为{line_val}")
         if len(issues) >= 5:
             break
     if toc_count == 0 and toc_has_field:
@@ -3471,6 +3487,87 @@ def check_lnu_abs04(document_root, contexts, style_map, cfg):
     return False, issues, f"{len(issues)} 处"
 
 
+_LNU_TEXT_SCOPE_MODULES = {
+    "abstract": {"abstract_cn_body", "abstract_cn_keywords"},
+    "toc": {"toc_entry", "toc_body"},
+    "body": {"body_heading", "body_paragraph"},
+}
+_LNU_TEXT_SCOPE_LABELS = {
+    "abstract": "中文摘要",
+    "toc": "目录条目",
+    "body": "正文",
+}
+
+
+def _iter_lnu_text_contexts(contexts, text_scope):
+    modules = _LNU_TEXT_SCOPE_MODULES[text_scope]
+    for ctx in contexts:
+        if ctx.get("protected") or ctx.get("in_table"):
+            continue
+        if ctx.get("kind") == "reference":
+            continue
+        if ctx.get("module") not in modules:
+            continue
+        elem = ctx.get("elem")
+        if elem is not None and elem.find(".//m:oMath", MNSMAP) is not None:
+            continue
+        yield ctx
+
+
+def _find_lnu_compact_text_issues(text):
+    text = text or ""
+    issues = []
+    for match in TEXT_COMPACT_SPACE_RE.finditer(text):
+        issues.append(("混排空格", text[max(0, match.start() - 8): min(len(text), match.end() + 8)]))
+        if len(issues) >= 3:
+            return issues
+    for match in TEXT_PUNCT_SPACE_RE.finditer(text):
+        issues.append(("标点空格", text[max(0, match.start() - 8): min(len(text), match.end() + 8)]))
+        if len(issues) >= 3:
+            return issues
+    if _has_half_width_punct_in_cjk_context(text):
+        issues.append(("半角标点", text.strip()[:50]))
+    return issues
+
+
+def _mask_lnu_allowed_heading_gap(text):
+    return re.sub(r"^((?:\d+\s*[\.．]\s*)+\d+[\.．]?)[\u0020\u00a0\u3000]+(?=[^\s])", r"\1", text or "", count=1)
+
+
+def _mask_lnu_allowed_unit_spaces(text):
+    def _replace(match):
+        unit = match.group(2)
+        if unit in _KNOWN_UNITS:
+            return f"{match.group(1)}{unit}"
+        return match.group(0)
+
+    return re.sub(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)[\u0020\u00a0\u3000]+([A-Za-z]{1,4})(?![0-9A-Za-z])", _replace, text or "")
+
+
+def check_lnu_text_compact(document_root, contexts, style_map, cfg, text_scope):
+    """LNU_TEXT01/02/03: 摘要、目录、正文采用紧凑混排空格策略。"""
+    bad_positions = []
+    samples = []
+    label = _LNU_TEXT_SCOPE_LABELS[text_scope]
+    for ctx in _iter_lnu_text_contexts(contexts, text_scope):
+        text = ctx.get("text", "")
+        if ctx.get("module") == "body_heading":
+            text = _mask_lnu_allowed_heading_gap(text)
+        text = _mask_lnu_allowed_unit_spaces(text)
+        findings = _find_lnu_compact_text_issues(text)
+        if not findings:
+            continue
+        bad_positions.append(ctx["index"])
+        if len(samples) < 5:
+            issue_type, snippet = findings[0]
+            samples.append(f"第{ctx['index']}段{label}存在{issue_type}：{excerpt(snippet)}")
+    if bad_positions:
+        issues = [f"{len(bad_positions)} 个{label}段落存在混排空格或中文语境标点问题。"]
+        issues.extend(samples)
+        return False, issues, summarize_positions(bad_positions)
+    return True, [], f"{label}混排空格与中文标点正常"
+
+
 def check_pu02(document_root, contexts, style_map, cfg):
     """PU02: 省略号应使用 ……（中文），不得用 ......（英文点号）"""
     paras = document_root.findall(".//w:p", NSMAP)
@@ -3586,6 +3683,9 @@ LNU_RULE_CHECKERS = {
     "LNU_ABS02": lambda doc, ctxs, sm, cfg: check_lnu_abs02(doc, ctxs, sm, cfg),
     "LNU_ABS03": lambda doc, ctxs, sm, cfg: check_lnu_abs03(doc, ctxs, sm, cfg),
     "LNU_ABS04": lambda doc, ctxs, sm, cfg: check_lnu_abs04(doc, ctxs, sm, cfg),
+    "LNU_TEXT01": lambda doc, ctxs, sm, cfg: check_lnu_text_compact(doc, ctxs, sm, cfg, "abstract"),
+    "LNU_TEXT02": lambda doc, ctxs, sm, cfg: check_lnu_text_compact(doc, ctxs, sm, cfg, "toc"),
+    "LNU_TEXT03": lambda doc, ctxs, sm, cfg: check_lnu_text_compact(doc, ctxs, sm, cfg, "body"),
     "LNU_H01": lambda doc, ctxs, sm, cfg: check_heading_num_space(ctxs),
     "LNU_CONC01": lambda doc, ctxs, sm, cfg: check_lnu_conc01(doc, ctxs, sm, cfg),
     "LNU_S03": lambda doc, ctxs, sm, cfg: check_lnu_s03(doc, ctxs, sm, cfg),

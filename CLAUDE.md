@@ -46,13 +46,12 @@ CLI
 
 注意：
 
-- `lnu-undergraduate.yaml` 的 active additions 已与当前 runtime 对齐
-- `ams-graduate.yaml` 中尚未接入的军队特殊规则已明确降为参考项，避免误判为已实现
+- `lnu-checker-2026.yaml` 的 active additions 已与当前 runtime 对齐
 
 ## 当前规则规模
 
 - `cn-common` runtime：49 条
-- `lnu-undergraduate` runtime：66 条
+- `lnu-checker-2026` runtime：73 条
 
 能力矩阵以 `config/capability_matrix.md` 为准，但前提是它必须与当前 runtime 同步。
 

@@ -111,8 +111,8 @@ python3 scripts/thesis_workbench.py scopes
 │   ├── sources.yaml
 │   ├── profiles/
 │   │   ├── CN-Common.yaml
-│   │   ├── lnu-undergraduate.yaml
-│   │   └── ams-graduate.yaml
+│   │   ├── lnu-checker-2026.yaml
+│   │   └── lnu-undergraduate.yaml
 │   └── templates/
 │       └── lnu/
 ├── references/
@@ -123,8 +123,7 @@ python3 scripts/thesis_workbench.py scopes
 ## Runtime 规则规模
 
 - `cn-common` 当前 runtime：49 条规则
-- `lnu-undergraduate` 当前 runtime：66 条规则
-- `ams-graduate` 当前仍以通用 runtime 为基础，仅消费已接入的配置字段；未接入的校内特殊要求保留在 profile 参考块中，不进入 runtime
+- `lnu-checker-2026` 当前 runtime：73 条规则
 
 规则能力清单见 `config/capability_matrix.md`。
 

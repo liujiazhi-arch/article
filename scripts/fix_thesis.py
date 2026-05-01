@@ -474,6 +474,25 @@ def _collect_text_cleanup_allowed_ids(ctx: FixExecutionContext, *, include_abstr
     return allowed_ids
 
 
+def _apply_lnu_compact_text_passes(ctx: FixExecutionContext):
+    if not is_lnu_profile(ctx.runtime):
+        return
+    for node in ctx.document_model.paragraphs:
+        if node.protected or node.in_table:
+            continue
+        if ctx.scope_flags.abstract and node.module in {"abstract_cn_body", "abstract_cn_keywords"}:
+            fix_lnu_compact_text(node.elem, restore_unit_gap=True)
+            continue
+        if ctx.scope_flags.toc and node.module in {"toc_entry", "toc_body"}:
+            fix_lnu_compact_text(node.elem, restore_unit_gap=True)
+            continue
+        if ctx.scope_flags.body and node.module == "body_paragraph":
+            fix_lnu_compact_text(node.elem, restore_unit_gap=True)
+            continue
+        if (ctx.scope_flags.body or ctx.scope_flags.headings) and node.module == "body_heading":
+            fix_lnu_compact_text(node.elem, restore_heading_gap=True)
+
+
 def describe_fix_docx(
     input_path,
     output_path=None,
@@ -805,6 +824,12 @@ def set_terminal_punctuation(text, expected):
 CJK_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
 DIGIT_CHAR_RE = re.compile(r"\d")
+TEXT_COMPACT_SPACE_RE = re.compile(
+    r"(?<=[\u4e00-\u9fff])[\u0020\u00a0\u3000]+(?=[A-Za-z0-9])|"
+    r"(?<=[A-Za-z0-9])[\u0020\u00a0\u3000]+(?=[\u4e00-\u9fff])"
+)
+TEXT_PUNCT_SPACE_RE = re.compile(r"[\u0020\u00a0\u3000]+(?=[，。；：！？、])|(?<=[，。；：！？、])[\u0020\u00a0\u3000]+")
+TEXT_SPACE_CHARS = " \u00a0\u3000"
 NUM_CJK_EXCEPTIONS = sorted(
     [
         "组件",
@@ -1031,6 +1056,104 @@ def _replace_run_with_tokens(parent_elem, run_elem, tokens):
         parent_elem.insert(insert_at + offset, _make_text_run_like(run_elem, token))
 
 
+def _compact_lnu_text_value(text):
+    if not text:
+        return text
+    text = TEXT_COMPACT_SPACE_RE.sub("", text)
+    text = TEXT_PUNCT_SPACE_RE.sub("", text)
+    return _HALF_WIDTH_PUNCT_PATTERN.sub(lambda match: _HALF_WIDTH_PUNCT_MAPPING[match.group(0)], text)
+
+
+def _plain_text_nodes_in_paragraph(p_elem):
+    nodes = []
+    for run_elem in p_elem.findall("w:r", NSMAP):
+        if is_superscript(run_elem) or not _is_plain_text_run(run_elem):
+            continue
+        for text_elem in run_elem.findall("w:t", NSMAP):
+            nodes.append(text_elem)
+    return nodes
+
+
+def _last_non_space_char(text):
+    stripped = (text or "").rstrip(TEXT_SPACE_CHARS)
+    return stripped[-1] if stripped else ""
+
+
+def _first_non_space_char(text):
+    stripped = (text or "").lstrip(TEXT_SPACE_CHARS)
+    return stripped[0] if stripped else ""
+
+
+def _is_lnu_compact_boundary(left_char, right_char):
+    if not left_char or not right_char:
+        return False
+    return bool(
+        (CJK_CHAR_RE.match(left_char) and (LATIN_CHAR_RE.match(right_char) or DIGIT_CHAR_RE.match(right_char)))
+        or ((LATIN_CHAR_RE.match(left_char) or DIGIT_CHAR_RE.match(left_char)) and CJK_CHAR_RE.match(right_char))
+        or right_char in "，。；：！？、"
+        or left_char in "，。；：！？、"
+    )
+
+
+def _compact_lnu_text_between_runs(p_elem):
+    changed = False
+    while True:
+        text_nodes = _plain_text_nodes_in_paragraph(p_elem)
+        updated = False
+        for index in range(1, len(text_nodes)):
+            left_elem = text_nodes[index - 1]
+            right_elem = text_nodes[index]
+            left_text = left_elem.text or ""
+            right_text = right_elem.text or ""
+            if not left_text or not right_text:
+                continue
+            if not (left_text[-1].isspace() or right_text[0].isspace()):
+                continue
+            left_char = _last_non_space_char(left_text)
+            right_char = _first_non_space_char(right_text)
+            if not left_char:
+                prev_index = index - 2
+                while prev_index >= 0 and not left_char:
+                    left_char = _last_non_space_char(text_nodes[prev_index].text or "")
+                    prev_index -= 1
+            if not right_char:
+                next_index = index + 1
+                while next_index < len(text_nodes) and not right_char:
+                    right_char = _first_non_space_char(text_nodes[next_index].text or "")
+                    next_index += 1
+            if not _is_lnu_compact_boundary(left_char, right_char):
+                continue
+            new_left = left_text.rstrip(TEXT_SPACE_CHARS)
+            new_right = right_text.lstrip(TEXT_SPACE_CHARS)
+            if new_left != left_text or new_right != right_text:
+                left_elem.text = new_left
+                right_elem.text = new_right
+                changed = True
+                updated = True
+                break
+        if not updated:
+            return changed
+
+
+def fix_lnu_compact_text(p_elem, *, restore_heading_gap=False, restore_unit_gap=False):
+    """压紧辽大摘要/目录/正文混排空格，并按场景恢复允许的标题/单位空格。"""
+    changed = False
+    for text_elem in p_elem.findall(".//w:t", NSMAP):
+        original = text_elem.text
+        updated = _compact_lnu_text_value(original)
+        if updated != original:
+            text_elem.text = updated
+            changed = True
+    changed = _compact_lnu_text_between_runs(p_elem) or changed
+    if restore_heading_gap:
+        before = get_paragraph_text(p_elem)
+        fix_heading_num_space(p_elem)
+        changed = changed or get_paragraph_text(p_elem) != before
+    if restore_unit_gap:
+        changed = fix_lnu_unit_spacing(p_elem) or changed
+    return changed
+
+
 def _starts_with_num_cjk_exception(text, index):
     if index < 0 or index >= len(text):
         return False
@@ -1116,6 +1239,8 @@ def _fix_spacing_between_runs(p_elem, boundary_checker):
 
 def _make_cjk_latin_boundary_checker(cfg=None, runtime=None):
     active_cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
+    if active_cfg.get("mixed_spacing_policy") == "compact":
+        return lambda _text, _index, _left_char, _right_char: False
     relax_strain_suffix_t_spacing = bool(active_cfg.get("relax_strain_suffix_t_spacing"))
 
     def _checker(text, index, left_char, right_char):
@@ -1134,7 +1259,10 @@ def fix_sp_cjk_latin(p_elem, cfg=None, runtime=None):
     return _fix_spacing_between_runs(p_elem, checker) or changed
 
 
-def fix_sp_num_cjk(p_elem):
+def fix_sp_num_cjk(p_elem, cfg=None, runtime=None):
+    active_cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
+    if active_cfg.get("mixed_spacing_policy") == "compact":
+        return False
     changed = _fix_spacing_inside_runs(p_elem, _needs_num_cjk_space)
     return _fix_spacing_between_runs(p_elem, _needs_num_cjk_space) or changed
 
@@ -1344,8 +1472,18 @@ def normalize_toc_entry_paragraphs(document_root, style_map=None, cfg=None):
             entry_size = int(active_cfg.get("toc_entry_size", 24) or 24)
             expected_after = int((active_cfg.get("toc_level3_after_pt", 5) or 5) * 20)
         spacing = get_or_create(p_pr, "w:spacing")
+        expected_line = int(active_cfg.get("toc_entry_line", 276) or 276)
+        if spacing.get(f"{{{W_NS}}}before") != "0":
+            set_attr(spacing, "before", "0")
+            changed += 1
         if spacing.get(f"{{{W_NS}}}after") != str(expected_after):
             set_attr(spacing, "after", str(expected_after))
+            changed += 1
+        if spacing.get(f"{{{W_NS}}}line") != str(expected_line):
+            set_attr(spacing, "line", str(expected_line))
+            changed += 1
+        if spacing.get(f"{{{W_NS}}}lineRule") != "auto":
+            set_attr(spacing, "lineRule", "auto")
             changed += 1
 
         for run_elem in p_elem.findall(".//w:r", NSMAP):
@@ -5227,7 +5365,7 @@ def _apply_protected_paragraph_fix(p_elem, paragraph_type, section_name, ctx: Fi
                 fix_body_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime, style_map=ctx.style_map)
                 normalize_equation_explanation_symbols(p_elem)
                 fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
-                fix_sp_num_cjk(p_elem)
+                fix_sp_num_cjk(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
                 fix_lnu_unit_spacing(p_elem)
                 move_superscript_citations_before_terminal_punct(p_elem)
             fix_superscript_fonts(p_elem)
@@ -5238,7 +5376,7 @@ def _apply_protected_paragraph_fix(p_elem, paragraph_type, section_name, ctx: Fi
             fix_body_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime, style_map=ctx.style_map)
             normalize_equation_explanation_symbols(p_elem)
             fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
-            fix_sp_num_cjk(p_elem)
+            fix_sp_num_cjk(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_lnu_unit_spacing(p_elem)
             move_superscript_citations_before_terminal_punct(p_elem)
             fix_superscript_fonts(p_elem)
@@ -5249,7 +5387,7 @@ def _apply_protected_paragraph_fix(p_elem, paragraph_type, section_name, ctx: Fi
             fix_body_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime, style_map=ctx.style_map)
             normalize_equation_explanation_symbols(p_elem)
             fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
-            fix_sp_num_cjk(p_elem)
+            fix_sp_num_cjk(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_lnu_unit_spacing(p_elem)
             move_superscript_citations_before_terminal_punct(p_elem)
             fix_superscript_fonts(p_elem)
@@ -5258,7 +5396,7 @@ def _apply_protected_paragraph_fix(p_elem, paragraph_type, section_name, ctx: Fi
         if ctx.scope_flags.body:
             split_inline_citations(p_elem)
             fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
-            fix_sp_num_cjk(p_elem)
+            fix_sp_num_cjk(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_lnu_unit_spacing(p_elem)
             move_superscript_citations_before_terminal_punct(p_elem)
         if ctx.scope_flags.acknowledgement:
@@ -5322,7 +5460,7 @@ def _apply_paragraph_fix(paragraph_node, ctx: FixExecutionContext):
     if paragraph_node.in_table:
         if paragraph_node.section == "body" and ctx.scope_flags.body:
             fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
-            fix_sp_num_cjk(p_elem)
+            fix_sp_num_cjk(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_lnu_unit_spacing(p_elem)
         return
     if is_generated_toc_paragraph(p_elem):
@@ -5368,7 +5506,7 @@ def _apply_paragraph_fix(paragraph_node, ctx: FixExecutionContext):
         if ctx.scope_flags.body:
             split_inline_citations(p_elem)
             fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
-            fix_sp_num_cjk(p_elem)
+            fix_sp_num_cjk(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_lnu_unit_spacing(p_elem)
             move_superscript_citations_before_terminal_punct(p_elem)
         if ctx.scope_flags.acknowledgement:
@@ -5382,7 +5520,7 @@ def _apply_paragraph_fix(paragraph_node, ctx: FixExecutionContext):
             fix_body_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime, style_map=ctx.style_map)
             normalize_equation_explanation_symbols(p_elem)
             fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
-            fix_sp_num_cjk(p_elem)
+            fix_sp_num_cjk(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_lnu_unit_spacing(p_elem)
             move_superscript_citations_before_terminal_punct(p_elem)
             fix_superscript_fonts(p_elem)
@@ -5393,7 +5531,7 @@ def _apply_paragraph_fix(paragraph_node, ctx: FixExecutionContext):
             fix_body_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime, style_map=ctx.style_map)
             normalize_equation_explanation_symbols(p_elem)
             fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
-            fix_sp_num_cjk(p_elem)
+            fix_sp_num_cjk(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_lnu_unit_spacing(p_elem)
             move_superscript_citations_before_terminal_punct(p_elem)
     elif paragraph_node.module in {"body_caption", "appendix_caption"}:
@@ -5405,7 +5543,7 @@ def _apply_paragraph_fix(paragraph_node, ctx: FixExecutionContext):
         if ctx.scope_flags.figures:
             fix_caption_note_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
-            fix_sp_num_cjk(p_elem)
+            fix_sp_num_cjk(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
     elif paragraph_type == "h1":
         if should_fix_heading_in_scope(ctx.runtime.requested_scopes, section_name):
             fix_heading_paragraph(
@@ -5564,6 +5702,7 @@ def _apply_lnu_postpasses(ctx: FixExecutionContext):
 
 
 def _apply_text_cleanup_passes(ctx: FixExecutionContext):
+    _apply_lnu_compact_text_passes(ctx)
     ellipsis_ids = _collect_text_cleanup_allowed_ids(ctx, include_abstract_cn_punct=False)
     if ellipsis_ids:
         fix_ellipsis(

@@ -211,12 +211,11 @@ def test_build_profile_catalog_lists_default_and_second_profile():
     assert payload["summary"]["default_profile_id"] == "cn-common"
     assert payload["summary"]["support_scenario_count"] >= 3
     assert "cn-common" in profile_ids
-    assert "ams-graduate" in profile_ids
     assert "lnu-checker-2026" in profile_ids
     default_profile = next(item for item in payload["profiles"] if item["id"] == "cn-common")
     assert default_profile["support_level_label"] == "一等支持"
     assert any(item["label"] == "普通论文或综述" for item in default_profile["support_scenarios"])
-    degree_profile = next(item for item in payload["profiles"] if item["id"] == "ams-graduate")
+    degree_profile = next(item for item in payload["profiles"] if item["id"] == "lnu-checker-2026")
     assert any(item["label"] == "学校学位论文" for item in degree_profile["support_scenarios"])
 
 
@@ -286,7 +285,7 @@ def test_main_profiles_outputs_json(capsys):
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     profile_ids = [item["id"] for item in payload["profiles"]]
-    assert "ams-graduate" in profile_ids
+    assert "lnu-checker-2026" in profile_ids
     assert any(item["id"] == "course_assignment_basic_paper" for item in payload["summary"]["support_scenarios"])
 
 

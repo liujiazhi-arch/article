@@ -10,6 +10,21 @@ meta:
   pub_date: "2026-03-25"
   scope: all
   description: "中国高校论文格式通用基线，覆盖各校共性要求，差异项由学校Profile覆盖"
+  catalog:
+    support_level:
+      id: primary
+      label: 一等支持
+    support_scenarios:
+      - id: course_assignment_basic_paper
+        label: 课程作业/基础论文
+        document_types:
+          - 课程作业
+          - 基础论文
+      - id: general_paper_review
+        label: 普通论文或综述
+        document_types:
+          - 普通论文
+          - 综述
   source_refs:
     - GB/T 7714-2015
     - GB/T 15834-2011
