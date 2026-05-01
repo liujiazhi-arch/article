@@ -19,7 +19,7 @@ meta:
   notes: |
     以用户 2026-05-01 提供的辽宁大学最新格式要求截图为最高优先级。
     本 profile 用于替换旧的 lnu-undergraduate 主链设定。
-    lnu-undergraduate 仅作为兼容别名指向本 profile，不再维护第二套辽大规则文件。
+    lnu-undergraduate 命令入口已移除，不再维护第二套辽大规则文件。
     若本 profile 与 2026-04-17 checker 批注或旧版官方样本冲突，以本次截图为准。
 
 disabled_rules:

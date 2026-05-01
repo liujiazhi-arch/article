@@ -131,6 +131,7 @@ def test_workbench_profiles_lists_expected_profiles():
     assert result.returncode == 0, result.stderr
     assert "cn-common" in result.stdout
     assert "lnu-checker-2026" in result.stdout
+    assert "lnu-undergraduate" not in result.stdout
     assert "support=一等支持" in result.stdout
     assert "课程作业/基础论文[课程作业、基础论文]/一等支持" in result.stdout
     assert "学校学位论文[本科毕业论文]/一等支持" in result.stdout
