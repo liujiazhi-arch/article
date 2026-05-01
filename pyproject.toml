@@ -14,12 +14,24 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+api = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+  "python-multipart>=0.0.9,<1",
+]
 dev = [
   "pytest>=8,<9",
+  "httpx>=0.27,<1",
 ]
 
 [project.scripts]
 thesis-workbench = "thesis_workbench:main"
+article-local = "article_api.local_app:main"
+article-api = "article_api.local_app:serve_main"
+article-doctor = "article_api.local_app:doctor_main"
+article-backup = "article_api.local_app:backup_main"
+article-restore = "article_api.local_app:restore_main"
+article-maintain = "article_api.local_app:maintain_main"
 
 [tool.setuptools]
 package-dir = {"" = "scripts"}
@@ -36,7 +48,16 @@ py-modules = [
 
 [tool.setuptools.packages.find]
 where = ["scripts"]
-include = ["thesis_tool", "thesis_tool.*", "sections", "sections.*"]
+include = [
+  "thesis_tool",
+  "thesis_tool.*",
+  "sections",
+  "sections.*",
+  "article_engine",
+  "article_engine.*",
+  "article_api",
+  "article_api.*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
