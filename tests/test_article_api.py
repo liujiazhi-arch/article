@@ -7,8 +7,6 @@ import article_api.app as app_module
 import article_api.jobs as jobs_module
 from article_api.app import (
     ApplyRequest,
-    BatchRequest,
-    BatchJobRequest,
     NormalizeRequest,
     NormalizeJobRequest,
     PreflightRequest,
@@ -103,6 +101,7 @@ def test_create_app_handles_missing_fastapi_dependency():
         assert "/ready" in route_paths
         assert "/version" in route_paths
         assert "/profiles" in route_paths
+        assert "/render-workflow-modes" in route_paths
         assert "/audit" in route_paths
         assert "/plan" in route_paths
         assert "/preflight" in route_paths
@@ -110,12 +109,12 @@ def test_create_app_handles_missing_fastapi_dependency():
         assert "/render-verify" in route_paths
         assert "/verify" in route_paths
         assert "/apply" in route_paths
-        assert "/batch" in route_paths
         assert "/jobs/normalize" in route_paths
         assert "/jobs/verify" in route_paths
         assert "/jobs/apply" in route_paths
-        assert "/jobs/batch" in route_paths
-        assert "/jobs/batches/recent" in route_paths
+        assert "/batch" not in route_paths
+        assert "/jobs/batch" not in route_paths
+        assert "/jobs/batches/recent" not in route_paths
         assert "/uploads/docx" in route_paths
         assert "/uploads" in route_paths
         assert "/uploads/{upload_id}" in route_paths
@@ -154,7 +153,6 @@ def test_request_models_default_to_auto_strict_profile():
     normalize_job_request = NormalizeJobRequest(file_path="demo.docx")
     render_verify_request = RenderVerifyRequest(file_path="demo.docx")
     verify_request = VerifyRequest(file_path="demo.docx")
-    batch_request = BatchRequest(operation="verify", input_path="/tmp/demo.docx")
 
     assert apply_request.strict_profile is None
     assert preflight_request.strict_profile is None
@@ -162,8 +160,32 @@ def test_request_models_default_to_auto_strict_profile():
     assert normalize_job_request.strict_profile is None
     assert render_verify_request.strict_profile is None
     assert render_verify_request.renderer == "auto"
+    assert render_verify_request.rendered_pdf is None
+    assert render_verify_request.page_images_dir is None
     assert verify_request.strict_profile is None
-    assert batch_request.strict_profile is None
+
+
+def test_render_verify_request_rejects_artifact_tool_renderer():
+    with pytest.raises(Exception):
+        RenderVerifyRequest(file_path="demo.docx", renderer="artifact-tool")
+
+
+def test_render_workflow_modes_payload_describes_three_modes():
+    payload = app_module.build_render_workflow_modes_payload()
+
+    mode_ids = [item["id"] for item in payload["modes"]]
+    assert mode_ids == ["default_user", "advanced_word", "agent_candidate"]
+    assert payload["recommended_mode"] == "default_user"
+    assert payload["modes"][0]["requires_manual_pdf"] is True
+    assert payload["modes"][1]["uses_automation"] is True
+    assert payload["modes"][2]["creates_candidate_docx"] is True
+    assert any("Word/WPS" in issue for issue in payload["render_layer_issues"])
+
+
+def test_render_verify_request_supports_workflow_mode():
+    request = RenderVerifyRequest(file_path="demo.docx", workflow_mode="default_user", rendered_pdf="/tmp/demo.pdf")
+
+    assert request.workflow_mode == "default_user"
 
 
 def test_verify_request_supports_staging_fields():
@@ -192,40 +214,6 @@ def test_retention_sweep_request_supports_optional_thresholds():
     assert request.job_max_age_seconds == 60
     assert request.upload_max_age_seconds == 120
     assert request.dry_run is True
-
-
-def test_batch_request_supports_local_batch_fields():
-    request = BatchRequest(
-        operation="apply",
-        input_path="/tmp/article-batch",
-        profile="lnu",
-        scopes=["headings"],
-        recursive=True,
-        output_dir="/tmp/article-output",
-        summary_file="/tmp/article-summary.json",
-        fail_fast=True,
-    )
-
-    assert request.operation == "apply"
-    assert request.profile == "lnu"
-    assert request.recursive is True
-    assert request.output_dir == "/tmp/article-output"
-    assert request.summary_file == "/tmp/article-summary.json"
-    assert request.fail_fast is True
-
-
-def test_batch_job_request_supports_worker_control_fields():
-    request = BatchJobRequest(
-        operation="audit",
-        input_path="/tmp/article-batch",
-        max_attempts=2,
-        retry_delay_seconds=0.25,
-        timeout_seconds=8.0,
-    )
-
-    assert request.max_attempts == 2
-    assert request.retry_delay_seconds == 0.25
-    assert request.timeout_seconds == 8.0
 
 
 def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_docx, tmp_path):
@@ -264,13 +252,49 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert "论文格式本地控制台" in console_html
     assert "单篇论文处理" in console_html
     assert "选择 Word 论文" in console_html
-    assert "一键处理并复核" in console_html
+    assert "一键处理到结构复查" in console_html
     assert "高级设置" in console_html
     assert "分步操作" in console_html
     assert "Word 版式复核" in console_html
+    assert "排版修复 · 页面渲染层" in console_html
+    assert "修复打开 Word/WPS 后才看得到的排版问题" in console_html
+    assert "上方流程主要处理字体、标题、目录、参考文献等结构格式" in console_html
+    assert "开始排版复核" in console_html
+    assert "用这个模式修排版" in console_html
+    assert "data-workflow-mode=\"default_user\"" in console_html
+    assert "data-workflow-mode=\"advanced_word\"" in console_html
+    assert "selectedWorkflowMode: 'default_user'" in console_html
+    assert "function userFacingError" in console_html
+    assert "Word 自动导出 PDF 没有完成" in console_html
+    assert "请先手动打开 Microsoft Word" in console_html
+    assert "如果出现权限申请，请点击允许" in console_html
+    assert "默认用户模式" in console_html
+    assert "高级模式" in console_html
+    assert "Agent 候选稿模式" in console_html
+    assert "render-manual-button" in console_html
+    assert "render-word-button" in console_html
+    assert "render-agent-button" in console_html
+    assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" in console_html
+    assert "guardedRenderWorkflow('default_user')" in console_html
     assert "论文格式修改工具" in console_html
     assert "原文不会被覆盖" in console_html
     assert "总体结论" in console_html
+    assert "report-action-button" in console_html
+    assert "report-progress" in console_html
+    assert "正在执行修复" in console_html
+    assert "修复稿已生成" in console_html
+    assert "结构复查已结束，等待版式复核" in console_html
+    assert "这一步已经结束，不是后端卡住" in console_html
+    assert "source-summary" in console_html
+    assert "displayFileName" in console_html
+    assert "sourceDisplayName" in console_html
+    assert "outputFolderLabel" in console_html
+    assert "outputSummary" in console_html
+    assert "复核后排障工具" in console_html
+    assert "先完成 PDF 版式复核后再使用" in console_html
+    assert "查看路径" in console_html
+    assert "桌面/论文格式修复输出" in console_html
+    assert "页面布局再平衡（慢速，排版排障时再开）" in console_html
     assert "历史与排障" in console_html
     assert "批量任务" not in console_html
     assert "适合发给学弟学妹使用" not in console_html
@@ -446,9 +470,45 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
             "profile": {"id": "lnu-checker-2026", "requested": "lnu", "fallback_used": False, "display": "lnu"},
             "output_dir": str(output_dir),
             "render_engine": "word-pdf",
+            "evidence_source": "word-pdf",
+            "evidence_trust": "authoritative",
+            "evidence_authoritative": True,
+            "layout_decision_eligible": True,
             "render_fallback_used": False,
             "page_count": 2,
             "page_images": [str(output_dir / "page-1.png"), str(output_dir / "page-2.png")],
+            "render_findings": [
+                {
+                    "id": "large_blank_region",
+                    "severity": "warning",
+                    "page": 2,
+                    "message": "页底存在大块连续空白。",
+                }
+            ],
+            "render_summary": {
+                "finding_count": 1,
+                "highest_severity": "warning",
+                "actionable_finding_count": 1,
+                "expected_blank_count": 0,
+                "object_flow_issue_count": 1,
+                "heading_break_issue_count": 0,
+            },
+            "layout_score": {
+                "score": 88,
+                "penalty": 12,
+                "expected_blank_count": 0,
+                "actionable_finding_count": 1,
+                "object_flow_issue_count": 1,
+                "heading_break_issue_count": 0,
+                "render_integrity_issue_count": 0,
+            },
+            "render_text_summary": {
+                "source": "pdf",
+                "available": True,
+                "page_text_available_count": 2,
+                "page_text_extraction_warning_count": 0,
+                "warnings": [],
+            },
             "selected_scopes": ["toc"],
             "overall_status": "verified",
             "readiness": "render-check-required",
@@ -465,16 +525,39 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
         profile_path="lnu",
         scopes=["toc"],
         renderer="word-pdf",
+        workflow_mode="advanced_word",
     )
 
     assert payload["status"] == "ok"
     assert payload["operation"] == "render-verify"
     assert payload["summary"]["page_count"] == 2
     assert payload["summary"]["render_engine"] == "word-pdf"
+    assert payload["summary"]["evidence_source"] == "word-pdf"
+    assert payload["summary"]["evidence_trust"] == "authoritative"
+    assert payload["summary"]["layout_decision_eligible"] is True
     assert payload["summary"]["render_fallback_used"] is False
+    assert payload["summary"]["render_finding_count"] == 1
+    assert payload["summary"]["render_highest_severity"] == "warning"
+    assert payload["summary"]["layout_score"] == 88
+    assert payload["summary"]["layout_penalty"] == 12
+    assert payload["summary"]["actionable_finding_count"] == 1
+    assert payload["summary"]["object_flow_issue_count"] == 1
+    assert payload["summary"]["page_text_available_count"] == 2
     assert payload["summary"]["review_item_count"] == 1
     assert payload["summary"]["manual_review_rule_count"] == 1
+    assert payload["render_workflow_mode"]["id"] == "advanced_word"
     assert payload["selected_scopes"] == ["toc"]
+
+
+def test_build_render_verify_payload_requires_pdf_for_default_user_mode(monkeypatch):
+    monkeypatch.setattr(app_module, "render_verify_document", lambda *args, **kwargs: {})
+
+    with pytest.raises(ValueError, match="默认用户模式"):
+        app_module.build_render_verify_payload(
+            file_path="/tmp/demo.docx",
+            profile_path="lnu",
+            workflow_mode="default_user",
+        )
 
 
 def test_fake_app_render_verify_endpoint_returns_proof_summary(monkeypatch):
@@ -488,9 +571,15 @@ def test_fake_app_render_verify_endpoint_returns_proof_summary(monkeypatch):
             "profile": {"id": "lnu-checker-2026", "requested": "lnu", "fallback_used": False, "display": "lnu"},
             "output_dir": "/tmp/render-proof",
             "render_engine": "word-pdf",
+            "evidence_source": "word-pdf",
+            "evidence_trust": "authoritative",
+            "evidence_authoritative": True,
+            "layout_decision_eligible": True,
             "render_fallback_used": False,
             "page_count": 1,
             "page_images": ["/tmp/render-proof/page-1.png"],
+            "render_findings": [],
+            "render_summary": {"finding_count": 0, "highest_severity": None},
             "selected_scopes": ["figures_tables"],
             "overall_status": "verified",
             "readiness": "render-check-required",
@@ -507,6 +596,7 @@ def test_fake_app_render_verify_endpoint_returns_proof_summary(monkeypatch):
             profile="lnu",
             scopes=["figures_tables"],
             renderer="word-pdf",
+            page_images_dir="/tmp/wps-pages",
         )
     )
 
@@ -514,69 +604,9 @@ def test_fake_app_render_verify_endpoint_returns_proof_summary(monkeypatch):
     assert payload["operation"] == "render-verify"
     assert payload["page_count"] == 1
     assert payload["summary"]["render_engine"] == "word-pdf"
+    assert payload["summary"]["render_finding_count"] == 0
     assert payload["summary"]["review_item_count"] == 1
     assert payload["selected_scopes"] == ["figures_tables"]
-
-
-def test_fake_app_batch_endpoint_returns_directory_summary(monkeypatch, tmp_docx, tmp_path):
-    app = _build_fake_app(monkeypatch)
-    routes = _routes_by_path(app)
-    source_dir = tmp_path / "batch-api"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    source_path = tmp_docx(make_compliant_doc, filename="article_api_batch.docx")
-    doc = Document(source_path)
-    RULE_MUTATORS["H02"](doc)
-    doc.save(source_path)
-    copied_path = source_dir / "article_api_batch.docx"
-    copied_path.write_bytes(source_path.read_bytes())
-
-    payload = routes["/batch"].endpoint(
-        BatchRequest(
-            operation="audit",
-            input_path=str(source_dir),
-            profile="cn-common",
-            recursive=True,
-        )
-    )
-
-    assert payload["operation"] == "audit"
-    assert payload["summary"]["total"] == 1
-    assert payload["summary"]["succeeded"] == 1
-    assert payload["summary"]["readiness_counts"]["needs-fix"] == 1
-    assert payload["items"][0]["relative_path"] == "article_api_batch.docx"
-    assert payload["items"][0]["overall_status"] == "needs_fix"
-    assert payload["items"][0]["readiness"] == "needs-fix"
-
-
-def test_fake_app_batch_job_endpoint_returns_created_job(monkeypatch, tmp_docx, tmp_path):
-    clear_jobs()
-    app = _build_fake_app(monkeypatch)
-    routes = _routes_by_path(app)
-    source_dir = tmp_path / "batch-job-api"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    source_path = tmp_docx(make_compliant_doc, filename="article_api_batch_job.docx")
-    doc = Document(source_path)
-    RULE_MUTATORS["H02"](doc)
-    doc.save(source_path)
-    copied_path = source_dir / "article_api_batch_job.docx"
-    copied_path.write_bytes(source_path.read_bytes())
-
-    created = routes["/jobs/batch"].endpoint(
-        BatchJobRequest(
-            operation="audit",
-            input_path=str(source_dir),
-            profile="cn-common",
-            recursive=True,
-        )
-    )
-    waited = wait_for_job(created["job_id"])
-    result = routes["/jobs/{job_id}/result"].endpoint(created["job_id"])
-
-    assert created["operation"] == "batch"
-    assert waited["status"] == "succeeded"
-    assert result["summary"]["batch_operation"] == "audit"
-    assert result["summary"]["total_items"] == 1
-    assert result["summary"]["readiness_counts"]["needs-fix"] == 1
 
 
 def test_fake_app_ready_maps_storage_failure_to_503(monkeypatch):
@@ -680,10 +710,8 @@ def test_fake_app_jobs_endpoint_supports_operation_status_and_limit_filters(monk
     verify_doc = Document(verify_source)
     RULE_MUTATORS["H02"](verify_doc)
     verify_doc.save(verify_source)
-
-    batch_dir = verify_source.parent / "article-api-jobs-filter-batch"
-    batch_dir.mkdir(parents=True, exist_ok=True)
-    (batch_dir / "article_api_jobs_filter_batch.docx").write_bytes(verify_source.read_bytes())
+    normalize_output = tmp_docx(make_compliant_doc, filename="article_api_jobs_filter_normalized.docx")
+    normalize_output.unlink()
 
     verify_job = routes["/jobs/verify"].endpoint(
         VerifyRequest(
@@ -691,55 +719,21 @@ def test_fake_app_jobs_endpoint_supports_operation_status_and_limit_filters(monk
             scopes=["headings"],
         )
     )
-    batch_job = routes["/jobs/batch"].endpoint(
-        BatchJobRequest(
-            operation="audit",
-            input_path=str(batch_dir),
-            profile="cn-common",
-            recursive=True,
+    normalize_job = routes["/jobs/normalize"].endpoint(
+        NormalizeJobRequest(
+            file_path=str(verify_source),
+            output_path=str(normalize_output),
+            profile="lnu",
         )
     )
     wait_for_job(verify_job["job_id"])
-    wait_for_job(batch_job["job_id"])
+    wait_for_job(normalize_job["job_id"])
 
-    filtered = routes["/jobs"].endpoint(operation="batch", status="succeeded", limit=1)
+    filtered = routes["/jobs"].endpoint(operation="verify", status="succeeded", limit=1)
 
     assert len(filtered) == 1
-    assert filtered[0]["operation"] == "batch"
+    assert filtered[0]["operation"] == "verify"
     assert filtered[0]["status"] == "succeeded"
-
-
-def test_fake_app_recent_batch_jobs_returns_summary_view(monkeypatch, tmp_docx, tmp_path):
-    clear_jobs()
-    clear_uploads()
-    app = _build_fake_app(monkeypatch)
-    routes = _routes_by_path(app)
-    source_path = tmp_docx(make_compliant_doc, filename="article_api_recent_batch.docx")
-    doc = Document(source_path)
-    RULE_MUTATORS["H02"](doc)
-    doc.save(source_path)
-    batch_dir = tmp_path / "recent-batch"
-    batch_dir.mkdir(parents=True, exist_ok=True)
-    (batch_dir / "article_api_recent_batch.docx").write_bytes(source_path.read_bytes())
-
-    created = routes["/jobs/batch"].endpoint(
-        BatchJobRequest(
-            operation="audit",
-            input_path=str(batch_dir),
-            profile="cn-common",
-            recursive=True,
-            summary_file=str(tmp_path / "recent-batch-summary.json"),
-        )
-    )
-    wait_for_job(created["job_id"])
-
-    payload = routes["/jobs/batches/recent"].endpoint(status="succeeded", limit=5)
-
-    assert payload["filters"]["operation"] == "batch"
-    assert payload["filters"]["status"] == "succeeded"
-    assert payload["summary"]["total"] >= 1
-    assert payload["items"][0]["batch_operation"] == "audit"
-    assert payload["items"][0]["summary_file"].endswith("recent-batch-summary.json")
 
 
 def test_fake_app_job_status_maps_missing_job_to_404(monkeypatch):
@@ -956,6 +950,29 @@ def test_fake_app_download_endpoint_maps_missing_artifact_file_to_409(monkeypatc
     assert exc_info.value.status_code == 409
     assert routes["/jobs/{job_id}"].endpoint(create_response["job_id"]) == status
     assert routes["/jobs/{job_id}/result"].endpoint(create_response["job_id"])["status"] == "succeeded"
+
+
+def test_fake_app_apply_endpoint_creates_missing_output_parent(monkeypatch, tmp_docx, tmp_path):
+    clear_jobs()
+    clear_uploads()
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+    source_path = tmp_docx(make_compliant_doc, filename="article_api_apply_nested_output.docx")
+    doc = Document(source_path)
+    RULE_MUTATORS["H02"](doc)
+    doc.save(source_path)
+    output_path = tmp_path / "missing" / "nested" / "article_api_apply_nested_output_fixed.docx"
+
+    payload = routes["/apply"].endpoint(
+        ApplyRequest(
+            file_path=str(source_path),
+            output_path=str(output_path),
+            scopes=["headings"],
+        )
+    )
+
+    assert payload["output"]["path"] == str(output_path)
+    assert output_path.exists()
 
 
 def test_fake_app_upload_verify_job_supports_upload_id_and_stage_input(monkeypatch, tmp_docx, tmp_path):

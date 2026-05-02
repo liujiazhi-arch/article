@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>article 项目架构流程图</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #c7d0df;
+      --blue: #1d4ed8;
+      --cyan: #0e7490;
+      --green: #15803d;
+      --amber: #b45309;
+      --red: #b42318;
+      --soft-blue: #e8f0ff;
+      --soft-cyan: #e7f8fb;
+      --soft-green: #eaf7ee;
+      --soft-amber: #fff4df;
+      --soft-red: #fff0ee;
+      --shadow: 0 12px 28px rgba(23, 32, 51, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.45;
+    }
+
+    header {
+      padding: 28px 32px 18px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    p { margin: 0; }
+
+    main {
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 24px 28px 40px;
+      display: grid;
+      gap: 22px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      max-width: 980px;
+      font-size: 15px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 22px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 9px;
+      font-size: 13px;
+      color: #344054;
+      background: #fff;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .diagram-wrap {
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    svg {
+      display: block;
+      min-width: 1180px;
+      width: 100%;
+      height: auto;
+    }
+
+    .lane-title {
+      font-size: 14px;
+      font-weight: 720;
+      fill: #344054;
+    }
+
+    .box-title {
+      font-size: 15px;
+      font-weight: 760;
+      fill: var(--ink);
+    }
+
+    .box-sub {
+      font-size: 12px;
+      fill: #475467;
+    }
+
+    .small-note {
+      font-size: 11px;
+      fill: #667085;
+    }
+
+    .arrow {
+      stroke: #7d89a1;
+      stroke-width: 2;
+      fill: none;
+      marker-end: url(#arrow);
+    }
+
+    .arrow-strong {
+      stroke: var(--blue);
+      stroke-width: 2.5;
+      fill: none;
+      marker-end: url(#arrowBlue);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+      min-height: 160px;
+    }
+
+    .card.blue { border-color: #a9c3ff; background: var(--soft-blue); }
+    .card.cyan { border-color: #a6dce6; background: var(--soft-cyan); }
+    .card.green { border-color: #adddbb; background: var(--soft-green); }
+    .card.amber { border-color: #f4c67c; background: var(--soft-amber); }
+    .card.red { border-color: #f3b4ad; background: var(--soft-red); }
+
+    .flow-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 10px;
+      font-size: 14px;
+    }
+
+    .flow-list li {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+    }
+
+    .num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #172033;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.92em;
+      background: rgba(23, 32, 51, 0.08);
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+
+    .file-map {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 10px 14px;
+      font-size: 14px;
+    }
+
+    .file-map .k {
+      font-weight: 720;
+      color: #344054;
+    }
+
+    .file-map .v {
+      color: #475467;
+    }
+
+    .removed {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .removed .item {
+      border: 1px solid #f0b7b0;
+      background: #fff7f6;
+      border-radius: 8px;
+      padding: 13px;
+      font-size: 14px;
+    }
+
+    .item strong { display: block; margin-bottom: 4px; }
+
+    @media (max-width: 980px) {
+      header { padding: 22px 18px 14px; }
+      main { padding: 18px 14px 32px; }
+      .grid-2, .grid-3, .removed, .file-map { grid-template-columns: 1fr; }
+      .card { min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>article 项目架构流程图</h1>
+    <p class="subtitle">这张图把现在的项目串成一条线：用户从 CLI 或本地 API 进入，经过本地壳、服务层、工作流编排、规则引擎，最后读写 Word DOCX。已经砍掉的历史功能单独列在底部。</p>
+    <div class="legend">
+      <span class="tag"><span class="dot" style="background:#1d4ed8"></span>用户入口</span>
+      <span class="tag"><span class="dot" style="background:#0e7490"></span>本地壳/API</span>
+      <span class="tag"><span class="dot" style="background:#15803d"></span>核心处理</span>
+      <span class="tag"><span class="dot" style="background:#b45309"></span>配置/规范</span>
+      <span class="tag"><span class="dot" style="background:#b42318"></span>已删除/下线</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>1. 总流程：从用户到 Word 文档</h2>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 1240 610" role="img" aria-label="article 项目总流程图">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L8,3 z" fill="#7d89a1"></path>
+            </marker>
+            <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L8,3 z" fill="#1d4ed8"></path>
+            </marker>
+            <filter id="boxShadow" x="-10%" y="-20%" width="120%" height="140%">
+              <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#101828" flood-opacity="0.12"></feDropShadow>
+            </filter>
+          </defs>
+
+          <text x="40" y="38" class="lane-title">用户入口</text>
+          <text x="280" y="38" class="lane-title">本地壳 / API</text>
+          <text x="540" y="38" class="lane-title">统一服务层</text>
+          <text x="770" y="38" class="lane-title">工作流编排</text>
+          <text x="980" y="38" class="lane-title">规则与 DOCX 底座</text>
+
+          <rect x="30" y="60" width="170" height="92" rx="8" fill="#e8f0ff" stroke="#a9c3ff" filter="url(#boxShadow)"></rect>
+          <text x="52" y="93" class="box-title">命令行用户</text>
+          <text x="52" y="118" class="box-sub">thesis-workbench</text>
+          <text x="52" y="137" class="small-note">audit / plan / apply / verify</text>
+
+          <rect x="30" y="210" width="170" height="92" rx="8" fill="#e8f0ff" stroke="#a9c3ff" filter="url(#boxShadow)"></rect>
+          <text x="52" y="243" class="box-title">本地软件用户</text>
+          <text x="52" y="268" class="box-sub">article-local / article-api</text>
+          <text x="52" y="287" class="small-note">网页 / HTTP / 运维命令</text>
+
+          <rect x="250" y="52" width="210" height="110" rx="8" fill="#e7f8fb" stroke="#a6dce6" filter="url(#boxShadow)"></rect>
+          <text x="272" y="84" class="box-title">thesis_workbench.py</text>
+          <text x="272" y="110" class="box-sub">CLI 统一入口</text>
+          <text x="272" y="131" class="small-note">把命令转成 workflow 调用</text>
+
+          <rect x="250" y="195" width="210" height="132" rx="8" fill="#e7f8fb" stroke="#a6dce6" filter="url(#boxShadow)"></rect>
+          <text x="272" y="228" class="box-title">article_api/local_app.py</text>
+          <text x="272" y="254" class="box-sub">本地壳命令分发</text>
+          <text x="272" y="277" class="small-note">init / serve / doctor</text>
+          <text x="272" y="296" class="small-note">backup / restore / maintain</text>
+
+          <rect x="250" y="365" width="210" height="118" rx="8" fill="#e7f8fb" stroke="#a6dce6" filter="url(#boxShadow)"></rect>
+          <text x="272" y="397" class="box-title">article_api/app.py</text>
+          <text x="272" y="423" class="box-sub">FastAPI 路由层</text>
+          <text x="272" y="446" class="small-note">/audit /apply /jobs /uploads</text>
+
+          <rect x="525" y="154" width="205" height="138" rx="8" fill="#eaf7ee" stroke="#adddbb" filter="url(#boxShadow)"></rect>
+          <text x="548" y="187" class="box-title">article_engine/service.py</text>
+          <text x="548" y="214" class="box-sub">统一服务门面</text>
+          <text x="548" y="237" class="small-note">audit_document()</text>
+          <text x="548" y="256" class="small-note">plan / verify / apply / normalize</text>
+
+          <rect x="775" y="154" width="205" height="138" rx="8" fill="#eaf7ee" stroke="#adddbb" filter="url(#boxShadow)"></rect>
+          <text x="798" y="187" class="box-title">thesis_tool/workflow.py</text>
+          <text x="798" y="214" class="box-sub">scope 编排层</text>
+          <text x="798" y="237" class="small-note">决定修哪里、怎么复查</text>
+          <text x="798" y="256" class="small-note">读取 scopes / capabilities</text>
+
+          <rect x="1030" y="70" width="180" height="95" rx="8" fill="#eaf7ee" stroke="#adddbb" filter="url(#boxShadow)"></rect>
+          <text x="1052" y="102" class="box-title">audit_thesis.py</text>
+          <text x="1052" y="128" class="box-sub">规则检查</text>
+          <text x="1052" y="147" class="small-note">输出问题报告</text>
+
+          <rect x="1030" y="205" width="180" height="95" rx="8" fill="#eaf7ee" stroke="#adddbb" filter="url(#boxShadow)"></rect>
+          <text x="1052" y="237" class="box-title">fix_thesis.py</text>
+          <text x="1052" y="263" class="box-sub">按 scope 修复</text>
+          <text x="1052" y="282" class="small-note">写出新 DOCX</text>
+
+          <rect x="1030" y="340" width="180" height="95" rx="8" fill="#eaf7ee" stroke="#adddbb" filter="url(#boxShadow)"></rect>
+          <text x="1052" y="372" class="box-title">_thesis_utils.py</text>
+          <text x="1052" y="398" class="box-sub">DOCX 结构模型</text>
+          <text x="1052" y="417" class="small-note">DocumentModel / 段落分类</text>
+
+          <rect x="775" y="370" width="205" height="105" rx="8" fill="#fff4df" stroke="#f4c67c" filter="url(#boxShadow)"></rect>
+          <text x="798" y="402" class="box-title">config / references</text>
+          <text x="798" y="428" class="box-sub">profile / 能力矩阵 / 官方规范</text>
+          <text x="798" y="450" class="small-note">CN-Common / lnu-checker-2026</text>
+
+          <rect x="1030" y="475" width="180" height="80" rx="8" fill="#fff4df" stroke="#f4c67c" filter="url(#boxShadow)"></rect>
+          <text x="1052" y="507" class="box-title">Word DOCX</text>
+          <text x="1052" y="532" class="box-sub">OOXML 文件结构</text>
+
+          <path class="arrow-strong" d="M200 106 H250"></path>
+          <path class="arrow-strong" d="M200 256 H250"></path>
+          <path class="arrow" d="M355 327 V365"></path>
+          <path class="arrow-strong" d="M460 107 C500 107 500 190 525 205"></path>
+          <path class="arrow-strong" d="M460 260 H500 C515 260 515 230 525 230"></path>
+          <path class="arrow-strong" d="M460 424 H500 C515 424 515 265 525 255"></path>
+          <path class="arrow-strong" d="M730 223 H775"></path>
+          <path class="arrow-strong" d="M980 205 C1010 155 1010 118 1030 118"></path>
+          <path class="arrow-strong" d="M980 240 C1010 250 1010 253 1030 253"></path>
+          <path class="arrow" d="M1120 300 V340"></path>
+          <path class="arrow" d="M1120 435 V475"></path>
+          <path class="arrow" d="M880 370 V292"></path>
+          <path class="arrow" d="M1030 388 H980"></path>
+
+          <rect x="30" y="520" width="700" height="52" rx="8" fill="#fff7f6" stroke="#f3b4ad"></rect>
+          <text x="52" y="550" class="box-title">已下线：batch 批量处理、scripts/legacy、package.json、旧记忆/交接文档</text>
+          <text x="52" y="566" class="small-note">项目现在聚焦单篇论文主线和本地可运行后端</text>
+        </svg>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>2. 三条最常用流程</h2>
+      <div class="grid-3">
+        <article class="card blue">
+          <h3>命令行审查/修复</h3>
+          <ul class="flow-list">
+            <li><span class="num">1</span><span>用户执行 <code>thesis-workbench audit/apply</code></span></li>
+            <li><span class="num">2</span><span><code>thesis_workbench.py</code> 解析参数和 profile</span></li>
+            <li><span class="num">3</span><span><code>workflow.py</code> 按 scope 编排</span></li>
+            <li><span class="num">4</span><span><code>audit_thesis.py</code> 检查，<code>fix_thesis.py</code> 修复</span></li>
+            <li><span class="num">5</span><span>输出报告或新的 DOCX</span></li>
+          </ul>
+        </article>
+
+        <article class="card cyan">
+          <h3>本地 API 处理单篇论文</h3>
+          <ul class="flow-list">
+            <li><span class="num">1</span><span>用户执行 <code>article-api</code> 或 <code>article-local serve</code></span></li>
+            <li><span class="num">2</span><span><code>app.py</code> 暴露 <code>/audit</code>、<code>/apply</code>、<code>/jobs</code></span></li>
+            <li><span class="num">3</span><span>同步请求直接进入 <code>article_engine.service</code></span></li>
+            <li><span class="num">4</span><span>异步请求进入 <code>jobs.py</code> 和 <code>job_runner.py</code></span></li>
+            <li><span class="num">5</span><span>状态写入 <code>storage.py</code>，文件由 <code>uploads.py</code> 管理</span></li>
+          </ul>
+        </article>
+
+        <article class="card green">
+          <h3>本地运维</h3>
+          <ul class="flow-list">
+            <li><span class="num">1</span><span><code>article-local init</code> 初始化 state/runtime</span></li>
+            <li><span class="num">2</span><span><code>doctor</code> 检查 SQLite、runtime、任务恢复状态</span></li>
+            <li><span class="num">3</span><span><code>maintain</code> 做状态库维护</span></li>
+            <li><span class="num">4</span><span><code>backup/restore</code> 分层打包状态和运行产物</span></li>
+            <li><span class="num">5</span><span>这些职责已经从 <code>local_app.py</code> 拆到独立模块</span></li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>3. 文件职责地图</h2>
+      <div class="file-map">
+        <div class="k"><code>scripts/thesis_workbench.py</code></div>
+        <div class="v">面向命令行用户的主入口，负责把 audit/plan/apply/verify 命令转给 workflow。</div>
+
+        <div class="k"><code>scripts/article_api/local_app.py</code></div>
+        <div class="v">本地壳入口，现在只做 CLI 参数、命令分发和 console script alias。</div>
+
+        <div class="k"><code>scripts/article_api/app.py</code></div>
+        <div class="v">FastAPI 路由层，暴露同步处理、上传、异步任务、运维状态接口。</div>
+
+        <div class="k"><code>scripts/article_api/jobs.py</code></div>
+        <div class="v">异步 job 生命周期：queued/running/succeeded/failed、retry、cleanup、artifact。</div>
+
+        <div class="k"><code>scripts/article_api/storage.py</code></div>
+        <div class="v">SQLite 状态层，保存 job、upload、cleanup、retention 等状态。</div>
+
+        <div class="k"><code>scripts/article_engine/service.py</code></div>
+        <div class="v">统一服务层，把 CLI/API 请求包装成稳定 payload，再调用核心工具。</div>
+
+        <div class="k"><code>scripts/thesis_tool/workflow.py</code></div>
+        <div class="v">论文处理编排层，负责 scope 计划、修复、复查的组合逻辑。</div>
+
+        <div class="k"><code>scripts/audit_thesis.py</code></div>
+        <div class="v">规则检查 runtime，读取 profile，扫描 DOCX 并生成问题结果。</div>
+
+        <div class="k"><code>scripts/fix_thesis.py</code></div>
+        <div class="v">自动修复核心，按 scope 写出新 DOCX，并保护结构稳定性。</div>
+
+        <div class="k"><code>scripts/_thesis_utils.py</code></div>
+        <div class="v">DOCX 结构底座，包含 DocumentModel、ParagraphNode、章节/模块分类。</div>
+
+        <div class="k"><code>config/</code></div>
+        <div class="v">profile、能力矩阵、模板注入材料，是规则行为的配置来源。</div>
+
+        <div class="k"><code>references/lnu/</code></div>
+        <div class="v">保留辽大官方 PDF/DOC 参考文件，不再存旧聊天记忆和历史 handoff。</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>4. 已删除/下线的内容</h2>
+      <div class="removed">
+        <div class="item">
+          <strong>批量处理</strong>
+          <span><code>article-local batch</code>、<code>/batch</code>、<code>/jobs/batch</code> 已下线。</span>
+        </div>
+        <div class="item">
+          <strong>历史脚本</strong>
+          <span><code>scripts/legacy/</code> 已删除，不再保留旧实验脚本。</span>
+        </div>
+        <div class="item">
+          <strong>npm 包装</strong>
+          <span><code>package.json</code> 已删除，统一走 Python 和 console scripts。</span>
+        </div>
+        <div class="item">
+          <strong>旧记忆文档</strong>
+          <span>旧交接、日志、memory、handoff 文档已清理，避免维护噪音。</span>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

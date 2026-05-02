@@ -167,70 +167,11 @@ def test_normalize_job_completes_and_writes_output(tmp_path):
     assert any(item["role"] == "output" and item["written"] is True for item in result["artifacts"])
 
 
-def test_batch_job_completes_and_persists_batch_summary(tmp_docx, tmp_path):
+def test_batch_job_operation_is_not_supported():
     clear_jobs()
-    source_dir = tmp_path / "article_job_batch"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    source_path = _build_mutated_doc(
-        tmp_docx,
-        filename="article_job_batch.docx",
-        rule_ids=("H02",),
-    )
-    batch_source = source_dir / "article_job_batch.docx"
-    batch_source.write_bytes(source_path.read_bytes())
 
-    job = _create_and_wait_job(
-        "batch",
-        {
-            "operation": "audit",
-            "input_path": str(source_dir),
-            "profile": "cn-common",
-            "recursive": True,
-        },
-    )
-    status = get_job(job["job_id"])
-    result = get_job_result(job["job_id"])
-
-    assert status["status"] == "succeeded"
-    assert status["summary"]["batch_operation"] == "audit"
-    assert status["summary"]["total_items"] == 1
-    assert status["summary"]["business_status"] == "completed"
-    assert status["summary"]["readiness_counts"]["needs-fix"] == 1
-    assert status["runtime"]["input_path"] == str(source_dir.resolve())
-    assert result["result"]["items"][0]["relative_path"] == "article_job_batch.docx"
-    assert result["result"]["summary"]["status_counts"]["needs_fix"] == 1
-    assert result["result"]["summary"]["readiness_counts"]["needs-fix"] == 1
-
-
-def test_retry_batch_job_reuses_input_path(tmp_docx, tmp_path):
-    clear_jobs()
-    source_dir = tmp_path / "article_job_batch_retry"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    source_path = _build_mutated_doc(
-        tmp_docx,
-        filename="article_job_batch_retry.docx",
-        rule_ids=("H02",),
-    )
-    batch_source = source_dir / "article_job_batch_retry.docx"
-    batch_source.write_bytes(source_path.read_bytes())
-
-    first_job = _create_and_wait_job(
-        "batch",
-        {
-            "operation": "audit",
-            "input_path": str(source_dir),
-            "profile": "cn-common",
-            "recursive": True,
-        },
-    )
-
-    retried = retry_job(first_job["job_id"])
-    waited = wait_for_job(retried["job_id"])
-
-    assert retried["operation"] == "batch"
-    assert waited["status"] == "succeeded"
-    assert waited["runtime"]["retry_of_job_id"] == first_job["job_id"]
-    assert waited["runtime"]["input_path"] == str(source_dir.resolve())
+    with pytest.raises(ValueError, match="Unsupported job operation: batch"):
+        create_job("batch", {"input_path": "/tmp/article-batch", "operation": "audit"})
 
 
 def test_apply_job_result_is_frozen_after_output_changes(tmp_docx):

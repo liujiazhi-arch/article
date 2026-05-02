@@ -20,7 +20,6 @@ import audit_thesis
 from article_engine import apply_fix, normalize_document, verify_document
 from article_engine.service import _default_output_path
 from article_api import storage
-from article_api.profile_batch import run_batch_workflow
 from article_api.uploads import build_job_workspace, infer_uploaded_docx_name, stage_job_input_docx
 from fix_thesis import default_normalize_output_path
 from thesis_tool.scopes import normalize_scope_names
@@ -68,41 +67,10 @@ class JobRecord:
     mode: str = "background"
 
 
-_BATCH_JOB_SERVICE_NAME = "article-api"
-_BATCH_JOB_STAGE = "local-shell-alpha"
-_BATCH_JOB_VERSION = "0.1.0"
-_BATCH_JOB_API_VERSION = "v0"
-
-
-def _run_batch_job(**request) -> dict[str, Any]:
-    return run_batch_workflow(
-        request["operation"],
-        request["input_path"],
-        profile=request.get("profile", "lnu"),
-        strict_profile=request.get("strict_profile"),
-        scopes=request.get("scopes"),
-        output_dir=request.get("output_dir"),
-        summary_file=request.get("summary_file"),
-        pattern=request.get("pattern", "*.docx"),
-        recursive=bool(request.get("recursive", False)),
-        toc=bool(request.get("toc", False)),
-        dry_run=bool(request.get("dry_run", False)),
-        renumber_headings=bool(request.get("renumber_headings", False)),
-        layout_rebalance=bool(request.get("layout_rebalance", False)),
-        force=bool(request.get("force", False)),
-        fail_fast=bool(request.get("fail_fast", False)),
-        service_name=_BATCH_JOB_SERVICE_NAME,
-        stage=_BATCH_JOB_STAGE,
-        version=_BATCH_JOB_VERSION,
-        api_version=_BATCH_JOB_API_VERSION,
-    )
-
-
 _JOB_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "verify": verify_document,
     "apply": apply_fix,
     "normalize": normalize_document,
-    "batch": _run_batch_job,
 }
 HEARTBEAT_STALE_SECONDS_ENV = "ARTICLE_API_JOB_HEARTBEAT_STALE_SECONDS"
 RECOVERY_GRACE_SECONDS_ENV = "ARTICLE_API_JOB_RECOVERY_GRACE_SECONDS"
@@ -208,40 +176,13 @@ def _get_handler(operation: str) -> Callable[..., dict[str, Any]]:
 
 def _resolve_request(operation: str, request: dict[str, Any]) -> dict[str, Any]:
     resolved = _clone_dict(request)
-    if operation == "batch":
-        resolved["input_path"] = os.path.abspath(os.path.expanduser(str(resolved["input_path"])))
-        if not os.path.exists(resolved["input_path"]):
-            raise ValueError(f"Batch input path not found: {resolved['input_path']}")
-        resolved.setdefault("profile", "lnu")
-        normalized_scopes = normalize_scope_names(resolved.get("scopes"))
-        resolved["scopes"] = sorted(normalized_scopes) if normalized_scopes else None
-        resolved.setdefault("strict_profile", None)
-        resolved.setdefault("output_dir", None)
-        if resolved["output_dir"] is not None:
-            resolved["output_dir"] = os.path.abspath(os.path.expanduser(str(resolved["output_dir"])))
-        resolved.setdefault("summary_file", None)
-        if resolved["summary_file"] is not None:
-            resolved["summary_file"] = os.path.abspath(os.path.expanduser(str(resolved["summary_file"])))
-        resolved.setdefault("pattern", "*.docx")
-        resolved.setdefault("recursive", False)
-        resolved.setdefault("toc", False)
-        resolved.setdefault("dry_run", False)
-        resolved.setdefault("renumber_headings", False)
-        resolved.setdefault("layout_rebalance", False)
-        resolved.setdefault("force", False)
-        resolved.setdefault("fail_fast", False)
-        resolved.setdefault("stage_input", False)
-        resolved.setdefault("runtime_root", None)
-        if resolved.get("stage_input"):
-            raise ValueError("Batch jobs do not support stage_input")
-    else:
-        resolved["file_path"] = audit_thesis.validate_docx_path(resolved["file_path"])
-        resolved["source_display_name"] = resolved.get("source_display_name") or infer_uploaded_docx_name(
-            resolved["file_path"]
-        )
-        resolved.setdefault("stage_input", False)
-        resolved.setdefault("runtime_root", None)
-        resolved["_explicit_output_path"] = resolved.get("output_path") is not None
+    resolved["file_path"] = audit_thesis.validate_docx_path(resolved["file_path"])
+    resolved["source_display_name"] = resolved.get("source_display_name") or infer_uploaded_docx_name(
+        resolved["file_path"]
+    )
+    resolved.setdefault("stage_input", False)
+    resolved.setdefault("runtime_root", None)
+    resolved["_explicit_output_path"] = resolved.get("output_path") is not None
     if operation == "apply":
         normalized_scopes = normalize_scope_names(resolved.get("scopes"))
         resolved["scopes"] = sorted(normalized_scopes) if normalized_scopes else None
@@ -324,19 +265,6 @@ def _result_summary(operation: str, result: dict[str, Any], resolved_request: di
         summary["business_status"] = result.get("after", {}).get("preflight_status")
         summary["changed"] = bool(result.get("changed"))
         summary["operation_count"] = len(result.get("operations") or [])
-    elif operation == "batch":
-        batch_summary = result.get("summary") or {}
-        summary["document_name"] = os.path.basename(result.get("input_root") or resolved_request.get("input_path") or "batch")
-        summary["batch_operation"] = result.get("operation")
-        summary["input_path"] = result.get("input_root")
-        summary["succeeded_items"] = batch_summary.get("succeeded")
-        summary["failed_items"] = batch_summary.get("failed")
-        summary["total_items"] = batch_summary.get("total")
-        summary["status_counts"] = deepcopy(batch_summary.get("status_counts"))
-        summary["readiness_counts"] = deepcopy(batch_summary.get("readiness_counts"))
-        summary["output_dir"] = result.get("output_dir")
-        summary["summary_file"] = result.get("summary_file")
-        summary["business_status"] = "completed"
     if resolved_request.get("dry_run") is not None:
         summary["dry_run"] = bool(resolved_request.get("dry_run"))
     summary["attempt_count"] = int(resolved_request.get("attempt_count") or 1)
@@ -347,19 +275,11 @@ def _result_summary(operation: str, result: dict[str, Any], resolved_request: di
 def _failure_summary(operation: str, resolved_request: dict[str, Any], error: dict[str, Any]) -> dict[str, Any]:
     source_display_name = resolved_request.get("source_display_name")
     source_file_path = resolved_request.get("source_file_path") or resolved_request.get("file_path")
-    if operation == "batch":
-        source_file_path = resolved_request.get("input_path")
     summary: dict[str, Any] = {
         "document_name": source_display_name or os.path.basename(source_file_path),
         "selected_scopes": deepcopy(resolved_request.get("scopes")),
         "error_code": error["code"],
     }
-    if operation == "batch":
-        input_path = resolved_request.get("input_path")
-        summary["document_name"] = os.path.basename(input_path) if input_path else "batch"
-        summary["input_path"] = input_path
-        summary["output_dir"] = resolved_request.get("output_dir")
-        summary["summary_file"] = resolved_request.get("summary_file")
     if operation in {"apply", "normalize"}:
         summary["output_path"] = resolved_request.get("output_path")
         if operation == "apply":
@@ -470,19 +390,6 @@ def _build_artifacts(
         )
 
     if operation not in {"apply", "normalize"}:
-        if operation == "batch":
-            summary_file = resolved_request.get("summary_file")
-            if summary_file:
-                artifacts.append(
-                    {
-                        "kind": "json",
-                        "role": "summary",
-                        "path": summary_file,
-                        "download_name": os.path.basename(summary_file),
-                        "workspace": workspace["outputs"] if workspace is not None else None,
-                        "exists_at_completion": os.path.exists(summary_file),
-                    }
-                )
         return artifacts
 
     output_path = resolved_request.get("output_path")
@@ -1232,9 +1139,7 @@ def retry_job(job_id: str) -> dict[str, Any]:
     runtime = payload.get("runtime") or {}
     resolved_request = payload.get("resolved_request") or {}
     upload_id = runtime.get("source_upload_id") or request.get("upload_id") or resolved_request.get("upload_id")
-    if payload["operation"] == "batch":
-        execution_request["input_path"] = resolved_request.get("input_path") or request.get("input_path")
-    elif upload_id:
+    if upload_id:
         upload = storage.get_upload(upload_id)
         if upload is None:
             raise RuntimeError(f"Upload not found for retry: {upload_id}")

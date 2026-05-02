@@ -12,7 +12,7 @@
 - `scripts/fix_thesis.py`
 - `scripts/_thesis_utils.py`
 
-不要再把 `format_thesis.py`、`fix_and_preview.py`、`scripts/legacy/` 里的文件当成主流程。
+不要再把旧的 `format_thesis.py`、`fix_and_preview.py` 思路当成主流程；历史脚本目录已删除。
 
 ## 当前架构
 
@@ -96,7 +96,7 @@ python3 scripts/fix_thesis.py ~/Desktop/论文.docx --profile lnu --output ~/Des
 
 - 封面不是当前自动修复主线的一部分
 - 已失效的网页预览链路已移除，不存在可用的 `preview/` 目录
-- `scripts/legacy/` 仅作历史保留，不应继续扩展
+- 历史脚本目录已删除，不再保留“仅供参考”的旧脚本
 
 ## 开发约束
 

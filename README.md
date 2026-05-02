@@ -144,6 +144,23 @@ python3 scripts/thesis_workbench.py apply 你的论文.docx --profile lnu \
 - `--layout-rebalance` 解决的是图表对象块锚点位置，不会自动清理标题分页属性，所以图表问题经常需要和 `headings` 联动看。
 - 正文一旦改写，图表引用句、图注/表注细节和公式附近引用上标都可能重新变化，所以只修图表往往不够。
 
+渲染证据优先级：
+
+- 最终版式判断以 WPS/Word 打开或导出的 PDF/页图为准。
+- 工具不再保留内置预览渲染；Word 自动导出不可用时，先在 WPS/Word 手动导出 PDF，再传给 `--rendered-pdf`。
+- 页面端和 API 现在按三种模式区分版式复核：
+  - 默认用户模式：用户手动用 Word/WPS 导出 PDF，工具只分析真实 PDF；这是普通用户默认入口。
+  - 高级模式：后端尝试连接 Microsoft Word 自动导出 PDF，适合本机调试；遇到权限、恢复弹窗或超时就改用默认用户模式。
+  - Agent 候选稿模式：只生成可回退的 DOCX 候选稿，之后仍需导出 PDF 并用默认用户模式复核。
+- 推荐让用户在 WPS/Word 中导出 PDF 后再复核：
+
+```bash
+python3 scripts/thesis_workbench.py render-verify 修复后_WPS复核版.docx --profile lnu \
+  --scope headings \
+  --scope figures_tables \
+  --rendered-pdf 用户从WPS或Word导出的.pdf
+```
+
 当前已经内化进工具的经验包括：
 
 - 公式布局表会跳过普通三线表修复，并清理历史边框残留。
@@ -153,8 +170,6 @@ python3 scripts/thesis_workbench.py apply 你的论文.docx --profile lnu \
 - `h3/h4` 不再阻断图表回扫。
 - 图表注释段也会补 `注 1)` 这类中数字间距。
 - 普通非 `h1` 标题会清理遗留的 `pageBreakBefore`，减少 WPS 里的后置空白页。
-
-更完整的事故分析与排障记忆见 `references/lnu/lnu-implementation-memory.md`。
 
 ## 主链架构
 
@@ -191,8 +206,8 @@ python3 scripts/thesis_workbench.py apply 你的论文.docx --profile lnu \
 │   │   └── workflow.py
 │   ├── sections/
 │   │   └── _xml_helpers.py
-│   └── legacy/
-│       └── README.md
+│   ├── article_engine/
+│   └── article_api/
 ├── config/
 │   ├── capability_matrix.md
 │   ├── sources.yaml
@@ -202,8 +217,7 @@ python3 scripts/thesis_workbench.py apply 你的论文.docx --profile lnu \
 │   └── templates/
 │       └── lnu/
 ├── references/
-├── tests/
-└── package.json
+└── tests/
 ```
 
 ## Runtime 规则规模
@@ -331,7 +345,6 @@ article-local --help
 article-local init --help
 article-local serve --help
 article-local profiles --help
-article-local batch --help
 article-api --help
 article-doctor --help
 article-maintain --help
@@ -349,10 +362,12 @@ python3 scripts/thesis_workbench.py profiles
 如果后面接本地网页，不想先写一层 CLI 包装，`article-api` 现在也直接暴露了：
 
 - `GET /profiles`
-- `POST /batch`
-- `POST /jobs/batch`
-- `GET /jobs?operation=batch&status=succeeded&limit=10`
-- `GET /jobs/batches/recent`
+- `POST /audit`
+- `POST /plan`
+- `POST /verify`
+- `POST /apply`
+- `POST /jobs/verify`
+- `POST /jobs/apply`
 
 如果要本地启动 API，优先保证当前解释器里已经安装 `.[api]`；其中会包含：
 
@@ -469,62 +484,9 @@ article-local maintain --state-root ~/.article/state --runtime-root ~/.article/r
 2. 做过大量 cleanup 后，再按需补一次 `--vacuum`
 3. 如果 doctor 报 storage 异常，先 `maintain`，再决定是否 restore
 
-### 5.1 本地批量处理
+### 5.1 已下线的历史入口
 
-```bash
-article-local batch audit ~/Desktop/论文目录 --profile lnu --recursive
-article-local batch plan ~/Desktop/论文目录 --profile lnu --recursive --summary-file ~/Desktop/article-batch-plan.json
-article-local batch verify ~/Desktop/论文目录 --profile lnu --recursive --scope references
-article-local batch apply ~/Desktop/论文目录 --profile lnu --recursive --scope headings --output-dir ~/Desktop/article-batch-output
-```
-
-批量入口当前提供：
-
-- `audit / plan / verify / apply`
-- 目录级 `--recursive`
-- `--summary-file` 导出 JSON 汇总
-- `apply` 时按相对路径写出结果，不把全部文件挤到同一层目录
-
-同一套能力现在也能直接走 HTTP：
-
-```bash
-curl -X POST http://127.0.0.1:8000/batch \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "operation": "audit",
-    "input_path": "'"$HOME"'/Desktop/论文目录",
-    "profile": "lnu",
-    "recursive": true
-  }'
-```
-
-如果你希望批量处理也进入后端任务历史，而不是同步等待返回，现在还可以直接走异步 job：
-
-```bash
-curl -X POST http://127.0.0.1:8000/jobs/batch \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "operation": "audit",
-    "input_path": "'"$HOME"'/Desktop/论文目录",
-    "profile": "lnu",
-    "recursive": true,
-    "summary_file": "'"$HOME"'/Desktop/article-batch-summary.json"
-  }'
-```
-
-然后继续复用现有 job 接口：
-
-- `GET /jobs`
-- `GET /jobs/{job_id}`
-- `GET /jobs/{job_id}/result`
-- `POST /jobs/{job_id}/retry`
-
-这样本地网页后面就能直接做“批量任务列表 / 最近结果 / 重试失败任务”。
-
-如果只是想先拉一个最小测试版任务面板，当前直接拿下面两个读接口就够了：
-
-- `GET /jobs?operation=batch&status=succeeded&limit=20`
-- `GET /jobs/batches/recent?status=succeeded&limit=20`
+本地批量处理入口已从当前主线移除。当前产品先聚焦单篇论文的上传、审查、修复、规范化、版式复核、任务历史、备份恢复和本机运维，避免旧的目录级批量处理继续拖大 CLI/API/job/UI 维护面。
 
 ### 6. 备份与恢复
 
@@ -548,9 +510,9 @@ article-local restore ~/Desktop/article-backup.zip \
 
 当前 API 原型包含：
 
-- 同步接口：`/health`、`/ready`、`/version`、`/profiles`、`/audit`、`/plan`、`/verify`、`/apply`、`/batch`
+- 同步接口：`/health`、`/ready`、`/version`、`/profiles`、`/audit`、`/plan`、`/verify`、`/apply`
 - upload 接口：`/uploads/docx`、`/uploads`、`/uploads/{upload_id}`、`/uploads/{upload_id}/cleanup`
-- job 接口：`/jobs/verify`、`/jobs/apply`、`/jobs/batch`、`/jobs`、`/jobs/{job_id}`、`/jobs/{job_id}/inspect`、`/jobs/{job_id}/result`、`/jobs/{job_id}/cleanup`、`/jobs/{job_id}/retry`、`/jobs/{job_id}/artifacts/{artifact_role}/download`
+- job 接口：`/jobs/verify`、`/jobs/apply`、`/jobs`、`/jobs/{job_id}`、`/jobs/{job_id}/inspect`、`/jobs/{job_id}/result`、`/jobs/{job_id}/cleanup`、`/jobs/{job_id}/retry`、`/jobs/{job_id}/artifacts/{artifact_role}/download`
 - ops 接口：`/ops/retention/sweep`、`/ops/retention/run-defaults`、`/ops/summary`、`/ops/storage`、`/ops/runtime`
 
 运行和排障时，先记住这几个边界：
@@ -585,6 +547,14 @@ article-local restore ~/Desktop/article-backup.zip \
 
 Article 后端相关回归：
 
+仓库瘦身与本地交付边界验证：
+
+```bash
+python3 -m pytest -q tests/test_repo_hygiene.py tests/test_article_install_script.py tests/test_packaging_metadata.py tests/test_article_local_app.py tests/test_article_http_smoke.py
+```
+
+其中 `test_repo_hygiene.py` 专门防止 `runs/`、`output/`、`.article_runtime/`、`.tmp_render_probe_out/` 等运行态重新混进源码边界。
+
 ```bash
 python3 -m pytest -q tests/test_article_api.py tests/test_article_jobs.py tests/test_article_storage.py tests/test_article_uploads.py tests/test_article_engine.py tests/test_article_http_smoke.py tests/test_article_local_app.py tests/test_packaging_metadata.py
 /Users/apple/Desktop/article/.venv/bin/python -m pytest -q tests/test_article_http_smoke.py
@@ -604,6 +574,4 @@ python3 -m pytest -q
 - `PyYAML`
 - `pytest`（运行测试时需要）
 
-可选：
-
-- `package.json` 提供了对 `thesis_workbench.py` 的 npm script 包装，但主链本质仍是 Python CLI
+当前不再保留 npm 包装入口；主链统一走 Python CLI 与 `pyproject.toml` 里的 console scripts。

@@ -230,13 +230,37 @@
       min-height: 42px;
       margin-top: 12px;
       color: var(--soft);
-      font-size: 13px;
-      word-break: break-all;
-      line-height: 1.55;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .source-summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 42px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: #f7f7fa;
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .source-summary span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .source-summary small {
+      flex: 0 0 auto;
+      color: var(--soft);
+      font-size: 12px;
+      font-weight: 600;
     }
     .safe-note {
-      display: grid;
-      gap: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
       margin-top: 18px;
       padding: 16px 18px;
       border-radius: 20px;
@@ -246,6 +270,29 @@
       line-height: 1.5;
     }
     .safe-note strong { color: var(--ink); font-size: 15px; }
+    .safe-note span { display: block; }
+    .safe-note details {
+      flex: 0 0 auto;
+      color: var(--soft);
+      font-size: 12px;
+    }
+    .safe-note summary {
+      cursor: pointer;
+      color: var(--blue);
+      font-weight: 700;
+      list-style: none;
+    }
+    .safe-note summary::-webkit-details-marker { display: none; }
+    .safe-note code {
+      display: block;
+      max-width: 340px;
+      margin-top: 8px;
+      color: var(--soft);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      white-space: normal;
+      word-break: break-all;
+    }
     .primary-row {
       display: flex;
       align-items: center;
@@ -254,6 +301,122 @@
       margin-top: 28px;
     }
     .primary-row .primary { padding: 12px 22px; }
+    .render-workflows {
+      margin-top: 26px;
+      padding: 22px;
+      border: 1px solid rgba(0, 113, 227, 0.16);
+      border-radius: 22px;
+      background: linear-gradient(180deg, #f7fbff 0%, #fff 72%);
+    }
+    .render-kicker {
+      margin: 0 0 6px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .render-workflows h3 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+    .render-workflows > p {
+      margin: 0 0 14px;
+      color: #425466;
+      font-size: 15px;
+      line-height: 1.55;
+    }
+    .render-pdf-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+      margin: 18px 0 14px;
+    }
+    .render-pdf-row .primary {
+      min-height: 52px;
+      padding: 0 24px;
+      font-weight: 700;
+    }
+    .workflow-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .workflow-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 132px;
+      padding: 16px 18px;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.04);
+      transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+    }
+    .workflow-card.selected {
+      border-color: rgba(0, 113, 227, 0.28);
+      background: #f4f9ff;
+      box-shadow: 0 14px 28px rgba(0, 113, 227, 0.10);
+      transform: translateY(-1px);
+    }
+    .workflow-title {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .workflow-card strong { font-size: 16px; }
+    .workflow-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 0 9px;
+      border-radius: 999px;
+      background: #eaf3ff;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .workflow-card span {
+      color: #536579;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .workflow-card > span { grid-column: 1; }
+    .workflow-actions {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .workflow-actions button {
+      background: var(--blue);
+      color: #fff;
+      font-weight: 700;
+    }
+    .workflow-actions button:hover { background: #0077ed; }
+    .workflow-card.selected .workflow-actions button {
+      background: var(--blue);
+      color: #fff;
+    }
+    .workflow-card.selected .workflow-actions button:hover { background: #0077ed; }
+    .workflow-card.gated {
+      background: #fbfcff;
+      border-style: dashed;
+    }
+    .workflow-card.gated .workflow-badge {
+      background: #f0f4f8;
+      color: #516173;
+    }
+    .workflow-actions button:disabled {
+      background: #c9d6e4;
+      color: #fff;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
     .step-actions {
       display: flex;
       flex-wrap: wrap;
@@ -347,6 +510,58 @@
       font-size: 14px;
       text-decoration: none;
     }
+    .report-action {
+      margin-top: 14px;
+      width: fit-content;
+    }
+    .report-progress {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: #fff;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    .report-progress-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .report-progress-percent {
+      color: var(--blue);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .report-progress-bar {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e8e8ed;
+    }
+    .report-progress-bar span {
+      display: block;
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--blue);
+      transition: width 260ms ease;
+    }
+    .report-progress-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--soft);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+    .report-progress-list li.current {
+      color: var(--ink);
+      font-weight: 700;
+    }
     details { margin-top: 14px; color: var(--soft); font-size: 13px; }
     details .summary { margin-top: 10px; min-height: 100px; }
     .records {
@@ -374,6 +589,12 @@
       .stage-head, .pane, .records { padding: 24px; }
       .stage { width: calc(100% - 20px); border-radius: 24px; }
       .field-row, .toggles, .result-strip, .record-query { grid-template-columns: 1fr; }
+      .render-pdf-row, .workflow-card { grid-template-columns: 1fr; }
+      .workflow-actions {
+        grid-column: 1;
+        grid-row: auto;
+        justify-content: flex-start;
+      }
     }
   </style>
 </head>
@@ -396,7 +617,7 @@
         <div>
           <small>论文格式修改工具</small>
           <h1>让毕业论文 回到标准格式</h1>
-          <p>选择 Word 文件，自动检查格式问题，生成修复稿，并用 Word 版式复核。</p>
+          <p>选择 Word 文件，自动检查格式问题，生成修复稿；版式复核按 Word/WPS 状态选择模式。</p>
           <div class="hero-actions">
             <button type="button" class="primary" data-scroll-target="stage">开始处理</button>
             <button type="button" class="text" data-scroll-target="stage">选择 Word 论文</button>
@@ -433,8 +654,53 @@
             </div>
 
             <div class="primary-row">
-              <button type="button" class="primary" id="run-all-button">一键处理并复核</button>
-              <span class="muted">推荐流程会自动完成预检、修复、复查和 Word 版式复核。</span>
+              <button type="button" class="primary" id="run-all-button">一键处理到结构复查</button>
+              <span class="muted">推荐流程会完成预检、修复和结构复查；版式复核从下方三种 Word/WPS 模式中选择。</span>
+            </div>
+
+            <div class="render-workflows" id="render-workflows">
+              <p class="render-kicker">排版修复 · 页面渲染层</p>
+              <h3>修复打开 Word/WPS 后才看得到的排版问题</h3>
+              <p>上方流程主要处理字体、标题、目录、参考文献等结构格式；这里专门处理 PDF 页数、空白页、图表挤页、标题孤页这些页面排版问题。普通用户优先导出 PDF 后复核，自动连接 Word 只作为高级入口。</p>
+              <div class="render-pdf-row">
+                <div>
+                  <label for="render-pdf-path">默认用户模式：先从 Word/WPS 导出 PDF，再填写 PDF 路径</label>
+                  <input id="render-pdf-path" type="text" placeholder="/Users/apple/Desktop/论文.pdf">
+                </div>
+                <button type="button" class="primary" id="render-manual-button">开始排版复核</button>
+              </div>
+              <div class="workflow-grid">
+                <div class="workflow-card selected" data-workflow-mode="default_user">
+                  <div class="workflow-title">
+                    <strong>默认用户模式</strong>
+                    <span class="workflow-badge">推荐</span>
+                  </div>
+                  <span>已经完成前面的格式修复后，用 Word/WPS 导出 PDF，让工具按真实页面打分。最稳，适合普通用户、最终提交前复核和多人使用。</span>
+                  <div class="workflow-actions">
+                    <button type="button" id="render-manual-copy-button">用这个模式修排版</button>
+                  </div>
+                </div>
+                <div class="workflow-card" data-workflow-mode="advanced_word">
+                  <div class="workflow-title">
+                    <strong>高级模式</strong>
+                    <span class="workflow-badge">本机调试</span>
+                  </div>
+                  <span>让后端尝试自动打开 Microsoft Word 并导出 PDF。只有确认本机 Word 没有恢复弹窗、权限弹窗、导出超时问题时再用；失败后回到默认用户模式。</span>
+                  <div class="workflow-actions">
+                    <button type="button" id="render-word-button">自动导出并复核</button>
+                  </div>
+                </div>
+                <div class="workflow-card gated" data-workflow-mode="agent_candidate">
+                  <div class="workflow-title">
+                    <strong>Agent 候选稿模式</strong>
+                    <span class="workflow-badge">复核后排障工具</span>
+                  </div>
+                  <span>这不是普通修复入口。先用默认用户模式或高级模式完成 PDF 版式复核；只有复核发现可行动的图表挤页、标题孤页或大块空白时，再生成一个可回退的排版候选稿。</span>
+                  <div class="workflow-actions">
+                    <button type="button" id="render-agent-button" disabled>先完成 PDF 版式复核后再使用</button>
+                  </div>
+                </div>
+              </div>
             </div>
 
           </div>
@@ -457,7 +723,16 @@
               </div>
               <div class="report-section">
                 <p class="report-label">建议下一步</p>
-                <p class="report-value" id="report-next">选择文件，然后点击“一键处理并复核”。</p>
+                <p class="report-value" id="report-next">选择文件，然后点击“一键处理到结构复查”。</p>
+                <button type="button" class="primary report-action" id="report-action-button" hidden>继续</button>
+                <div class="report-progress" id="report-progress" hidden>
+                  <div class="report-progress-head">
+                    <span id="report-progress-title">等待处理</span>
+                    <span class="report-progress-percent" id="report-progress-percent">0%</span>
+                  </div>
+                  <div class="report-progress-bar"><span id="report-progress-fill"></span></div>
+                  <ul class="report-progress-list" id="report-progress-list"></ul>
+                </div>
                 <a href="#" class="report-link" id="report-output" hidden>查看输出文件路径</a>
               </div>
             </div>
@@ -501,7 +776,7 @@
           <div class="toggles">
             <label><input id="single-toc" type="checkbox"> 同步目录</label>
             <label><input id="single-renumber" type="checkbox" checked> 标题重编号</label>
-            <label><input id="single-layout" type="checkbox" checked> 页面布局再平衡</label>
+            <label><input id="single-layout" type="checkbox"> 页面布局再平衡（慢速，排版排障时再开）</label>
             <label><input id="single-force" type="checkbox"> 跳过保护检查</label>
           </div>
         </section>
@@ -535,20 +810,48 @@
   </main>
 
   <script>
-    const state = { sourcePath: '', uploaded: null, lastApplyOutput: '', pollTimer: null };
+    const state = { sourcePath: '', sourceDisplayName: '', uploaded: null, lastApplyOutput: '', lastPlanScopes: [], lastRenderPayload: null, selectedWorkflowMode: 'default_user', pollTimer: null };
     const SCOPES = [['page','页面'],['abstract','摘要'],['toc','目录'],['headings','标题'],['body_paragraphs','正文'],['figures_tables','图表'],['references','参考文献'],['acknowledgement','致谢'],['appendix','附录']];
     const STEP_IDS = ['preflight', 'plan', 'apply', 'verify', 'render'];
+    const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];
     const STEP_INFO = {
       preflight: ['预检', '野生文档风险'],
       plan: ['方案', '拆解修复范围'],
       apply: ['修复', '写出新文件'],
       verify: ['复查', '结构规则复核'],
-      render: ['版式', 'Word 渲染复核'],
+      render: ['版式', 'Word/WPS PDF 版式复核'],
+    };
+    const STEP_PROGRESS = {
+      preflight: { value: 18, title: '正在预检文档', items: ['读取 Word 文件结构', '检查样式冲突和表格标题风险', '判断是否适合自动修复'] },
+      plan: { value: 38, title: '正在生成修复方案', items: ['按学校规范拆解修复范围', '统计每个范围的未通过规则', '整理需要人工复核的问题'] },
+      apply: { value: 66, title: '正在执行修复', items: ['创建修复稿输出位置', '按方案修复论文格式问题', '写出新的 Word 文件，原文不会被覆盖'] },
+      verify: { value: 84, title: '正在复查结构', items: ['读取刚生成的修复稿', '复查结构规则是否通过', '统计仍需人工确认的问题'] },
+      render: { value: 95, title: '正在进行 Word/WPS PDF 版式复核', items: ['读取真实版式复核证据', '检查页面、图表和空白区域', '整理最终复核提示'] },
     };
     const STATUS_LABELS = { queued:'排队中', running:'执行中', succeeded:'已完成', failed:'失败', ok:'正常', ready:'已就绪', warning:'有风险', blocked:'已阻止', needs_fix:'需要修复', 'needs-fix':'需要修复', 'manual-review-required':'需要人工确认', 'render-check-required':'需要版式复核', 'structure-ready':'结构已通过', unsupported:'暂不支持自动处理' };
-    const OPERATION_LABELS = { audit:'审查', plan:'生成计划', verify:'复查', apply:'修复', batch:'任务组', normalize:'规范化', 'render-verify':'版式复核' };
+    const OPERATION_LABELS = { audit:'审查', plan:'生成计划', verify:'复查', apply:'修复', normalize:'规范化', 'render-verify':'版式复核' };
+    const OUTPUT_DIR = '/Users/apple/Desktop/论文格式修复输出';
+    const LOCAL_APP_URL = 'http://127.0.0.1:8000/';
+
+    function isFileMode() {
+      return window.location.protocol === 'file:';
+    }
+
+    function showFileModeNotice() {
+      setReport({
+        conclusion: '请从本地服务页面使用工具',
+        issues: ['当前是直接打开 HTML 文件，无法上传或处理 Word 文件。'],
+        next: `请打开 ${LOCAL_APP_URL}；本地服务需要保持运行。`,
+      });
+      document.getElementById('upload-hint').textContent = '当前是文件预览模式，请打开本地服务页面后再上传。';
+      document.getElementById('source-badge').textContent = '文件预览';
+      document.getElementById('source-badge').className = 'source-chip failed';
+    }
 
     async function getJson(url, options) {
+      if (isFileMode()) {
+        throw new Error(`当前页面是 file:// 文件预览，不能连接本地处理服务。请打开 ${LOCAL_APP_URL}`);
+      }
       const response = await fetch(url, options);
       if (!response.ok) throw new Error(await response.text() || `${response.status}`);
       return response.json();
@@ -558,7 +861,51 @@
     function setMetric(id, value) { document.getElementById(id).textContent = value == null ? '-' : value; }
     function setSummary(text) { document.getElementById('single-summary').textContent = text; }
     function setRaw(payload) { document.getElementById('raw-json').textContent = JSON.stringify(payload, null, 2); }
-    function setReport({ conclusion, issues, next, output }) {
+    function setBusy(isBusy) {
+      ['run-all-button', 'report-action-button', 'preflight-button', 'plan-button', 'apply-button', 'verify-button', 'render-button', 'render-manual-button', 'render-manual-copy-button', 'render-word-button', 'render-agent-button'].forEach((id) => {
+        const button = document.getElementById(id);
+        if (button) button.disabled = isBusy;
+      });
+      if (!isBusy) updateAgentCandidateAvailability();
+    }
+    function selectWorkflowMode(mode) {
+      state.selectedWorkflowMode = mode;
+      document.querySelectorAll('[data-workflow-mode]').forEach((card) => {
+        card.classList.toggle('selected', card.dataset.workflowMode === mode);
+      });
+    }
+    function userFacingError(error) {
+      let text = String(error || '');
+      const jsonStart = text.indexOf('{');
+      if (jsonStart >= 0) {
+        try {
+          const parsed = JSON.parse(text.slice(jsonStart));
+          if (parsed && parsed.detail) text = String(parsed.detail);
+        } catch (_ignored) {}
+      }
+      return text.replace(/^Error:\s*/i, '').replace(/\\n/g, ' ').trim();
+    }
+    function setProgress({ title, value, items, currentIndex, visible = true }) {
+      const panel = document.getElementById('report-progress');
+      if (!visible) {
+        panel.hidden = true;
+        return;
+      }
+      const percent = Math.max(0, Math.min(100, Number(value) || 0));
+      panel.hidden = false;
+      document.getElementById('report-progress-title').textContent = title || '正在处理';
+      document.getElementById('report-progress-percent').textContent = `${percent}%`;
+      document.getElementById('report-progress-fill').style.width = `${percent}%`;
+      const list = document.getElementById('report-progress-list');
+      list.innerHTML = '';
+      (Array.isArray(items) && items.length ? items : ['正在处理，请稍等。']).forEach((item, index) => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        if (index === currentIndex) li.className = 'current';
+        list.appendChild(li);
+      });
+    }
+    function setReport({ conclusion, issues, next, output, outputLabel, action }) {
       document.getElementById('report-conclusion').textContent = conclusion || '等待处理。';
       const issueList = document.getElementById('report-issues');
       const normalizedIssues = Array.isArray(issues) && issues.length ? issues : ['暂无'];
@@ -569,26 +916,114 @@
         issueList.appendChild(li);
       });
       document.getElementById('report-next').textContent = next || '继续下一步。';
+      const actionButton = document.getElementById('report-action-button');
+      if (action && action.step) {
+        actionButton.hidden = false;
+        actionButton.textContent = action.label || '继续';
+        actionButton.dataset.step = action.step;
+      } else {
+        actionButton.hidden = true;
+        actionButton.removeAttribute('data-step');
+      }
       const outputLink = document.getElementById('report-output');
       if (output) {
         outputLink.hidden = false;
-        outputLink.textContent = `输出文件: ${output}`;
+        outputLink.textContent = `${outputLabel || '输出文件'}: ${outputSummary(output)}`;
+        outputLink.title = output;
         outputLink.removeAttribute('href');
       } else {
         outputLink.hidden = true;
+        outputLink.removeAttribute('title');
       }
     }
-    function estimateOutputPath(inputPath) {
-      if (!inputPath) return '选择论文后自动生成新文件';
-      const dotIndex = inputPath.toLowerCase().lastIndexOf('.docx');
-      if (dotIndex > -1) return `${inputPath.slice(0, dotIndex)}_fixed.docx`;
-      return `${inputPath}_fixed.docx`;
+    function progressItemsForStep(id, payload = {}) {
+      if (id !== 'apply') return (STEP_PROGRESS[id] || {}).items || ['正在处理，请稍等。'];
+      const planned = state.lastPlanScopes
+        .filter((item) => (item.failed_count || 0) > 0)
+        .slice(0, 5)
+        .map((item) => `正在修复: ${item.title || item.id}（未通过 ${item.failed_count || 0}）`);
+      const selected = selectedScopes()
+        .slice(0, 5)
+        .map((scope) => `准备处理: ${(SCOPES.find(([value]) => value === scope) || [scope, scope])[1]}`);
+      return [
+        `输出文件: ${payload.output_path ? outputSummary(payload.output_path) : '自动生成修复稿'}`,
+        ...(planned.length ? planned : selected),
+        '写出新的 Word 文件，原文不会被覆盖',
+      ];
+    }
+    function showRunningReport(id, payload = {}) {
+      const info = STEP_INFO[id] || ['处理', ''];
+      const progress = STEP_PROGRESS[id] || { value: 50, title: `正在${info[0]}` };
+      const output = id === 'apply' ? payload.output_path : state.lastApplyOutput;
+      const items = progressItemsForStep(id, payload);
+      setReport({
+        conclusion: `${info[0]}正在执行，请稍等。`,
+        issues: items,
+        next: id === 'apply' ? '正在修复并写出新的 Word 文件，这一步可能需要几十秒。' : '正在处理，请等待页面更新结果。',
+        output,
+        outputLabel: id === 'apply' ? '预计输出' : '当前输出',
+        action: null,
+      });
+      setProgress({ title: progress.title, value: progress.value, items, currentIndex: Math.min(1, items.length - 1) });
+    }
+    function fileNameFromPath(pathOrName) {
+      return String(pathOrName || '').replace(/\\/g, '/').split('/').pop() || '';
+    }
+    function sourceDisplayName() {
+      return state.sourceDisplayName || fileNameFromPath(state.sourcePath) || '论文.docx';
+    }
+    function estimateOutputPath(inputPath, displayName) {
+      const fileName = fileNameFromPath(displayName || inputPath) || '修复稿.docx';
+      const dotIndex = fileName.toLowerCase().lastIndexOf('.docx');
+      const baseName = dotIndex > -1 ? fileName.slice(0, dotIndex) : fileName;
+      return `${OUTPUT_DIR}/${baseName}_fixed.docx`;
+    }
+    function estimateCandidatePath(inputPath, displayName) {
+      const fileName = fileNameFromPath(displayName || inputPath) || '候选修复稿.docx';
+      const dotIndex = fileName.toLowerCase().lastIndexOf('.docx');
+      const baseName = dotIndex > -1 ? fileName.slice(0, dotIndex) : fileName;
+      return `${OUTPUT_DIR}/${baseName}_layout_candidate.docx`;
+    }
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    }
+    function displayFileName(pathOrName) {
+      const name = fileNameFromPath(pathOrName) || '论文.docx';
+      if (name.length <= 28) return name;
+      const ext = name.toLowerCase().endsWith('.docx') ? '.docx' : '';
+      const stem = ext ? name.slice(0, -ext.length) : name;
+      const tail = stem.length > 10 ? stem.slice(-10) : stem;
+      return `${stem.slice(0, 18)}...${tail}${ext}`;
+    }
+    function outputFolderLabel(path) {
+      if (!path) return '桌面/论文格式修复输出';
+      if (path.startsWith(OUTPUT_DIR)) return '桌面/论文格式修复输出';
+      const parent = path.split('/').slice(0, -1).join('/');
+      return parent || '当前文件夹';
+    }
+    function outputSummary(path) {
+      return `${displayFileName(path)}（保存到${outputFolderLabel(path)}）`;
+    }
+    function updateSourcePreview({ fileName, source, path }) {
+      document.getElementById('source-preview').innerHTML = `
+        <div class="source-summary">
+          <span>${escapeHtml(displayFileName(fileName || path))}</span>
+          <small>${escapeHtml(source || '本机文件')}</small>
+        </div>
+      `;
     }
     function updateSafeNote({ fileName, source, path }) {
-      const outputPath = document.getElementById('single-output').value.trim() || estimateOutputPath(path);
+      const outputPath = document.getElementById('single-output').value.trim() || estimateOutputPath(path, fileName);
       document.getElementById('safe-note').innerHTML = `
-        <strong>原文不会被覆盖</strong>
-        <span>文件: ${fileName || '未选择'} · 来源: ${source || '本机'} · 默认输出: ${outputPath}</span>
+        <div>
+          <strong>原文不会被覆盖</strong>
+          <span>已选择 ${escapeHtml(displayFileName(fileName || path))}，修复稿会保存到${escapeHtml(outputFolderLabel(outputPath))}。</span>
+        </div>
+        <details>
+          <summary>查看路径</summary>
+          <code>输入: ${escapeHtml(path || '')}</code>
+          <code>输出: ${escapeHtml(outputPath)}</code>
+        </details>
       `;
     }
     function selectedScopes() { return Array.from(document.querySelectorAll('[data-scope]:checked')).map((item) => item.value); }
@@ -607,6 +1042,20 @@
       el.className = `step ${mode || ''}`.trim();
     }
     function resetSteps() { STEP_IDS.forEach((id) => setStep(id, '')); }
+    function renderHasActionableFindings() {
+      const summary = (state.lastRenderPayload || {}).summary || {};
+      return Number(summary.actionable_finding_count || 0) > 0;
+    }
+    function updateAgentCandidateAvailability() {
+      const button = document.getElementById('render-agent-button');
+      const card = document.querySelector('[data-workflow-mode="agent_candidate"]');
+      if (!button || !card) return;
+      const available = renderHasActionableFindings();
+      button.disabled = !available;
+      button.textContent = available ? '生成排版候选稿' : '先完成 PDF 版式复核后再使用';
+      button.title = available ? '基于刚才的 PDF 版式复核结果生成可回退候选稿' : 'Agent 候选稿只用于复核后排障，普通修复请先走默认用户模式或高级模式。';
+      card.classList.toggle('gated', !available);
+    }
 
     function summarizePreflight(payload) {
       const summary = payload.summary || {};
@@ -618,11 +1067,13 @@
           `表格标题风险: ${summary.table_heading_risk_count ?? 0}`,
         ],
         next: (payload.recommended_actions || ['继续生成修复方案。']).join(' '),
+        action: { label: '生成修复方案', step: 'plan' },
       });
       return [`预检结论: ${labelStatus(payload.preflight_status)}`, `文档: ${(payload.document || {}).name || '-'}`, `样式冲突: ${summary.style_conflict_count ?? 0}`, `表格标题风险: ${summary.table_heading_risk_count ?? 0}`, '', '建议:', ...(payload.recommended_actions || ['继续生成修复方案。']).map((item) => `- ${item}`)].join('\n');
     }
     function summarizePlan(payload) {
       const scopes = Array.isArray(payload.scopes) ? payload.scopes : [];
+      state.lastPlanScopes = scopes;
       setMetric('metric-failed', scopes.reduce((sum, item) => sum + (item.failed_count || 0), 0));
       setMetric('metric-manual', scopes.reduce((sum, item) => sum + (item.manual_review_count || 0), 0));
       const failedScopes = scopes.filter((item) => (item.failed_count || 0) > 0).slice(0, 5);
@@ -630,6 +1081,12 @@
         conclusion: `已生成修复方案，共 ${scopes.length} 个范围。`,
         issues: failedScopes.length ? failedScopes.map((item) => `${item.title || item.id}: 未通过 ${item.failed_count || 0}`) : ['当前范围未发现明显问题'],
         next: '确认方案后执行修复，系统会写出新的 Word 文件。',
+        action: { label: '执行修复', step: 'apply' },
+      });
+      setProgress({
+        title: '修复方案已准备好',
+        value: 45,
+        items: failedScopes.length ? failedScopes.map((item) => `待修复: ${item.title || item.id}（未通过 ${item.failed_count || 0}）`) : ['当前范围未发现明显问题', '可以继续执行修复，系统会生成新的 Word 文件'],
       });
       return [`修复方案: ${scopes.length} 个范围`, '', ...scopes.map((item) => `${item.title || item.id}: ${labelStatus(item.status)}，未通过 ${item.failed_count || 0}`)].join('\n');
     }
@@ -638,43 +1095,171 @@
       const summary = ((payload.verification || {}).summary || {});
       setMetric('metric-failed', summary.failed_rules); setMetric('metric-manual', summary.manual_review_rules);
       setReport({
-        conclusion: `修复结论: ${labelStatus(payload.readiness)}`,
+        conclusion: `修复完成: ${labelStatus(payload.readiness)}`,
         issues: [
+          state.lastApplyOutput ? `修复稿已生成: ${outputSummary(state.lastApplyOutput)}` : '修复稿已生成',
           `未通过规则: ${summary.failed_rules ?? '-'}`,
           `人工复核项: ${summary.manual_review_rules ?? '-'}`,
         ],
-        next: '继续复查结构，并用 Word 版式复核图片、表格和公式。',
+        next: '修复稿已经写出。下一步复查结构，再用 Word 版式复核图片、表格和公式。',
         output: state.lastApplyOutput,
+        action: { label: '复查结构', step: 'verify' },
       });
-      return [`修复结论: ${labelStatus(payload.readiness)}`, `输出文件: ${state.lastApplyOutput || '-'}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, '', ...(payload.post_verify_notices || ['修复已完成，建议继续运行 Word 版式复核。']).map((item) => `- ${item}`)].join('\n');
+      setProgress({
+        title: '修复稿已生成',
+        value: 75,
+        items: [
+          state.lastApplyOutput ? `输出文件: ${outputSummary(state.lastApplyOutput)}` : '输出文件已写出',
+          `未通过规则: ${summary.failed_rules ?? '-'}`,
+          `人工复核项: ${summary.manual_review_rules ?? '-'}`,
+          '建议继续点击“复查结构”确认修复结果',
+        ],
+      });
+      return [`修复结论: ${labelStatus(payload.readiness)}`, `输出文件: ${state.lastApplyOutput ? outputSummary(state.lastApplyOutput) : '-'}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, '', ...(payload.post_verify_notices || ['修复已完成，建议继续运行 Word 版式复核。']).map((item) => `- ${item}`)].join('\n');
     }
     function summarizeVerify(payload) {
       const summary = payload.summary || {};
       setMetric('metric-failed', summary.failed_rules); setMetric('metric-manual', summary.manual_review_rules);
       setReport({
-        conclusion: `复查结论: ${labelStatus(payload.overall_status || payload.readiness)}`,
+        conclusion: `结构复查已结束: ${labelStatus(payload.overall_status || payload.readiness)}`,
         issues: [
           `未通过规则: ${summary.failed_rules ?? '-'}`,
           `人工复核项: ${summary.manual_review_rules ?? '-'}`,
           `需要版式复核: ${summary.render_check_rules ?? '-'}`,
         ],
-        next: '最后运行 Word 版式复核，确认最终页面效果。',
+        next: '这一步不是卡住，结构复查已经返回结果。接下来按实际环境选择下方的版式复核模式；普通用户推荐先用 Word/WPS 导出 PDF。',
         output: state.lastApplyOutput,
+        action: null,
       });
-      return [`复查结论: ${labelStatus(payload.overall_status || payload.readiness)}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, `需要版式复核: ${summary.render_check_rules ?? '-'}`].join('\n');
+      setProgress({
+        title: '结构复查已结束，等待版式复核',
+        value: 100,
+        items: [
+          `未通过规则: ${summary.failed_rules ?? '-'}`,
+          `人工复核项: ${summary.manual_review_rules ?? '-'}`,
+          `需要版式复核: ${summary.render_check_rules ?? '-'}`,
+          '这一步已经结束，不是后端卡住',
+          '请在下方选择“默认用户模式”或“高级模式”进行版式复核',
+        ],
+      });
+      return [`结构复查已结束: ${labelStatus(payload.overall_status || payload.readiness)}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, `需要版式复核: ${summary.render_check_rules ?? '-'}`, '下一步: 选择下方版式复核模式。'].join('\n');
     }
     function summarizeRender(payload) {
       const summary = payload.summary || {};
       const proof = payload.proof || payload.render || {};
       const pageCount = summary.page_count ?? proof.page_count ?? payload.page_count;
+      const workflowMode = payload.render_workflow_mode || {};
+      const renderEngine = summary.render_engine || payload.render_engine || summary.renderer || payload.renderer || '-';
+      const score = summary.layout_score ?? (payload.layout_score || {}).score;
+      const findings = summary.render_finding_count ?? (payload.render_findings || []).length;
       setMetric('metric-pages', pageCount);
       setReport({
         conclusion: `版式复核完成: ${labelStatus(payload.overall_status || summary.status || 'ok')}`,
-        issues: [`渲染页数: ${pageCount ?? '-'}`, `渲染器: ${summary.renderer || payload.renderer || '-'}`],
-        next: '请以 Word 导出的 PDF/页面图片为最终版式判断。',
+        issues: [
+          `模式: ${workflowMode.title || labelStatus(summary.render_workflow_mode)}`,
+          `渲染证据: ${renderEngine}`,
+          `页数: ${pageCount ?? '-'}`,
+          `Layout Score: ${score ?? '-'}`,
+          `可行动问题: ${summary.actionable_finding_count ?? '-'}`,
+          `Finding 数: ${findings ?? '-'}`,
+        ],
+        next: '请以 Word/WPS 导出的 PDF 或页面图片为最终版式判断；如有可行动问题，再进入候选稿模式。',
         output: state.lastApplyOutput || summary.pdf_path || proof.pdf_path,
+        action: null,
       });
-      return [`版式复核: ${labelStatus(payload.overall_status || summary.status || 'ok')}`, `渲染器: ${summary.renderer || payload.renderer || '-'}`, `页数: ${pageCount ?? '-'}`, `输出目录: ${summary.output_dir || (payload.output || {}).dir || '-'}`, `PDF 文件: ${summary.pdf_path || proof.pdf_path || '-'}`, '', '提示: 图片、表格和公式以 Word 导出的 PDF/页面图片为最终判断依据。'].join('\n');
+      setProgress({
+        title: '全部流程已完成',
+        value: 100,
+        items: [
+          `模式: ${workflowMode.title || labelStatus(summary.render_workflow_mode)}`,
+          `渲染证据: ${renderEngine}`,
+          `Layout Score: ${score ?? '-'}`,
+          `可行动问题: ${summary.actionable_finding_count ?? '-'}`,
+        ],
+      });
+      updateAgentCandidateAvailability();
+      return [`版式复核: ${labelStatus(payload.overall_status || summary.status || 'ok')}`, `模式: ${workflowMode.title || labelStatus(summary.render_workflow_mode)}`, `渲染证据: ${renderEngine}`, `页数: ${pageCount ?? '-'}`, `Layout Score: ${score ?? '-'}`, `可行动问题: ${summary.actionable_finding_count ?? '-'}`, `输出目录: ${payload.output_dir || summary.output_dir || (payload.output || {}).dir || '-'}`, `PDF 文件: ${payload.render_pdf_path || summary.pdf_path || proof.pdf_path || '-'}`, '', '提示: 图片、表格和公式以 Word/WPS 导出的 PDF/页面图片为最终判断依据。'].join('\n');
+    }
+
+    function renderPdfPath() {
+      return document.getElementById('render-pdf-path').value.trim();
+    }
+    async function runRenderWorkflow(mode) {
+      if (mode === 'agent_candidate') {
+        if (!renderHasActionableFindings()) throw new Error('Agent 候选稿不是常规入口。请先用默认用户模式或高级模式完成 PDF 版式复核；只有发现可行动排版问题后再生成候选稿。');
+        await runAgentCandidate();
+        return;
+      }
+      const payload = requestBase(true);
+      if (mode === 'default_user') {
+        const pdfPath = renderPdfPath();
+        if (!pdfPath) throw new Error('默认用户模式需要先填写 Word/WPS 导出的 PDF 路径。');
+        payload.workflow_mode = 'default_user';
+        payload.rendered_pdf = pdfPath;
+      } else {
+        payload.workflow_mode = 'advanced_word';
+        payload.renderer = 'word-pdf';
+      }
+      setStep('render', 'running');
+      showRunningReport('render', payload);
+      setBusy(true);
+      const result = await getJson('/render-verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      state.lastRenderPayload = result;
+      setStep('render', 'done');
+      document.getElementById('source-badge').textContent = '已处理';
+      document.getElementById('source-badge').className = 'source-chip ok';
+      setRaw(result);
+      setSummary(summarizeRender(result));
+      setBusy(false);
+    }
+    async function runAgentCandidate() {
+      const base = requestBase(true);
+      const candidateScopes = ['headings', 'figures_tables'];
+      const payload = {
+        ...base,
+        scopes: candidateScopes,
+        output_path: estimateCandidatePath(base.file_path, sourceDisplayName()),
+        toc: false,
+        renumber_headings: true,
+        layout_rebalance: true,
+        force: false,
+      };
+      setReport({
+        conclusion: '正在生成候选修复稿。',
+        issues: ['只处理标题和图表排布相关范围', '候选稿不会覆盖原文', '生成后仍需导出 PDF 再复核'],
+        next: '候选稿生成后，请用 Word/WPS 导出 PDF，再回到默认用户模式复核。',
+        output: payload.output_path,
+        outputLabel: '候选输出',
+      });
+      setProgress({ title: '正在生成候选修复稿', value: 62, items: ['修复 headings', '修复 figures_tables', '启用 layout_rebalance', '写出候选 DOCX'] });
+      setBusy(true);
+      const result = await getJson('/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      state.lastApplyOutput = ((result.output || {}).path || payload.output_path);
+      setRaw(result);
+      setReport({
+        conclusion: '候选修复稿已生成。',
+        issues: [
+          `候选稿: ${outputSummary(state.lastApplyOutput)}`,
+          '下一步请用 Word/WPS 打开候选稿并导出 PDF',
+          '再填写 PDF 路径，使用默认用户模式复核',
+        ],
+        next: '候选稿不是最终稿，必须经过 Word/WPS PDF 复核后再决定是否保留。',
+        output: state.lastApplyOutput,
+        outputLabel: '候选输出',
+      });
+      setProgress({ title: '候选稿已生成', value: 76, items: ['候选 DOCX 已写出', '等待 Word/WPS 导出 PDF', '用默认用户模式复核 PDF'] });
+      const verifySummary = ((result.verification || {}).summary || {});
+      setMetric('metric-failed', verifySummary.failed_rules);
+      setMetric('metric-manual', verifySummary.manual_review_rules);
+      setSummary([
+        'Agent 候选稿已生成',
+        `候选稿: ${outputSummary(state.lastApplyOutput)}`,
+        `未通过规则: ${verifySummary.failed_rules ?? '-'}`,
+        `人工复核项: ${verifySummary.manual_review_rules ?? '-'}`,
+        '',
+        '下一步: 用 Word/WPS 打开候选稿并导出 PDF，再用默认用户模式复核。',
+      ].join('\n'));
+      setBusy(false);
     }
 
     async function uploadSelectedFile(file) {
@@ -682,38 +1267,48 @@
       form.append('file', file);
       document.getElementById('upload-hint').textContent = '正在保存到本地运行目录...';
       const payload = await getJson('/uploads/docx', { method: 'POST', body: form });
-      state.uploaded = payload; state.sourcePath = payload.stored_path; state.lastApplyOutput = '';
+      const displayName = payload.file_name || file.name || fileNameFromPath(payload.stored_path);
+      state.uploaded = payload; state.sourcePath = payload.stored_path; state.sourceDisplayName = displayName; state.lastApplyOutput = ''; state.lastRenderPayload = null;
       document.getElementById('paper-path').value = '';
-      document.getElementById('source-preview').textContent = `${payload.file_name} · ${payload.stored_path}`;
+      updateSourcePreview({ fileName: displayName, source: '已上传', path: payload.stored_path });
       document.getElementById('source-badge').textContent = '已选择';
       document.getElementById('source-badge').className = 'source-chip ok';
       document.getElementById('upload-hint').textContent = '已保存到本地运行目录。';
-      updateSafeNote({ fileName: payload.file_name, source: '上传暂存', path: payload.stored_path });
+      updateSafeNote({ fileName: displayName, source: '已上传', path: payload.stored_path });
       setReport({
         conclusion: '已选择论文，可以开始处理。',
         issues: ['原文不会被覆盖', '修复结果会写入新的 Word 文件'],
-        next: '点击“一键处理并复核”。',
-        output: estimateOutputPath(payload.stored_path),
+        next: '点击“一键处理到结构复查”。',
+        output: estimateOutputPath(payload.stored_path, displayName),
+        outputLabel: '预计输出',
+        action: { label: '一键处理到结构复查', step: 'runAll' },
       });
+      setProgress({ visible: false });
       resetSteps();
+      updateAgentCandidateAvailability();
     }
 
     async function runSingleStep(id) {
       const endpoint = id === 'render' ? '/render-verify' : `/${id === 'apply' ? 'apply' : id === 'verify' ? 'verify' : id}`;
       const payload = requestBase(id === 'verify' || id === 'render');
       if (id === 'apply') {
-        const output = document.getElementById('single-output').value.trim();
-        if (output) payload.output_path = output;
+        payload.output_path = document.getElementById('single-output').value.trim() || estimateOutputPath(payload.file_path, sourceDisplayName());
         payload.toc = document.getElementById('single-toc').checked;
         payload.renumber_headings = document.getElementById('single-renumber').checked;
         payload.layout_rebalance = document.getElementById('single-layout').checked;
         payload.force = document.getElementById('single-force').checked;
       }
-      if (id === 'render') payload.renderer = 'auto';
+      if (id === 'render') {
+        payload.workflow_mode = 'advanced_word';
+        payload.renderer = 'word-pdf';
+      }
       setStep(id, 'running');
       document.getElementById('source-badge').textContent = '处理中';
       document.getElementById('source-badge').className = 'source-chip running';
+      showRunningReport(id, payload);
+      setBusy(true);
       const result = await getJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      setBusy(false);
       setStep(id, 'done');
       document.getElementById('source-badge').textContent = '已处理';
       document.getElementById('source-badge').className = 'source-chip ok';
@@ -727,22 +1322,52 @@
     async function guardedRun(id) {
       try { await runSingleStep(id); }
       catch (error) {
+        setBusy(false);
         setStep(id, 'failed');
         document.getElementById('source-badge').textContent = '处理失败';
         document.getElementById('source-badge').className = 'source-chip failed';
         setReport({ conclusion: '处理失败', issues: [String(error)], next: '可展开高级设置里的分步操作，定位失败步骤。' });
+        setProgress({ title: '处理失败', value: 100, items: [`失败步骤: ${STEP_INFO[id]?.[0] || id}`, String(error)] });
         setSummary(`处理失败\n${String(error)}`);
+      }
+    }
+    async function guardedRenderWorkflow(mode) {
+      selectWorkflowMode(mode);
+      try { await runRenderWorkflow(mode); }
+      catch (error) {
+        setBusy(false);
+        setStep('render', 'failed');
+        document.getElementById('source-badge').textContent = '处理失败';
+        document.getElementById('source-badge').className = 'source-chip failed';
+        const modeLabel = mode === 'default_user' ? '默认用户模式' : mode === 'advanced_word' ? '高级模式' : 'Agent 候选稿模式';
+        const mainIssue = mode === 'advanced_word'
+          ? 'Word 自动导出 PDF 没有完成，通常是 Word 没被自动化流程成功驱动，或 Word 正在等待权限、恢复文档、允许访问文件这类弹窗确认。'
+          : userFacingError(error);
+        const fallback = mode === 'advanced_word'
+          ? '请先手动打开 Microsoft Word，看是否有权限申请、恢复文档或允许访问文件的弹窗；如果出现权限申请，请点击允许，然后再试一次高级模式。仍然失败时，改用 Word/WPS 手动导出 PDF，再走默认用户模式。'
+          : mode === 'default_user'
+            ? '请确认 PDF 路径存在，并且它确实由当前修复稿从 Word/WPS 导出。'
+            : '候选稿生成失败时，请先回到结构复查结果，缩小修复范围后再重试。';
+        setReport({
+          conclusion: `${modeLabel}失败`,
+          issues: [mainIssue, fallback],
+          next: '版式问题以 Word/WPS 导出的 PDF 或页面图片为最终判断依据。',
+        });
+        setProgress({ title: `${modeLabel}失败`, value: 100, items: [mainIssue, fallback] });
+        setSummary(`${modeLabel}失败\n${mainIssue}\n${fallback}`);
       }
     }
     async function runAll() {
       resetSteps();
-      for (const id of STEP_IDS) {
+      for (const id of PIPELINE_STEP_IDS) {
         try { await runSingleStep(id); }
         catch (error) {
+          setBusy(false);
           setStep(id, 'failed');
           document.getElementById('source-badge').textContent = '处理失败';
           document.getElementById('source-badge').className = 'source-chip failed';
           setReport({ conclusion: `流程停在「${STEP_INFO[id][0]}」`, issues: [String(error)], next: '可展开高级设置里的分步操作，单独重试失败步骤。' });
+          setProgress({ title: `流程停在「${STEP_INFO[id][0]}」`, value: 100, items: [`失败步骤: ${STEP_INFO[id][0]}`, String(error)] });
           setSummary(`流程停在「${STEP_INFO[id][0]}」\n${String(error)}`);
           break;
         }
@@ -816,6 +1441,11 @@
     document.querySelectorAll('[data-view-button]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.viewButton)));
     document.querySelectorAll('[data-scroll-target]').forEach((button) => button.addEventListener('click', () => document.getElementById(button.dataset.scrollTarget).scrollIntoView({ behavior: 'smooth' })));
     document.getElementById('paper-file').addEventListener('change', (event) => {
+      if (isFileMode()) {
+        showFileModeNotice();
+        window.location.href = LOCAL_APP_URL;
+        return;
+      }
       const file = event.target.files && event.target.files[0];
       if (file) uploadSelectedFile(file).catch((error) => {
         document.getElementById('upload-hint').textContent = `上传失败: ${String(error)}`;
@@ -824,35 +1454,77 @@
     document.getElementById('paper-path').addEventListener('input', (event) => {
       const value = event.target.value.trim();
       if (!value) return;
-      state.sourcePath = value; state.uploaded = null; state.lastApplyOutput = '';
-      document.getElementById('source-preview').textContent = value;
+      const displayName = fileNameFromPath(value);
+      state.sourcePath = value; state.sourceDisplayName = displayName; state.uploaded = null; state.lastApplyOutput = ''; state.lastRenderPayload = null;
+      updateSourcePreview({ fileName: displayName, source: '本机文件', path: value });
       document.getElementById('source-badge').textContent = '本机路径';
       document.getElementById('source-badge').className = 'source-chip ok';
-      updateSafeNote({ fileName: value.split('/').pop(), source: '本机路径', path: value });
+      updateSafeNote({ fileName: displayName, source: '本机文件', path: value });
       setReport({
         conclusion: '已填写论文路径，可以开始处理。',
         issues: ['原文不会被覆盖', '修复结果会写入新的 Word 文件'],
-        next: '点击“一键处理并复核”。',
-        output: estimateOutputPath(value),
+        next: '点击“一键处理到结构复查”。',
+        output: estimateOutputPath(value, displayName),
+        outputLabel: '预计输出',
+        action: { label: '一键处理到结构复查', step: 'runAll' },
       });
+      setProgress({ visible: false });
       resetSteps();
+      updateAgentCandidateAvailability();
     });
     document.getElementById('run-all-button').addEventListener('click', runAll);
+    document.getElementById('report-action-button').addEventListener('click', (event) => {
+      const step = event.currentTarget.dataset.step;
+      if (!step) return;
+      if (step === 'runAll') {
+        runAll();
+        return;
+      }
+      guardedRun(step);
+    });
     document.getElementById('preflight-button').addEventListener('click', () => guardedRun('preflight'));
     document.getElementById('plan-button').addEventListener('click', () => guardedRun('plan'));
     document.getElementById('apply-button').addEventListener('click', () => guardedRun('apply'));
     document.getElementById('verify-button').addEventListener('click', () => guardedRun('verify'));
     document.getElementById('render-button').addEventListener('click', () => guardedRun('render'));
+    document.getElementById('render-manual-button').addEventListener('click', () => guardedRenderWorkflow('default_user'));
+    document.getElementById('render-manual-copy-button').addEventListener('click', () => guardedRenderWorkflow('default_user'));
+    document.getElementById('render-word-button').addEventListener('click', () => guardedRenderWorkflow('advanced_word'));
+    document.getElementById('render-agent-button').addEventListener('click', () => guardedRenderWorkflow('agent_candidate'));
+    document.querySelectorAll('[data-workflow-mode]').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        if (event.target.closest('button')) return;
+        if (card.dataset.workflowMode === 'agent_candidate' && !renderHasActionableFindings()) {
+          setReport({
+            conclusion: 'Agent 候选稿是复核后的排障工具',
+            issues: ['请先用默认用户模式或高级模式完成 PDF 版式复核', '只有发现可行动排版问题后，才需要生成候选修复稿'],
+            next: '普通用户优先使用默认用户模式；Word 自动化稳定时再用高级模式。',
+          });
+          return;
+        }
+        selectWorkflowMode(card.dataset.workflowMode);
+      });
+      card.addEventListener('mouseenter', () => {
+        if (card.dataset.workflowMode === 'agent_candidate' && !renderHasActionableFindings()) return;
+        selectWorkflowMode(card.dataset.workflowMode);
+      });
+    });
     document.getElementById('load-job-button').addEventListener('click', () => {
       const jobId = document.getElementById('job-id-input').value.trim();
       if (jobId) loadJob(jobId, false);
     });
     buildScopeGrid();
     buildSteps();
-    Promise.all([loadProfiles(), refreshOverview()]).catch((error) => {
-      document.getElementById('health-line').textContent = `服务连接失败`;
-      setSummary(`加载失败\n${String(error)}`);
-    });
+    updateAgentCandidateAvailability();
+    if (isFileMode()) {
+      showFileModeNotice();
+    } else {
+      Promise.all([loadProfiles(), refreshOverview()]).catch((error) => {
+        document.getElementById('health-line').textContent = `服务连接失败`;
+        setReport({ conclusion: '服务连接失败', issues: [String(error)], next: `确认本地服务已启动后打开 ${LOCAL_APP_URL}` });
+        setSummary(`加载失败\n${String(error)}`);
+      });
+    }
   </script>
 </body>
 </html>

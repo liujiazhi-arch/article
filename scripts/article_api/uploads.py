@@ -95,8 +95,9 @@ def stage_job_input_docx(
 
 
 def _safe_upload_name(file_name: str) -> str:
-    cleaned = Path(file_name or "upload.docx").name
-    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", cleaned).strip("._")
+    raw_name = str(file_name or "upload.docx").replace("\\", "/")
+    cleaned = Path(raw_name).name
+    cleaned = re.sub(r"[\x00-\x1f:]+", "_", cleaned).strip(" ._")
     if not cleaned.lower().endswith(".docx"):
         raise ValueError("Only .docx uploads are supported")
     return cleaned or "upload.docx"

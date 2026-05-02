@@ -94,13 +94,46 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert "论文格式本地控制台" in console_response.text
     assert "单篇论文处理" in console_response.text
     assert "选择 Word 论文" in console_response.text
-    assert "一键处理并复核" in console_response.text
+    assert "一键处理到结构复查" in console_response.text
     assert "高级设置" in console_response.text
     assert "分步操作" in console_response.text
     assert "Word 版式复核" in console_response.text
+    assert "排版修复 · 页面渲染层" in console_response.text
+    assert "修复打开 Word/WPS 后才看得到的排版问题" in console_response.text
+    assert "上方流程主要处理字体、标题、目录、参考文献等结构格式" in console_response.text
+    assert "开始排版复核" in console_response.text
+    assert "用这个模式修排版" in console_response.text
+    assert "data-workflow-mode=\"default_user\"" in console_response.text
+    assert "data-workflow-mode=\"advanced_word\"" in console_response.text
+    assert "selectedWorkflowMode: 'default_user'" in console_response.text
+    assert "function userFacingError" in console_response.text
+    assert "Word 自动导出 PDF 没有完成" in console_response.text
+    assert "请先手动打开 Microsoft Word" in console_response.text
+    assert "如果出现权限申请，请点击允许" in console_response.text
+    assert "默认用户模式" in console_response.text
+    assert "高级模式" in console_response.text
+    assert "Agent 候选稿模式" in console_response.text
+    assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" in console_response.text
+    assert "guardedRenderWorkflow('advanced_word')" in console_response.text
     assert "论文格式修改工具" in console_response.text
     assert "原文不会被覆盖" in console_response.text
     assert "总体结论" in console_response.text
+    assert "report-action-button" in console_response.text
+    assert "report-progress" in console_response.text
+    assert "正在执行修复" in console_response.text
+    assert "修复稿已生成" in console_response.text
+    assert "结构复查已结束，等待版式复核" in console_response.text
+    assert "这一步已经结束，不是后端卡住" in console_response.text
+    assert "source-summary" in console_response.text
+    assert "displayFileName" in console_response.text
+    assert "sourceDisplayName" in console_response.text
+    assert "outputFolderLabel" in console_response.text
+    assert "outputSummary" in console_response.text
+    assert "复核后排障工具" in console_response.text
+    assert "先完成 PDF 版式复核后再使用" in console_response.text
+    assert "查看路径" in console_response.text
+    assert "桌面/论文格式修复输出" in console_response.text
+    assert "页面布局再平衡（慢速，排版排障时再开）" in console_response.text
     assert "历史与排障" in console_response.text
     assert "批量任务" not in console_response.text
     assert "适合发给学弟学妹使用" not in console_response.text
@@ -172,9 +205,16 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
             "document": {"path": str(source_path), "name": source_path.name},
             "profile": {"id": "lnu-checker-2026", "requested": "lnu", "fallback_used": False, "display": "lnu"},
             "output_dir": str(tmp_path / "http-render-proof"),
-            "render_engine": "artifact-tool",
+            "render_engine": "manual-pdf",
+            "evidence_source": "manual-pdf",
+            "evidence_trust": "authoritative",
+            "evidence_authoritative": True,
+            "layout_decision_eligible": True,
+            "render_fallback_used": False,
             "page_count": 1,
             "page_images": [str(tmp_path / "http-render-proof" / "page-1.png")],
+            "render_findings": [],
+            "render_summary": {"finding_count": 0, "highest_severity": None},
             "selected_scopes": ["toc"],
             "overall_status": "verified",
             "readiness": "render-check-required",
@@ -198,58 +238,6 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert render_verify_payload["page_count"] == 1
     assert render_verify_payload["summary"]["manual_review_rule_count"] == 1
     assert render_verify_payload["selected_scopes"] == ["toc"]
-
-    batch_dir = tmp_path / "http-batch"
-    batch_dir.mkdir(parents=True, exist_ok=True)
-    batch_source = batch_dir / source_path.name
-    batch_source.write_bytes(source_path.read_bytes())
-    batch_response = client.post(
-        "/batch",
-        json={
-            "operation": "audit",
-            "input_path": str(batch_dir),
-            "profile": "cn-common",
-            "recursive": True,
-        },
-    )
-    assert batch_response.status_code == 200
-    batch_payload = batch_response.json()
-    assert batch_payload["summary"]["total"] == 1
-    assert batch_payload["summary"]["readiness_counts"]["needs-fix"] == 1
-    assert batch_payload["items"][0]["relative_path"] == source_path.name
-    assert batch_payload["items"][0]["readiness"] == "needs-fix"
-
-    batch_job_response = client.post(
-        "/jobs/batch",
-        json={
-            "operation": "audit",
-            "input_path": str(batch_dir),
-            "profile": "cn-common",
-            "recursive": True,
-            "summary_file": str(tmp_path / "http-batch-summary.json"),
-        },
-    )
-    assert batch_job_response.status_code == 201
-    batch_job_payload = batch_job_response.json()
-    batch_job_status = _wait_for_job_completion(client, batch_job_payload["job_id"])
-    assert batch_job_status["status"] == "succeeded"
-    batch_job_result = client.get(f"/jobs/{batch_job_payload['job_id']}/result")
-    assert batch_job_result.status_code == 200
-    assert batch_job_result.json()["summary"]["batch_operation"] == "audit"
-    assert batch_job_result.json()["summary"]["readiness_counts"]["needs-fix"] == 1
-    batch_summary_download = client.get(f"/jobs/{batch_job_payload['job_id']}/artifacts/summary/download")
-    assert batch_summary_download.status_code == 200
-    assert batch_summary_download.json()["summary"]["total"] == 1
-    filtered_jobs_response = client.get("/jobs", params={"operation": "batch", "status": "succeeded", "limit": 1})
-    assert filtered_jobs_response.status_code == 200
-    filtered_jobs_payload = filtered_jobs_response.json()
-    assert len(filtered_jobs_payload) == 1
-    assert filtered_jobs_payload[0]["operation"] == "batch"
-    recent_batches_response = client.get("/jobs/batches/recent", params={"status": "succeeded", "limit": 5})
-    assert recent_batches_response.status_code == 200
-    recent_batches_payload = recent_batches_response.json()
-    assert recent_batches_payload["filters"]["operation"] == "batch"
-    assert recent_batches_payload["items"][0]["job_id"] == batch_job_payload["job_id"]
 
     upload_payload = _upload_docx(client, source_path, runtime_root)
     assert upload_payload["file_name"] == "article_http_smoke.docx"

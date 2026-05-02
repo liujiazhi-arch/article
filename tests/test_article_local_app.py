@@ -3,17 +3,15 @@ from __future__ import annotations
 import json
 import os
 import shlex
-import shutil
 import sys
 from pathlib import Path
 
 import article_api.local_app as local_app
+import article_api.local_env as local_env
 import article_api.storage as storage
+from article_api.uploads import resolve_runtime_root
 from docx import Document
 import pytest
-
-from .conftest import RULE_MUTATORS, make_compliant_doc
-
 
 def _make_style_conflict_lnu_doc(source_path: Path) -> Path:
     doc = Document()
@@ -76,8 +74,21 @@ def test_article_local_help_lists_expected_subcommands(capsys):
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
     assert "usage: article-local" in captured.out
-    for subcommand in ("init", "serve", "doctor", "preflight", "normalize", "render-verify", "profiles", "batch", "maintain", "backup", "restore"):
+    for subcommand in (
+        "init",
+        "serve",
+        "doctor",
+        "preflight",
+        "normalize",
+        "render-verify",
+        "render-workflow-modes",
+        "profiles",
+        "maintain",
+        "backup",
+        "restore",
+    ):
         assert subcommand in captured.out
+    assert "batch" not in captured.out
 
 
 @pytest.mark.parametrize(
@@ -134,7 +145,7 @@ def test_initialize_local_workspace_creates_roots_and_env_file(tmp_path):
 
 def test_initialize_local_workspace_reuses_identical_env_file(monkeypatch, tmp_path):
     env_path = tmp_path / "article-local.env"
-    monkeypatch.setattr(local_app, "_current_command_bin_dir", lambda: None)
+    monkeypatch.setattr(local_env, "current_command_bin_dir", lambda: None)
 
     first_payload = local_app.initialize_local_workspace(
         state_root=str(tmp_path / "state"),
@@ -166,7 +177,7 @@ def test_initialize_local_workspace_requires_overwrite_for_existing_env_file(tmp
 def test_initialize_local_workspace_quotes_env_file_and_adds_command_bin(monkeypatch, tmp_path):
     env_path = tmp_path / "dir with spaces" / "article local.env"
     command_bin = tmp_path / "venv path" / "bin"
-    monkeypatch.setattr(local_app, "_current_command_bin_dir", lambda: command_bin)
+    monkeypatch.setattr(local_env, "current_command_bin_dir", lambda: command_bin)
 
     payload = local_app.initialize_local_workspace(
         state_root=str(tmp_path / "state root"),
@@ -265,6 +276,9 @@ def test_run_render_verify_returns_payload(monkeypatch):
             "document": {"name": "demo.docx"},
             "page_count": 1,
             "selected_scopes": kwargs.get("scopes"),
+            "rendered_pdf": kwargs.get("rendered_pdf"),
+            "page_images_dir": kwargs.get("page_images_dir"),
+            "workflow_mode": kwargs.get("workflow_mode"),
         },
     )
 
@@ -273,11 +287,16 @@ def test_run_render_verify_returns_payload(monkeypatch):
         profile="lnu",
         scopes=["toc"],
         renderer="word-pdf",
+        rendered_pdf="/tmp/export.pdf",
+        page_images_dir=None,
+        workflow_mode="advanced_word",
     )
 
     assert payload["operation"] == "render-verify"
     assert payload["page_count"] == 1
     assert payload["selected_scopes"] == ["toc"]
+    assert payload["rendered_pdf"] == "/tmp/export.pdf"
+    assert payload["workflow_mode"] == "advanced_word"
 
 
 def test_main_profiles_outputs_json(capsys):
@@ -288,6 +307,15 @@ def test_main_profiles_outputs_json(capsys):
     profile_ids = [item["id"] for item in payload["profiles"]]
     assert "lnu-checker-2026" in profile_ids
     assert any(item["id"] == "course_assignment_basic_paper" for item in payload["summary"]["support_scenarios"])
+
+
+def test_main_render_workflow_modes_outputs_json(capsys):
+    exit_code = local_app.main(["render-workflow-modes"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["recommended_mode"] == "default_user"
+    assert [item["id"] for item in payload["modes"]] == ["default_user", "advanced_word", "agent_candidate"]
 
 
 def test_main_preflight_outputs_json(capsys, tmp_path):
@@ -335,63 +363,34 @@ def test_main_render_verify_outputs_json(monkeypatch, capsys):
             "document": {"name": "demo.docx"},
             "page_count": 2,
             "selected_scopes": kwargs.get("scopes"),
+            "rendered_pdf": kwargs.get("rendered_pdf"),
+            "page_images_dir": kwargs.get("page_images_dir"),
+            "workflow_mode": kwargs.get("workflow_mode"),
         },
     )
 
-    exit_code = local_app.main(["render-verify", "/tmp/demo.docx", "--profile", "lnu", "--scope", "toc"])
+    exit_code = local_app.main(
+        [
+            "render-verify",
+            "/tmp/demo.docx",
+            "--profile",
+            "lnu",
+            "--scope",
+            "toc",
+            "--rendered-pdf",
+            "/tmp/export.pdf",
+            "--workflow-mode",
+            "default_user",
+        ]
+    )
 
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["operation"] == "render-verify"
+    assert payload["rendered_pdf"] == "/tmp/export.pdf"
+    assert payload["workflow_mode"] == "default_user"
     assert payload["page_count"] == 2
     assert payload["selected_scopes"] == ["toc"]
-
-
-def test_run_batch_workflow_audit_directory(tmp_docx, tmp_path):
-    source_dir = tmp_path / "batch-audit"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    doc_ok = tmp_docx(make_compliant_doc, filename="batch_ok.docx")
-    doc_fail = tmp_docx(make_compliant_doc, filename="batch_fail.docx")
-    shutil.copy2(doc_ok, source_dir / "batch_ok.docx")
-    shutil.copy2(doc_fail, source_dir / "batch_fail.docx")
-    failing_doc = Document(source_dir / "batch_fail.docx")
-    RULE_MUTATORS["H02"](failing_doc)
-    failing_doc.save(source_dir / "batch_fail.docx")
-
-    payload = local_app.run_batch_workflow("audit", str(source_dir), profile="cn-common")
-
-    assert payload["summary"]["total"] == 2
-    assert payload["summary"]["succeeded"] == 2
-    assert payload["summary"]["failed"] == 0
-    assert payload["summary"]["status_counts"]["needs_fix"] >= 1
-    assert payload["summary"]["readiness_counts"]["needs-fix"] >= 1
-
-
-def test_run_batch_workflow_apply_writes_output_dir_and_summary_file(tmp_docx, tmp_path):
-    source_dir = tmp_path / "batch-apply"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    doc_path = tmp_docx(make_compliant_doc, filename="batch_apply_source.docx")
-    shutil.copy2(doc_path, source_dir / "batch_apply_source.docx")
-    failing_doc = Document(source_dir / "batch_apply_source.docx")
-    RULE_MUTATORS["H02"](failing_doc)
-    failing_doc.save(source_dir / "batch_apply_source.docx")
-    output_dir = tmp_path / "batch-output"
-    summary_file = tmp_path / "batch-summary.json"
-
-    payload = local_app.run_batch_workflow(
-        "apply",
-        str(source_dir),
-        profile="cn-common",
-        scopes=["headings"],
-        output_dir=str(output_dir),
-        summary_file=str(summary_file),
-    )
-
-    assert payload["summary"]["total"] == 1
-    assert payload["summary"]["succeeded"] == 1
-    assert payload["summary"]["readiness_counts"]["render-check-required"] == 1
-    assert summary_file.exists()
-    assert Path(payload["items"][0]["output_path"]).exists()
 
 
 def test_build_doctor_report_quotes_workflow_paths(monkeypatch, tmp_path):
@@ -541,7 +540,7 @@ def test_main_serve_runs_uvicorn_with_root_overrides(monkeypatch, tmp_path):
         def run(app_target: str, **kwargs):
             calls.append({"app_target": app_target, **kwargs})
             observed_roots["state_root"] = str(storage.resolve_state_root())
-            observed_roots["runtime_root"] = str(local_app.resolve_runtime_root())
+            observed_roots["runtime_root"] = str(resolve_runtime_root())
 
     monkeypatch.delenv(storage.STATE_ROOT_ENV_VAR, raising=False)
     monkeypatch.delenv("ARTICLE_API_RUNTIME_ROOT", raising=False)

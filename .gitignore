@@ -16,9 +16,18 @@ htmlcov/
 
 # Local article API/runtime artifacts
 .article_runtime/
+.tmp_render_probe_out/
 .tmp_render_artifact/
 .tmp_render_verify_live/
 .tmp_render_probe.docx
+.tmp_render_*.png
+runs/
+output/
+
+# Build/install artifacts
+build/
+dist/
+*.egg-info/
 
 # Node artifacts
 node_modules/

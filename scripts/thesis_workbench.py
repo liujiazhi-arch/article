@@ -120,9 +120,9 @@ def build_parser():
     render_verify_parser.add_argument("--output-dir", help="页图与 JSON 报告输出目录")
     render_verify_parser.add_argument(
         "--renderer",
-        choices=["auto", "word-pdf", "artifact-tool"],
+        choices=["auto", "word-pdf"],
         default="auto",
-        help="渲染引擎：默认 auto，优先 Microsoft Word 导出 PDF，不可用时回退 artifact-tool",
+        help="渲染引擎：默认 auto，使用 Microsoft Word 导出 PDF；Word 不可用时请手动导出 PDF 后传入 --rendered-pdf",
     )
     render_verify_parser.add_argument(
         "--scope",
@@ -130,6 +130,8 @@ def build_parser():
         default=None,
         help="可选：按 scope 复用结构复查结论，可重复传入，或用逗号分隔多个值",
     )
+    render_verify_parser.add_argument("--rendered-pdf", help="可选：使用用户手动导出的 PDF 作为渲染证据")
+    render_verify_parser.add_argument("--page-images-dir", help="可选：使用用户手动导出的 PNG 页图目录作为渲染证据")
     return parser
 
 
@@ -274,7 +276,6 @@ def main():
                 profile_path=args.profile,
                 scopes=args.scope,
                 strict_profile=args.strict_profile,
-                renderer=args.renderer,
             )
             print(render_scope_plan(plan))
             return 0
@@ -357,6 +358,8 @@ def main():
                 scopes=args.scope,
                 strict_profile=args.strict_profile,
                 renderer=args.renderer,
+                rendered_pdf=args.rendered_pdf,
+                page_images_dir=args.page_images_dir,
             )
             print(render_render_verify_report(report))
             return 0

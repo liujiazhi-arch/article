@@ -5,44 +5,12 @@ import sys
 from typing import Any
 
 from article_engine import apply_fix, normalize_document, verify_document
-from article_api.profile_batch import run_batch_workflow
-
-
-_BATCH_JOB_SERVICE_NAME = "article-api"
-_BATCH_JOB_STAGE = "local-shell-alpha"
-_BATCH_JOB_VERSION = "0.1.0"
-_BATCH_JOB_API_VERSION = "v0"
-
-
-def _run_batch_job(**request) -> dict[str, Any]:
-    return run_batch_workflow(
-        request["operation"],
-        request["input_path"],
-        profile=request.get("profile", "lnu"),
-        strict_profile=request.get("strict_profile"),
-        scopes=request.get("scopes"),
-        output_dir=request.get("output_dir"),
-        summary_file=request.get("summary_file"),
-        pattern=request.get("pattern", "*.docx"),
-        recursive=bool(request.get("recursive", False)),
-        toc=bool(request.get("toc", False)),
-        dry_run=bool(request.get("dry_run", False)),
-        renumber_headings=bool(request.get("renumber_headings", False)),
-        layout_rebalance=bool(request.get("layout_rebalance", False)),
-        force=bool(request.get("force", False)),
-        fail_fast=bool(request.get("fail_fast", False)),
-        service_name=_BATCH_JOB_SERVICE_NAME,
-        stage=_BATCH_JOB_STAGE,
-        version=_BATCH_JOB_VERSION,
-        api_version=_BATCH_JOB_API_VERSION,
-    )
 
 
 _JOB_HANDLERS = {
     "apply": apply_fix,
     "normalize": normalize_document,
     "verify": verify_document,
-    "batch": _run_batch_job,
 }
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import glob
 import json
 import os
 from pathlib import Path
@@ -11,6 +10,7 @@ import sys
 
 import audit_thesis
 
+from thesis_tool.render_analyzer import analyze_page_images
 from thesis_tool.workflow import (
     PREFLIGHT_BLOCKED,
     PREFLIGHT_WARNING,
@@ -22,57 +22,17 @@ from thesis_tool.workflow import (
 )
 
 
-_RENDER_DOCX_SCRIPT_GLOBS = [
-    "~/.codex/plugins/cache/openai-primary-runtime/documents/*/skills/documents/render_docx.py",
-]
-_RENDER_PYTHON_GLOBS = [
-    "~/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3",
-    "~/.cache/codex-runtimes/codex-primary-runtime-*/dependencies/python/bin/python3",
-]
 RENDERER_AUTO = "auto"
 RENDERER_WORD_PDF = "word-pdf"
-RENDERER_ARTIFACT_TOOL = "artifact-tool"
-SUPPORTED_RENDERERS = {RENDERER_AUTO, RENDERER_WORD_PDF, RENDERER_ARTIFACT_TOOL}
-
-
-def find_render_docx_script() -> str:
-    env_path = os.environ.get("ARTICLE_RENDER_DOCX_SCRIPT")
-    if env_path:
-        resolved = Path(env_path).expanduser().resolve()
-        if resolved.exists():
-            return str(resolved)
-
-    for pattern in _RENDER_DOCX_SCRIPT_GLOBS:
-        for candidate in sorted(glob.glob(os.path.expanduser(pattern))):
-            resolved = Path(candidate).expanduser().resolve()
-            if resolved.exists():
-                return str(resolved)
-
-    raise RuntimeError(
-        "未找到 render_docx.py。请确认当前 Codex 文档运行时已安装，"
-        "或通过 ARTICLE_RENDER_DOCX_SCRIPT 指定渲染脚本路径。"
-    )
+RENDERER_MANUAL_PDF = "manual-pdf"
+RENDERER_WPS_MANUAL_IMAGES = "wps-manual-images"
+SUPPORTED_RENDERERS = {RENDERER_AUTO, RENDERER_WORD_PDF}
+AUTHORITATIVE_EVIDENCE_SOURCES = {RENDERER_WORD_PDF, RENDERER_MANUAL_PDF, RENDERER_WPS_MANUAL_IMAGES}
 
 
 def default_render_output_dir(input_docx: str) -> str:
     source = Path(input_docx).expanduser().resolve()
     return str(source.with_name(f"{source.stem}_render_verify"))
-
-
-def find_render_python() -> str:
-    env_path = os.environ.get("ARTICLE_RENDER_PYTHON")
-    if env_path:
-        resolved = Path(env_path).expanduser().resolve()
-        if resolved.exists():
-            return str(resolved)
-
-    for pattern in _RENDER_PYTHON_GLOBS:
-        for candidate in sorted(glob.glob(os.path.expanduser(pattern))):
-            resolved = Path(candidate).expanduser().resolve()
-            if resolved.exists():
-                return str(resolved)
-
-    return sys.executable
 
 
 def _page_sort_key(path: Path) -> tuple[int, str]:
@@ -87,33 +47,12 @@ def _collect_page_images(output_dir: str | Path) -> list[str]:
     return [str(path) for path in sorted(directory.glob("page-*.png"), key=_page_sort_key)]
 
 
-def _run_render_docx(input_docx: str, output_dir: str) -> dict:
-    script_path = find_render_docx_script()
-    python_path = find_render_python()
-    command = [
-        python_path,
-        script_path,
-        input_docx,
-        "--output_dir",
-        output_dir,
-        "--renderer",
-        "artifact-tool",
-    ]
-    try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as exc:
-        details = (exc.stderr or exc.stdout or "").strip()
-        message = "DOCX 渲染失败。"
-        if details:
-            message = f"{message}\n{details}"
-        raise RuntimeError(message) from exc
-    return {
-        "engine": RENDERER_ARTIFACT_TOOL,
-        "page_dir": str(Path(output_dir).expanduser().resolve()),
-        "pdf_path": None,
-        "fallback_used": False,
-        "warnings": [],
-    }
+def _collect_png_images(output_dir: str | Path) -> list[str]:
+    directory = Path(output_dir).expanduser().resolve()
+    page_images = _collect_page_images(directory)
+    if page_images:
+        return page_images
+    return [str(path) for path in sorted(directory.glob("*.png"), key=_page_sort_key)]
 
 
 def _find_pdftoppm() -> str:
@@ -126,6 +65,18 @@ def _find_pdftoppm() -> str:
     if found:
         return found
     raise RuntimeError("未找到 pdftoppm，无法将 Word PDF 转为页图。请安装 poppler 或设置 ARTICLE_PDFTOPPM。")
+
+
+def _find_pdftotext() -> str:
+    env_path = os.environ.get("ARTICLE_PDFTOTEXT")
+    if env_path:
+        resolved = Path(env_path).expanduser().resolve()
+        if resolved.exists():
+            return str(resolved)
+    found = shutil.which("pdftotext")
+    if found:
+        return found
+    raise RuntimeError("未找到 pdftotext，无法抽取 PDF 每页文本。请安装 poppler 或设置 ARTICLE_PDFTOTEXT。")
 
 
 def _export_docx_to_pdf_with_word(input_docx: str, output_pdf: str) -> None:
@@ -210,19 +161,113 @@ def _run_render_engine(input_docx: str, output_dir: str, renderer: str) -> dict:
     if renderer not in SUPPORTED_RENDERERS:
         supported = ", ".join(sorted(SUPPORTED_RENDERERS))
         raise ValueError(f"未知渲染器: {renderer}。可选: {supported}")
-    if renderer == RENDERER_WORD_PDF:
-        return _run_word_pdf_render(input_docx, output_dir)
-    if renderer == RENDERER_ARTIFACT_TOOL:
-        return _run_render_docx(input_docx, output_dir)
+    return _run_word_pdf_render(input_docx, output_dir)
+
+
+def _run_external_pdf_render(rendered_pdf: str, output_dir: str) -> dict:
+    resolved_pdf = Path(rendered_pdf).expanduser().resolve()
+    if not resolved_pdf.exists():
+        raise RuntimeError(f"用户提供的渲染 PDF 不存在: {resolved_pdf}")
+    if resolved_pdf.suffix.lower() != ".pdf":
+        raise RuntimeError(f"--rendered-pdf 需要 PDF 文件: {resolved_pdf}")
+    page_dir = Path(output_dir).expanduser().resolve() / "manual_pdf_pages"
+    _convert_pdf_to_page_images(str(resolved_pdf), str(page_dir))
+    return {
+        "engine": RENDERER_MANUAL_PDF,
+        "page_dir": str(page_dir),
+        "pdf_path": str(resolved_pdf),
+        "fallback_used": False,
+        "warnings": [],
+    }
+
+
+def _run_external_page_images(page_images_dir: str) -> dict:
+    resolved_dir = Path(page_images_dir).expanduser().resolve()
+    if not resolved_dir.exists() or not resolved_dir.is_dir():
+        raise RuntimeError(f"用户提供的页图目录不存在: {resolved_dir}")
+    if not _collect_png_images(resolved_dir):
+        raise RuntimeError(f"用户提供的页图目录未发现 PNG 页图: {resolved_dir}")
+    return {
+        "engine": RENDERER_WPS_MANUAL_IMAGES,
+        "page_dir": str(resolved_dir),
+        "pdf_path": None,
+        "fallback_used": False,
+        "warnings": [],
+    }
+
+
+def _resolve_render_metadata(
+    input_docx: str,
+    output_dir: str,
+    renderer: str,
+    *,
+    rendered_pdf: str | None = None,
+    page_images_dir: str | None = None,
+) -> dict:
+    if rendered_pdf and page_images_dir:
+        raise ValueError("--rendered-pdf 和 --page-images-dir 只能选择一个。")
+    if rendered_pdf:
+        return _run_external_pdf_render(rendered_pdf, output_dir)
+    if page_images_dir:
+        return _run_external_page_images(page_images_dir)
+    return _run_render_engine(input_docx, output_dir, renderer)
+
+
+def _classify_evidence_trust(evidence_source: str) -> dict:
+    authoritative = evidence_source in AUTHORITATIVE_EVIDENCE_SOURCES
+    trust = "authoritative" if authoritative else "unsupported"
+    warnings: list[str] = []
+    return {
+        "trust": trust,
+        "is_authoritative": authoritative,
+        "layout_decision_eligible": authoritative,
+        "warnings": warnings,
+    }
+
+
+def _empty_render_text_summary(*, source: str | None = None, warnings: list[str] | None = None) -> dict:
+    warning_list = list(warnings or [])
+    return {
+        "source": source,
+        "available": False,
+        "page_text_available_count": 0,
+        "page_text_extraction_warning_count": len(warning_list),
+        "warnings": warning_list,
+    }
+
+
+def _extract_pdf_page_texts(pdf_path: str | None, *, page_count: int) -> tuple[dict[int, str], dict]:
+    if not pdf_path:
+        return {}, _empty_render_text_summary(source=None)
+    resolved_pdf = Path(pdf_path).expanduser().resolve()
+    if not resolved_pdf.exists():
+        return {}, _empty_render_text_summary(source="pdf", warnings=[f"PDF 不存在，未抽取页文本: {resolved_pdf}"])
 
     try:
-        return _run_word_pdf_render(input_docx, output_dir)
-    except RuntimeError as exc:
-        metadata = _run_render_docx(input_docx, output_dir)
-        metadata["fallback_used"] = True
-        metadata["requested_engine"] = RENDERER_AUTO
-        metadata["warnings"] = [f"Word PDF 渲染不可用，已回退 artifact-tool: {exc}"]
-        return metadata
+        pdftotext = _find_pdftotext()
+        completed = subprocess.run(
+            [pdftotext, "-layout", str(resolved_pdf), "-"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (RuntimeError, subprocess.CalledProcessError) as exc:
+        return {}, _empty_render_text_summary(source="pdf", warnings=[str(exc)])
+
+    raw_pages = str(completed.stdout or "").split("\f")
+    if raw_pages and raw_pages[-1] == "":
+        raw_pages = raw_pages[:-1]
+    page_texts = {index: text.strip() for index, text in enumerate(raw_pages[:page_count], start=1) if text.strip()}
+    warnings: list[str] = []
+    if page_count > 0 and len(raw_pages) != page_count:
+        warnings.append(f"PDF 文本页数 {len(raw_pages)} 与页图页数 {page_count} 不一致，已按可用页文本继续。")
+    return page_texts, {
+        "source": "pdf",
+        "available": bool(page_texts),
+        "page_text_available_count": len(page_texts),
+        "page_text_extraction_warning_count": len(warnings),
+        "warnings": warnings,
+    }
 
 
 def _build_render_review_items(diagnostics: dict, verification: dict) -> list[str]:
@@ -303,13 +348,24 @@ def _summarize_wild_doc(preflight: dict) -> dict:
     }
 
 
-def _classify_render_evidence_status(*, page_count: int, preflight: dict, verification: dict) -> str:
+def _classify_render_evidence_status(
+    *,
+    page_count: int,
+    preflight: dict,
+    verification: dict,
+    render_summary: dict | None = None,
+    evidence_trust: dict | None = None,
+) -> str:
     if page_count <= 0:
         return "render-failed"
     if preflight.get("preflight_status") == PREFLIGHT_BLOCKED:
         return "blocked-by-wild-doc"
     if verification.get("readiness") != READINESS_STRUCTURE_READY:
         return "structure-not-ready"
+    if evidence_trust and not evidence_trust.get("is_authoritative"):
+        return "unsupported-evidence"
+    if (render_summary or {}).get("finding_count", 0) > 0:
+        return "render-review-required"
     if preflight.get("preflight_status") == PREFLIGHT_WARNING:
         return "render-review-required"
     return "render-evidence-ready"
@@ -332,15 +388,30 @@ def build_render_verify_report(
     scopes=None,
     strict_profile: bool | None = None,
     renderer: str = RENDERER_AUTO,
+    rendered_pdf: str | None = None,
+    page_images_dir: str | None = None,
 ) -> dict:
     validated_input = audit_thesis.validate_docx_path(input_docx)
     resolved_output_dir = Path(output_dir or default_render_output_dir(validated_input)).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
 
-    render_metadata = _run_render_engine(validated_input, str(resolved_output_dir), renderer)
-    page_images = _collect_page_images(render_metadata["page_dir"])
+    render_metadata = _resolve_render_metadata(
+        validated_input,
+        str(resolved_output_dir),
+        renderer,
+        rendered_pdf=rendered_pdf,
+        page_images_dir=page_images_dir,
+    )
+    page_images = _collect_png_images(render_metadata["page_dir"])
     if not page_images:
         raise RuntimeError(f"渲染未产出页图: {render_metadata['page_dir']}")
+    evidence_source = render_metadata["engine"]
+    evidence_trust = _classify_evidence_trust(evidence_source)
+    page_texts, render_text_summary = _extract_pdf_page_texts(render_metadata.get("pdf_path"), page_count=len(page_images))
+    render_analysis = analyze_page_images(page_images, evidence_source=evidence_source, page_texts=page_texts)
+    render_findings = list(render_analysis.get("findings") or [])
+    render_summary = dict(render_analysis.get("summary") or {})
+    layout_score = dict(render_analysis.get("layout_score") or {})
 
     preflight = build_document_preflight(
         validated_input,
@@ -363,7 +434,12 @@ def build_render_verify_report(
         page_count=len(page_images),
         preflight=preflight,
         verification=verification,
+        render_summary=render_summary,
+        evidence_trust=evidence_trust,
     )
+    render_warnings = list(render_metadata.get("warnings") or [])
+    render_warnings.extend(evidence_trust["warnings"])
+    render_warnings.extend(render_text_summary.get("warnings") or [])
     report = {
         "document": {
             "path": str(Path(validated_input)),
@@ -377,13 +453,21 @@ def build_render_verify_report(
         },
         "output_dir": str(resolved_output_dir),
         "render_engine": render_metadata["engine"],
+        "evidence_source": evidence_source,
+        "evidence_trust": evidence_trust["trust"],
+        "evidence_authoritative": bool(evidence_trust["is_authoritative"]),
+        "layout_decision_eligible": bool(evidence_trust["layout_decision_eligible"]),
         "requested_render_engine": renderer,
         "render_fallback_used": bool(render_metadata.get("fallback_used")),
-        "render_warnings": list(render_metadata.get("warnings") or []),
+        "render_warnings": render_warnings,
         "render_pdf_path": render_metadata.get("pdf_path"),
         "render_page_dir": render_metadata.get("page_dir"),
+        "render_text_summary": render_text_summary,
         "page_count": len(page_images),
         "page_images": page_images,
+        "render_findings": render_findings,
+        "render_summary": render_summary,
+        "layout_score": layout_score,
         "selected_scopes": verification.get("selected_scopes"),
         "overall_status": verification.get("overall_status"),
         "readiness": _classify_render_readiness(preflight, verification),
@@ -394,12 +478,29 @@ def build_render_verify_report(
         "summary": {
             "page_count": len(page_images),
             "render_engine": render_metadata["engine"],
+            "evidence_source": evidence_source,
+            "evidence_trust": evidence_trust["trust"],
+            "evidence_authoritative": bool(evidence_trust["is_authoritative"]),
+            "layout_decision_eligible": bool(evidence_trust["layout_decision_eligible"]),
             "render_fallback_used": bool(render_metadata.get("fallback_used")),
             "preflight_status": preflight.get("preflight_status"),
             "wild_doc_detected": wild_doc["detected"],
             "wild_doc_signal_count": len(wild_doc["signals"]),
             "structure_readiness": verification.get("readiness"),
             "render_evidence_status": render_evidence_status,
+            "render_finding_count": int(render_summary.get("finding_count") or 0),
+            "render_highest_severity": render_summary.get("highest_severity"),
+            "layout_score": layout_score.get("score"),
+            "layout_penalty": layout_score.get("penalty"),
+            "actionable_finding_count": int(render_summary.get("actionable_finding_count") or 0),
+            "expected_blank_count": int(render_summary.get("expected_blank_count") or 0),
+            "object_flow_issue_count": int(render_summary.get("object_flow_issue_count") or 0),
+            "heading_break_issue_count": int(render_summary.get("heading_break_issue_count") or 0),
+            "page_text_available_count": int(render_text_summary.get("page_text_available_count") or 0),
+            "page_text_extraction_warning_count": int(render_text_summary.get("page_text_extraction_warning_count") or 0),
+            "blank_page_count": int(render_summary.get("blank_page_count") or 0),
+            "large_blank_count": int(render_summary.get("large_blank_count") or 0),
+            "render_suspect_count": int(render_summary.get("render_suspect_count") or 0),
             "manual_review_rule_count": len(verification.get("manual_review_rule_ids") or []),
             "unsupported_rule_count": len(verification.get("unsupported_rule_ids") or []),
         },
@@ -417,6 +518,9 @@ def render_render_verify_report(report: dict) -> str:
         f"文件: {report['document']['name']}",
         f"Profile: {report['profile'].get('display') or report['profile'].get('id') or 'default'}",
         f"渲染引擎: {report.get('render_engine')}",
+        f"渲染证据来源: {report.get('evidence_source') or report.get('render_engine')}",
+        f"渲染证据可信度: {report.get('evidence_trust') or 'unknown'}",
+        f"版式决策可用: {'是' if report.get('layout_decision_eligible') else '否'}",
         f"结构状态: {report.get('overall_status')}",
         f"可提交状态: {report.get('readiness')}",
         f"预检状态: {report.get('preflight_status')}",
@@ -427,14 +531,34 @@ def render_render_verify_report(report: dict) -> str:
         f"报告文件: {report['report_path']}",
     ]
     if report.get("render_pdf_path"):
-        lines.append(f"Word PDF: {report['render_pdf_path']}")
+        lines.append(f"渲染 PDF: {report['render_pdf_path']}")
+    layout_score = report.get("layout_score") or {}
+    if layout_score.get("score") is not None:
+        lines.append(f"Layout Score: {layout_score.get('score')} (penalty {layout_score.get('penalty', 0)})")
+    render_text_summary = report.get("render_text_summary") or {}
+    if render_text_summary.get("available"):
+        lines.append(f"PDF文本页数: {render_text_summary.get('page_text_available_count', 0)}")
     if report.get("render_fallback_used"):
-        lines.append("提示: Word PDF 渲染不可用，本次已回退 artifact-tool。")
+        lines.append("提示: Word PDF 渲染不可用，本次未获得可用于版式判断的权威证据。")
     for warning in report.get("render_warnings") or []:
         lines.append(f"渲染提示: {warning}")
     selected_scopes = report.get("selected_scopes")
     if selected_scopes:
         lines.append(f"复核范围: {', '.join(selected_scopes)}")
+
+    render_findings = report.get("render_findings") or []
+    if render_findings:
+        lines.append("")
+        lines.append("自动页图判读：")
+        for finding in render_findings[:10]:
+            region = finding.get("region") or {}
+            region_text = f"x={region.get('x')}, y={region.get('y')}, w={region.get('w')}, h={region.get('h')}"
+            lines.append(
+                f"- 第 {finding.get('page')} 页 {finding.get('id')} [{finding.get('severity')}]: "
+                f"{finding.get('message')} ({region_text})"
+            )
+        if len(render_findings) > 10:
+            lines.append(f"- 另有 {len(render_findings) - 10} 条页图 finding，详见 JSON 报告。")
 
     wild_doc = report.get("wild_doc") or {}
     if wild_doc.get("detected"):

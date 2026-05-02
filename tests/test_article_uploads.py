@@ -80,6 +80,22 @@ def test_store_uploaded_docx_writes_upload_into_runtime(tmp_path):
     assert Path(stored.workspace_dir) == runtime_root / "uploads"
 
 
+def test_store_uploaded_docx_preserves_chinese_upload_name(tmp_path):
+    runtime_root = tmp_path / "runtime"
+
+    class FakeUpload:
+        filename = "20221303306-刘佳轾-不同改性方法对鹿皮明胶功能特性和结构特性的影响研究_摘要替换版.docx"
+
+        def __init__(self):
+            self.file = BytesIO(b"fake-docx-binary")
+
+    stored = store_uploaded_docx(FakeUpload(), runtime_root=runtime_root)
+
+    assert stored.file_name == FakeUpload.filename
+    assert Path(stored.stored_path).name.endswith(FakeUpload.filename)
+    assert infer_uploaded_docx_name(stored.stored_path) == FakeUpload.filename
+
+
 def test_store_uploaded_docx_rejects_non_docx_name(tmp_path):
     runtime_root = tmp_path / "runtime"
 

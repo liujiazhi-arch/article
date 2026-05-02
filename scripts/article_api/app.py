@@ -5,13 +5,13 @@ import os
 from pathlib import Path
 from threading import Lock
 from time import monotonic
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from article_engine import apply_fix, audit_document, normalize_document, plan_document, preflight_document, render_verify_document, verify_document
 from article_api import storage
-from article_api.profile_batch import build_profile_catalog, run_batch_workflow
+from article_api.profiles import build_profile_catalog
 from article_api.jobs import (
     cleanup_job,
     create_job,
@@ -61,6 +61,48 @@ _RETENTION_STATE: dict[str, Any] = {
     "last_error": None,
     "last_monotonic": None,
 }
+
+RENDER_WORKFLOW_MODES: tuple[dict[str, Any], ...] = (
+    {
+        "id": "default_user",
+        "title": "默认用户模式",
+        "subtitle": "用户用 Word/WPS 导出 PDF，工具只分析真实 PDF。",
+        "stability": "high",
+        "button_label": "用已导出的 PDF 复核",
+        "requires_manual_pdf": True,
+        "uses_automation": False,
+        "creates_candidate_docx": False,
+        "backend_action": "render-verify with rendered_pdf or page_images_dir",
+        "why": "Word/WPS 自动化容易被恢复弹窗、权限和超时打断；手动 PDF 最适合普通用户。",
+        "best_for": "普通用户、最终提交前复核、多人使用场景。",
+    },
+    {
+        "id": "advanced_word",
+        "title": "高级模式",
+        "subtitle": "尝试连接 Microsoft Word 自动导出 PDF。",
+        "stability": "medium",
+        "button_label": "尝试 Word 自动复核",
+        "requires_manual_pdf": False,
+        "uses_automation": True,
+        "creates_candidate_docx": False,
+        "backend_action": "render-verify with renderer=word-pdf",
+        "why": "适合本机 Word 状态稳定时快速复核；失败时应改用默认用户模式。",
+        "best_for": "开发者、本机调试、已确认 Word 不会弹恢复框的环境。",
+    },
+    {
+        "id": "agent_candidate",
+        "title": "Agent 候选稿模式",
+        "subtitle": "复核后排障工具，只在 PDF 版式复核发现可行动问题后使用。",
+        "stability": "assisted",
+        "button_label": "生成候选修复稿",
+        "requires_manual_pdf": False,
+        "uses_automation": False,
+        "creates_candidate_docx": True,
+        "backend_action": "apply candidate with headings + figures_tables + layout_rebalance",
+        "why": "它不是常规修复模式；渲染层问题需要先看 Word/WPS PDF 证据，候选稿不能直接覆盖原文，也不能跳过再次 PDF 复核。",
+        "best_for": "PDF 复核已经确认的复杂图表挤页、标题孤页、大块空白等排版排障。",
+    },
+)
 
 
 class _InlineHTMLResponse:
@@ -116,7 +158,10 @@ class RenderVerifyRequest(BaseModel):
     profile: str = Field(default="lnu")
     strict_profile: bool | None = None
     scopes: list[str] | None = None
-    renderer: str = Field(default="auto", pattern="^(auto|word-pdf|artifact-tool)$")
+    renderer: str = Field(default="auto", pattern="^(auto|word-pdf)$")
+    rendered_pdf: str | None = None
+    page_images_dir: str | None = None
+    workflow_mode: str | None = Field(default=None, pattern="^(default_user|advanced_word|agent_candidate)$")
 
 
 class VerifyRequest(BaseModel):
@@ -144,30 +189,6 @@ class ApplyRequest(BaseModel):
     force: bool = False
     stage_input: bool = False
     runtime_root: str | None = None
-    max_attempts: int = Field(default=1, ge=1)
-    retry_delay_seconds: float = Field(default=0.0, ge=0)
-    timeout_seconds: float | None = Field(default=None, gt=0)
-
-
-class BatchRequest(BaseModel):
-    operation: Literal["audit", "plan", "verify", "apply"]
-    input_path: str = Field(..., min_length=1)
-    profile: str = Field(default="lnu")
-    strict_profile: bool | None = None
-    scopes: list[str] | None = None
-    output_dir: str | None = None
-    summary_file: str | None = None
-    pattern: str = Field(default="*.docx", min_length=1)
-    recursive: bool = False
-    toc: bool = False
-    dry_run: bool = False
-    renumber_headings: bool = False
-    layout_rebalance: bool = False
-    force: bool = False
-    fail_fast: bool = False
-
-
-class BatchJobRequest(BatchRequest):
     max_attempts: int = Field(default=1, ge=1)
     retry_delay_seconds: float = Field(default=0.0, ge=0)
     timeout_seconds: float | None = Field(default=None, gt=0)
@@ -635,6 +656,9 @@ def _render_verify_kwargs(request: RenderVerifyRequest) -> dict[str, Any]:
         "scopes": request.scopes,
         "strict_profile": request.strict_profile,
         "renderer": request.renderer,
+        "rendered_pdf": request.rendered_pdf,
+        "page_images_dir": request.page_images_dir,
+        "workflow_mode": request.workflow_mode,
     }
 
 
@@ -682,42 +706,6 @@ def _apply_job_kwargs(request: ApplyRequest) -> dict[str, Any]:
         {
             "stage_input": request.stage_input,
             "runtime_root": request.runtime_root,
-            "max_attempts": request.max_attempts,
-            "retry_delay_seconds": request.retry_delay_seconds,
-            "timeout_seconds": request.timeout_seconds,
-        }
-    )
-    return payload
-
-
-def _batch_kwargs(request: BatchRequest) -> dict[str, Any]:
-    return {
-        "operation": request.operation,
-        "input_path": request.input_path,
-        "profile": request.profile,
-        "strict_profile": request.strict_profile,
-        "scopes": request.scopes,
-        "output_dir": request.output_dir,
-        "summary_file": request.summary_file,
-        "pattern": request.pattern,
-        "recursive": request.recursive,
-        "toc": request.toc,
-        "dry_run": request.dry_run,
-        "renumber_headings": request.renumber_headings,
-        "layout_rebalance": request.layout_rebalance,
-        "force": request.force,
-        "fail_fast": request.fail_fast,
-        "service_name": SERVICE_NAME,
-        "stage": SERVICE_STAGE,
-        "version": SERVICE_VERSION,
-        "api_version": API_VERSION,
-    }
-
-
-def _batch_job_kwargs(request: BatchJobRequest) -> dict[str, Any]:
-    payload = _batch_kwargs(request)
-    payload.update(
-        {
             "max_attempts": request.max_attempts,
             "retry_delay_seconds": request.retry_delay_seconds,
             "timeout_seconds": request.timeout_seconds,
@@ -1222,7 +1210,16 @@ def build_render_verify_payload(
     scopes: list[str] | None = None,
     strict_profile: bool | None = None,
     renderer: str = "auto",
+    rendered_pdf: str | None = None,
+    page_images_dir: str | None = None,
+    workflow_mode: str | None = None,
 ) -> dict[str, Any]:
+    render_workflow_mode = resolve_render_workflow_mode(
+        workflow_mode=workflow_mode,
+        renderer=renderer,
+        rendered_pdf=rendered_pdf,
+        page_images_dir=page_images_dir,
+    )
     payload = render_verify_document(
         file_path,
         output_dir=output_dir,
@@ -1230,7 +1227,12 @@ def build_render_verify_payload(
         scopes=scopes,
         strict_profile=strict_profile,
         renderer=renderer,
+        rendered_pdf=rendered_pdf,
+        page_images_dir=page_images_dir,
     )
+    render_summary = payload.get("render_summary") or {}
+    layout_score = payload.get("layout_score") or {}
+    render_text_summary = payload.get("render_text_summary") or {}
     payload.update(
         {
             "service": SERVICE_NAME,
@@ -1240,69 +1242,72 @@ def build_render_verify_payload(
             "observed_at": _utcnow(),
             "operation": "render-verify",
             "status": "ok",
+            "render_workflow_mode": render_workflow_mode,
             "summary": {
                 "page_count": payload.get("page_count", 0),
                 "render_engine": payload.get("render_engine"),
+                "evidence_source": payload.get("evidence_source"),
+                "evidence_trust": payload.get("evidence_trust"),
+                "evidence_authoritative": bool(payload.get("evidence_authoritative")),
+                "layout_decision_eligible": bool(payload.get("layout_decision_eligible")),
                 "render_fallback_used": bool(payload.get("render_fallback_used")),
+                "render_finding_count": len(payload.get("render_findings") or []),
+                "render_highest_severity": render_summary.get("highest_severity"),
+                "layout_score": layout_score.get("score"),
+                "layout_penalty": layout_score.get("penalty"),
+                "actionable_finding_count": int(render_summary.get("actionable_finding_count") or 0),
+                "expected_blank_count": int(render_summary.get("expected_blank_count") or 0),
+                "object_flow_issue_count": int(render_summary.get("object_flow_issue_count") or 0),
+                "heading_break_issue_count": int(render_summary.get("heading_break_issue_count") or 0),
+                "page_text_available_count": int(render_text_summary.get("page_text_available_count") or 0),
+                "page_text_extraction_warning_count": int(render_text_summary.get("page_text_extraction_warning_count") or 0),
                 "review_item_count": len(payload.get("review_items") or []),
                 "manual_review_rule_count": len(payload.get("manual_review_rule_ids") or []),
                 "unsupported_rule_count": len(payload.get("unsupported_rule_ids") or []),
+                "render_workflow_mode": render_workflow_mode["id"],
             },
         }
     )
     return payload
 
 
-def _recent_batch_jobs_payload(*, status: str | None = None, limit: int = 10) -> dict[str, Any]:
-    items = _filtered_job_list(operation="batch", status=status, limit=limit)
-    view_items: list[dict[str, Any]] = []
-    for item in items:
-        summary = item.get("summary") or {}
-        runtime = item.get("runtime") or {}
-        error = item.get("error") or {}
-        view_items.append(
-            {
-                "job_id": item["job_id"],
-                "status": item["status"],
-                "created_at": item.get("created_at"),
-                "started_at": item.get("started_at"),
-                "finished_at": item.get("finished_at"),
-                "batch_operation": summary.get("batch_operation"),
-                "document_name": summary.get("document_name"),
-                "input_path": summary.get("input_path") or runtime.get("input_path"),
-                "profile_id": summary.get("profile_id"),
-                "selected_scopes": summary.get("selected_scopes"),
-                "total_items": summary.get("total_items"),
-                "succeeded_items": summary.get("succeeded_items"),
-                "failed_items": summary.get("failed_items"),
-                "status_counts": summary.get("status_counts"),
-                "output_dir": summary.get("output_dir") or runtime.get("output_dir"),
-                "summary_file": summary.get("summary_file") or runtime.get("summary_file"),
-                "retry_of_job_id": runtime.get("retry_of_job_id"),
-                "error_code": summary.get("error_code") or error.get("code"),
-                "result_available": bool(item.get("result_available")),
-            }
-        )
+def build_render_workflow_modes_payload() -> dict[str, Any]:
     return {
         "service": SERVICE_NAME,
         "stage": SERVICE_STAGE,
         "version": SERVICE_VERSION,
         "api_version": API_VERSION,
-        "observed_at": _utcnow(),
-        "filters": {
-            "operation": "batch",
-            "status": status,
-            "limit": _coerce_jobs_limit(limit),
-        },
-        "summary": {
-            "total": len(view_items),
-            "succeeded": sum(1 for item in view_items if item["status"] == "succeeded"),
-            "failed": sum(1 for item in view_items if item["status"] == "failed"),
-            "running": sum(1 for item in view_items if item["status"] == "running"),
-            "queued": sum(1 for item in view_items if item["status"] == "queued"),
-        },
-        "items": view_items,
+        "recommended_mode": "default_user",
+        "render_layer_issues": [
+            "Word/WPS 才是最终版式证据，但它们不是稳定后端服务。",
+            "自动连接 Word 可能遇到权限、恢复弹窗、会员弹窗或导出 PDF 超时。",
+            "候选稿修复必须回到 DOCX，且需要再次导出 PDF 对比分数，不能直接改 PDF。",
+        ],
+        "modes": [dict(item) for item in RENDER_WORKFLOW_MODES],
     }
+
+
+def resolve_render_workflow_mode(
+    *,
+    workflow_mode: str | None,
+    renderer: str,
+    rendered_pdf: str | None,
+    page_images_dir: str | None,
+) -> dict[str, Any]:
+    mode_id = workflow_mode
+    if mode_id is None:
+        mode_id = "default_user" if rendered_pdf or page_images_dir else "advanced_word"
+    mode = next((dict(item) for item in RENDER_WORKFLOW_MODES if item["id"] == mode_id), None)
+    if mode is None:
+        valid = ", ".join(item["id"] for item in RENDER_WORKFLOW_MODES)
+        raise ValueError(f"未知渲染工作流模式: {workflow_mode}。可选: {valid}")
+    if mode_id == "default_user" and not (rendered_pdf or page_images_dir):
+        raise ValueError("默认用户模式需要先用 Word/WPS 导出 PDF，或提供页图目录。")
+    if mode_id == "advanced_word" and renderer not in {"auto", "word-pdf"}:
+        raise ValueError("高级模式只能使用 Word PDF 渲染。")
+    if mode_id == "agent_candidate":
+        raise ValueError("Agent 候选稿模式不直接执行 render-verify；请先生成候选 DOCX，再用默认用户模式复核 PDF。")
+    return mode
 
 
 def _legacy_local_console_html() -> str:
@@ -1312,386 +1317,19 @@ def _legacy_local_console_html() -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>论文格式本地控制台</title>
-  <style>
-    :root { color-scheme: light; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f5f7fa; color: #1f2937; }
-    main { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    h1, h2 { margin: 0 0 12px; }
-    p { margin: 0 0 12px; line-height: 1.5; }
-    .grid { display: grid; grid-template-columns: 360px 1fr; gap: 16px; align-items: start; }
-    .panel { background: #fff; border: 1px solid #dbe3ec; border-radius: 8px; padding: 16px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
-    .stack { display: grid; gap: 12px; }
-    .row { display: grid; gap: 6px; }
-    .row.inline { grid-template-columns: 1fr 1fr; gap: 10px; }
-    label { font-size: 13px; font-weight: 600; color: #334155; }
-    input, select, button, textarea { font: inherit; }
-    input[type="text"], select, textarea { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; background: #fff; }
-    textarea { min-height: 110px; resize: vertical; }
-    .checkbox { display: flex; align-items: center; gap: 8px; font-size: 14px; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    button { border: 1px solid #cbd5e1; background: #0f172a; color: #fff; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
-    button.secondary { background: #fff; color: #0f172a; }
-    button.link { background: transparent; color: #2563eb; border: none; padding: 0; }
-    .muted { color: #64748b; font-size: 13px; }
-    .status { font-weight: 700; }
-    .status.ok { color: #15803d; }
-    .status.failed { color: #b91c1c; }
-    .status.running { color: #b45309; }
-    .status.queued { color: #2563eb; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-    th { color: #475569; font-weight: 600; }
-    pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; }
-    .toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
-    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e2e8f0; font-size: 12px; color: #334155; }
-    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
-  </style>
 </head>
 <body>
-  <main class="stack">
-    <section class="panel stack">
-      <div class="toolbar">
-        <div>
-          <h1>论文格式本地控制台</h1>
-          <p class="muted">本地批量任务、最近结果、任务详情和重试入口。</p>
-        </div>
-        <div class="actions">
-          <a href="/docs"><button type="button" class="secondary">接口文档</button></a>
-          <a href="/profiles"><button type="button" class="secondary">配置列表 JSON</button></a>
-          <a href="/jobs/batches/recent"><button type="button" class="secondary">最近任务 JSON</button></a>
-        </div>
-      </div>
-      <div id="health-line" class="muted">正在读取服务状态...</div>
+  <main>
+    <h1>论文格式本地控制台</h1>
+    <section>
+      <h2>单篇论文处理</h2>
+      <p>选择 Word 论文后，可以使用审查、修复、规范化和 Word 版式复核。</p>
     </section>
-
-    <section class="grid">
-      <div class="stack">
-        <section class="panel stack">
-          <h2>发起批量任务</h2>
-          <form id="batch-job-form" class="stack">
-            <div class="row inline">
-              <div class="row">
-                <label for="operation">批量操作</label>
-                <select id="operation" name="operation">
-                  <option value="audit">批量审查</option>
-                  <option value="plan">生成计划</option>
-                  <option value="verify">批量复查</option>
-                  <option value="apply">批量修复</option>
-                </select>
-              </div>
-              <div class="row">
-                <label for="profile">配置方案</label>
-                <select id="profile" name="profile"></select>
-              </div>
-            </div>
-            <div class="row">
-              <label for="input_path">输入目录或文件路径</label>
-              <input id="input_path" name="input_path" type="text" placeholder="/Users/apple/Desktop/论文目录">
-            </div>
-            <div class="row inline">
-              <div class="row">
-                <label for="scopes">修复范围（逗号分隔，可空）</label>
-                <input id="scopes" name="scopes" type="text" placeholder="headings,references">
-              </div>
-              <div class="row">
-                <label for="summary_file">汇总文件路径</label>
-                <input id="summary_file" name="summary_file" type="text" placeholder="/Users/apple/Desktop/article-batch-summary.json">
-              </div>
-            </div>
-            <div class="row">
-              <label for="output_dir">输出目录（批量修复时可填）</label>
-              <input id="output_dir" name="output_dir" type="text" placeholder="/Users/apple/Desktop/article-batch-output">
-            </div>
-            <label class="checkbox"><input id="recursive" name="recursive" type="checkbox" checked>递归扫描目录</label>
-            <div class="actions">
-              <button type="submit">提交批量任务</button>
-              <button type="button" class="secondary" id="refresh-button">刷新最近任务</button>
-            </div>
-          </form>
-          <div class="muted">提交后会进入统一 job 历史，可在右侧查看状态、结果和重试。</div>
-        </section>
-
-        <section class="panel stack">
-          <h2>按任务编号查询</h2>
-          <div class="actions">
-            <input id="job-id-input" type="text" placeholder="粘贴任务编号">
-            <button type="button" id="load-job-button">查看任务</button>
-          </div>
-        </section>
-      </div>
-
-      <div class="stack">
-        <section class="panel stack">
-          <div class="toolbar">
-            <h2>最近批量任务</h2>
-            <span class="pill" id="recent-summary">-</span>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>任务编号</th>
-                <th>状态</th>
-                <th>操作</th>
-                <th>输入</th>
-                <th>结果</th>
-                <th>动作</th>
-              </tr>
-            </thead>
-            <tbody id="recent-batches-body">
-              <tr><td colspan="6" class="muted">正在加载...</td></tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section class="panel stack">
-          <h2>任务摘要</h2>
-          <pre id="job-detail">等待选择任务...</pre>
-        </section>
-
-        <section class="panel stack">
-          <h2>任务结果摘要</h2>
-          <pre id="job-result">等待选择任务...</pre>
-        </section>
-      </div>
+    <section>
+      <h2>历史与排障</h2>
+      <p>任务历史、备份恢复和维护接口仍通过 JSON API 提供。</p>
     </section>
   </main>
-
-  <script>
-    const state = { activeJobId: null, pollTimer: null };
-    const OPERATION_LABELS = { audit: '批量审查', plan: '生成计划', verify: '批量复查', apply: '批量修复', batch: '批量任务' };
-    const STATUS_LABELS = { queued: '排队中', running: '执行中', succeeded: '已完成', failed: '失败', ok: '正常' };
-
-    async function getJson(url, options) {
-      const response = await fetch(url, options);
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `${response.status}`);
-      }
-      return response.json();
-    }
-
-    function setBlockText(targetId, text) {
-      document.getElementById(targetId).textContent = text;
-    }
-
-    function setHealthLine(message, status) {
-      const el = document.getElementById('health-line');
-      el.innerHTML = `<span class="status ${status || ''}">${message}</span>`;
-    }
-
-    function labelOperation(value) {
-      return OPERATION_LABELS[value] || value || '-';
-    }
-
-    function labelStatus(value) {
-      return STATUS_LABELS[value] || value || '-';
-    }
-
-    function summarizeJobDetail(detail) {
-      const summary = detail.summary || {};
-      const runtime = detail.runtime || {};
-      const lines = [
-        `任务编号: ${detail.job_id || '-'}`,
-        `任务类型: ${labelOperation(detail.operation)}`,
-        `当前状态: ${labelStatus(detail.status)}`,
-        `创建时间: ${detail.created_at || '-'}`,
-        `开始时间: ${detail.started_at || '-'}`,
-        `完成时间: ${detail.finished_at || '-'}`,
-      ];
-      if (summary.batch_operation) lines.push(`批量动作: ${labelOperation(summary.batch_operation)}`);
-      if (summary.document_name) lines.push(`输入名称: ${summary.document_name}`);
-      if (summary.input_path || runtime.input_path) lines.push(`输入路径: ${summary.input_path || runtime.input_path}`);
-      if (summary.profile_id) lines.push(`配置方案: ${summary.profile_id}`);
-      if (summary.total_items != null) lines.push(`文件总数: ${summary.total_items}`);
-      if (summary.succeeded_items != null) lines.push(`成功文件: ${summary.succeeded_items}`);
-      if (summary.failed_items != null) lines.push(`失败文件: ${summary.failed_items}`);
-      if (summary.output_dir || runtime.output_dir) lines.push(`输出目录: ${summary.output_dir || runtime.output_dir}`);
-      if (summary.summary_file || runtime.summary_file) lines.push(`汇总文件: ${summary.summary_file || runtime.summary_file}`);
-      if (runtime.retry_of_job_id) lines.push(`重试来源: ${runtime.retry_of_job_id}`);
-      if (summary.error_code || (detail.error || {}).code) lines.push(`错误代码: ${summary.error_code || detail.error.code}`);
-      if ((detail.error || {}).message) lines.push(`错误信息: ${detail.error.message}`);
-      return lines.join('\\n');
-    }
-
-    function summarizeJobResult(payload) {
-      const summary = payload.summary || {};
-      const result = payload.result || {};
-      const lines = [
-        `任务编号: ${payload.job_id || '-'}`,
-        `最终状态: ${labelStatus(payload.status)}`,
-      ];
-      if (summary.batch_operation) lines.push(`批量动作: ${labelOperation(summary.batch_operation)}`);
-      if (summary.total_items != null) lines.push(`文件总数: ${summary.total_items}`);
-      if (summary.succeeded_items != null) lines.push(`成功文件: ${summary.succeeded_items}`);
-      if (summary.failed_items != null) lines.push(`失败文件: ${summary.failed_items}`);
-      if (summary.output_dir) lines.push(`输出目录: ${summary.output_dir}`);
-      if (summary.summary_file) lines.push(`汇总文件: ${summary.summary_file}`);
-      if (payload.error && payload.error.message) lines.push(`错误信息: ${payload.error.message}`);
-      const items = Array.isArray(result.items) ? result.items.slice(0, 12) : [];
-      if (items.length) {
-        lines.push('', '文件明细:');
-        items.forEach((item, index) => {
-          lines.push(`${index + 1}. ${item.relative_path || item.input_path || '-'}`);
-          lines.push(`   状态: ${labelStatus(item.status)} / 结果: ${labelStatus(item.overall_status)}`);
-          if (item.failed_rules != null) lines.push(`   未通过规则: ${item.failed_rules}`);
-          if (item.output_path) lines.push(`   输出文件: ${item.output_path}`);
-          if (item.error) lines.push(`   错误: ${item.error}`);
-        });
-        if ((result.items || []).length > items.length) {
-          lines.push(`... 其余 ${result.items.length - items.length} 个文件请看汇总文件或 JSON 接口。`);
-        }
-      }
-      return lines.join('\\n');
-    }
-
-    async function loadProfiles() {
-      const payload = await getJson('/profiles');
-      const select = document.getElementById('profile');
-      select.innerHTML = '';
-      for (const item of payload.profiles) {
-        const scenarioLabels = Array.isArray(item.support_scenarios)
-          ? item.support_scenarios.map((scenario) => scenario.label).filter(Boolean)
-          : [];
-        const supportBadge = item.support_level_label || '';
-        const option = document.createElement('option');
-        option.value = item.id === 'cn-common' ? 'cn-common' : (item.aliases[0] || item.id);
-        option.textContent = [
-          item.id,
-          item.school || '',
-          scenarioLabels.join(' / '),
-          supportBadge,
-        ].filter(Boolean).join(' · ');
-        if (option.value === 'lnu') option.selected = true;
-        select.appendChild(option);
-      }
-    }
-
-    function clearPolling() {
-      if (state.pollTimer) {
-        clearTimeout(state.pollTimer);
-        state.pollTimer = null;
-      }
-    }
-
-    async function loadJob(jobId, poll = false) {
-      clearPolling();
-      state.activeJobId = jobId;
-      document.getElementById('job-id-input').value = jobId;
-      try {
-        const detail = await getJson(`/jobs/${jobId}`);
-        setBlockText('job-detail', summarizeJobDetail(detail));
-        if (detail.status === 'queued' || detail.status === 'running') {
-          setBlockText('job-result', `任务仍在执行中...\\n任务编号: ${jobId}\\n当前状态: ${labelStatus(detail.status)}`);
-          if (poll) {
-            state.pollTimer = setTimeout(() => loadJob(jobId, true), 1500);
-          }
-          return;
-        }
-        const result = await getJson(`/jobs/${jobId}/result`);
-        setBlockText('job-result', summarizeJobResult(result));
-        await refreshRecentBatches();
-      } catch (error) {
-        setBlockText('job-result', `读取任务失败\\n${String(error)}`);
-      }
-    }
-
-    async function retryJob(jobId) {
-      try {
-        const payload = await getJson(`/jobs/${jobId}/retry`, { method: 'POST' });
-        await refreshRecentBatches();
-        await loadJob(payload.job_id, true);
-      } catch (error) {
-        setBlockText('job-result', `重试任务失败\\n${String(error)}`);
-      }
-    }
-
-    async function refreshRecentBatches() {
-      const payload = await getJson('/jobs/batches/recent?limit=12');
-      document.getElementById('recent-summary').textContent = `共 ${payload.summary.total} 个 / 成功 ${payload.summary.succeeded} / 失败 ${payload.summary.failed}`;
-      const body = document.getElementById('recent-batches-body');
-      body.innerHTML = '';
-      if (!payload.items.length) {
-        body.innerHTML = '<tr><td colspan="6" class="muted">暂无批量任务。</td></tr>';
-        return;
-      }
-      for (const item of payload.items) {
-        const tr = document.createElement('tr');
-        const retryButton = item.status === 'failed'
-          ? `<button type="button" class="link" data-retry="${item.job_id}">重试</button>`
-          : '';
-        tr.innerHTML = `
-          <td><button type="button" class="link" data-job="${item.job_id}">${item.job_id.slice(0, 10)}</button></td>
-          <td><span class="status ${item.status}">${labelStatus(item.status)}</span></td>
-          <td>${labelOperation(item.batch_operation)}</td>
-          <td>${item.document_name || '-'}</td>
-          <td>成功 ${item.succeeded_items ?? '-'} / 失败 ${item.failed_items ?? '-'}</td>
-        `;
-        body.appendChild(tr);
-        if (retryButton) {
-          const actionTd = document.createElement('td');
-          actionTd.innerHTML = retryButton;
-          tr.appendChild(actionTd);
-        } else {
-          const actionTd = document.createElement('td');
-          actionTd.textContent = '';
-          tr.appendChild(actionTd);
-        }
-      }
-      body.querySelectorAll('[data-job]').forEach((button) => {
-        button.addEventListener('click', () => loadJob(button.dataset.job, false));
-      });
-      body.querySelectorAll('[data-retry]').forEach((button) => {
-        button.addEventListener('click', () => retryJob(button.dataset.retry));
-      });
-    }
-
-    async function refreshOverview() {
-      const health = await getJson('/health');
-      setHealthLine(`服务正常: ${health.service} ${health.version}`, 'ok');
-      await refreshRecentBatches();
-    }
-
-    async function submitBatchJob(event) {
-      event.preventDefault();
-      const payload = {
-        operation: document.getElementById('operation').value,
-        input_path: document.getElementById('input_path').value.trim(),
-        profile: document.getElementById('profile').value,
-        recursive: document.getElementById('recursive').checked,
-      };
-      const scopesText = document.getElementById('scopes').value.trim();
-      const summaryFile = document.getElementById('summary_file').value.trim();
-      const outputDir = document.getElementById('output_dir').value.trim();
-      if (scopesText) payload.scopes = scopesText.split(',').map((item) => item.trim()).filter(Boolean);
-      if (summaryFile) payload.summary_file = summaryFile;
-      if (outputDir) payload.output_dir = outputDir;
-      try {
-        const created = await getJson('/jobs/batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        setBlockText('job-detail', `批量任务已创建\\n任务编号: ${created.job_id}\\n当前状态: ${labelStatus(created.status)}`);
-        setBlockText('job-result', `批量任务已创建，正在轮询结果...\\n任务编号: ${created.job_id}`);
-        await refreshRecentBatches();
-        await loadJob(created.job_id, true);
-      } catch (error) {
-        setBlockText('job-result', `提交批量任务失败\\n${String(error)}`);
-      }
-    }
-
-    document.getElementById('batch-job-form').addEventListener('submit', submitBatchJob);
-    document.getElementById('refresh-button').addEventListener('click', refreshOverview);
-    document.getElementById('load-job-button').addEventListener('click', () => {
-      const jobId = document.getElementById('job-id-input').value.trim();
-      if (jobId) loadJob(jobId, false);
-    });
-
-    Promise.all([loadProfiles(), refreshOverview()]).catch((error) => {
-      setHealthLine(`加载失败: ${error}`, 'failed');
-      setBlockText('job-result', `加载失败\\n${String(error)}`);
-    });
-  </script>
 </body>
 </html>"""
 
@@ -1753,6 +1391,10 @@ def create_app():
             )
         except Exception as exc:
             _raise_sync_http_error(exc)
+
+    @app.get("/render-workflow-modes")
+    def render_workflow_modes() -> dict[str, Any]:
+        return build_render_workflow_modes_payload()
 
     @app.get("/ops/summary")
     def ops_summary() -> dict[str, Any]:
@@ -1838,15 +1480,6 @@ def create_app():
         except Exception as exc:
             _raise_sync_http_error(exc)
 
-    @app.post("/batch")
-    def batch_endpoint(request: BatchRequest) -> dict[str, Any]:
-        try:
-            return run_batch_workflow(
-                **_batch_kwargs(request),
-            )
-        except Exception as exc:
-            _raise_sync_http_error(exc)
-
     @app.post("/jobs/verify", status_code=201)
     def create_verify_job(request: VerifyRequest) -> dict[str, Any]:
         try:
@@ -1868,14 +1501,6 @@ def create_app():
         try:
             _maybe_autorun_retention()
             return create_job("apply", _apply_job_kwargs(request))
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/jobs/batch", status_code=201)
-    def create_batch_job(request: BatchJobRequest) -> dict[str, Any]:
-        try:
-            _maybe_autorun_retention()
-            return create_job("batch", _batch_job_kwargs(request))
         except Exception as exc:
             _raise_job_http_error(exc)
 
@@ -1974,16 +1599,6 @@ def create_app():
     ) -> list[dict[str, Any]]:
         try:
             return _filtered_job_list(operation=operation, status=status, limit=limit)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/jobs/batches/recent")
-    def recent_batch_jobs(
-        status: str | None = None,
-        limit: int = 10,
-    ) -> dict[str, Any]:
-        try:
-            return _recent_batch_jobs_payload(status=status, limit=limit)
         except Exception as exc:
             _raise_job_http_error(exc)
 

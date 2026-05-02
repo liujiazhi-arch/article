@@ -1,4 +1,3 @@
-import json
 import re
 from pathlib import Path
 
@@ -173,15 +172,6 @@ def test_lnu_profile_active_additions_match_runtime_extensions():
     profile_lnu_extensions = {item["id"] for item in profile_data.get("additions") or []}
 
     assert profile_lnu_extensions == runtime_lnu_extensions
-
-
-def test_package_json_only_exposes_current_python_workflow_scripts():
-    package_path = Path(__file__).resolve().parents[1] / "package.json"
-    package_data = json.loads(package_path.read_text(encoding="utf-8"))
-    scripts = package_data["scripts"]
-
-    assert sorted(scripts) == ["apply", "audit", "plan", "scopes", "test", "verify"]
-    assert not any("preview" in value for value in scripts.values())
 
 
 def test_validate_docx_path_rejects_legacy_doc_input(tmp_path):

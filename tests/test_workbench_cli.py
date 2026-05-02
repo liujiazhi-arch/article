@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import glob
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,12 +8,6 @@ from docx import Document
 import pytest
 
 from .conftest import RULE_MUTATORS, SCRIPTS_DIR, audit_rule_status, make_compliant_doc
-
-
-_RENDER_DOCX_SCRIPT_READY = bool(
-    glob.glob(os.path.expanduser("~/.codex/plugins/cache/openai-primary-runtime/documents/*/skills/documents/render_docx.py"))
-)
-
 
 def _make_high_risk_lnu_doc(source_path: Path) -> Path:
     doc = Document()
@@ -492,8 +484,7 @@ def test_workbench_normalize_cli_supports_compact_output(tmp_path):
     assert "after_preflight_status=warning" in result.stdout
 
 
-@pytest.mark.skipif(not _RENDER_DOCX_SCRIPT_READY, reason="requires bundled render_docx.py")
-def test_workbench_render_verify_cli_writes_page_proof(tmp_path):
+def test_workbench_render_verify_cli_rejects_artifact_tool_renderer(tmp_path):
     source_path = Path(tmp_path) / "workbench_cli_render_verify.docx"
     doc = Document()
     doc.add_heading("Render Verify", level=1)
@@ -518,12 +509,8 @@ def test_workbench_render_verify_cli_writes_page_proof(tmp_path):
         check=False,
     )
 
-    assert result.returncode == 0, result.stderr
-    assert "渲染引擎: artifact-tool" in result.stdout
-    assert "渲染证据目录:" in result.stdout
-    assert "生成页图:" in result.stdout
-    assert (output_dir / "page-1.png").exists()
-    assert (output_dir / "render_verify_report.json").exists()
+    assert result.returncode == 2
+    assert "artifact-tool" in result.stderr
 
 
 def test_workbench_verify_cli_highlights_manual_review_rules(tmp_path):

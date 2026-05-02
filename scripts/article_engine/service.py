@@ -358,6 +358,8 @@ def render_verify_document(
     scopes=None,
     strict_profile: bool | None = None,
     renderer: str = "auto",
+    rendered_pdf: str | None = None,
+    page_images_dir: str | None = None,
 ) -> dict[str, Any]:
     return build_render_verify_report(
         file_path,
@@ -366,6 +368,8 @@ def render_verify_document(
         scopes=scopes,
         strict_profile=strict_profile,
         renderer=renderer,
+        rendered_pdf=rendered_pdf,
+        page_images_dir=page_images_dir,
     )
 
 
@@ -418,6 +422,7 @@ def apply_fix(
     force: bool = False,
 ) -> dict[str, Any]:
     resolved_output_path = output_path or _default_output_path(file_path, scopes)
+    Path(resolved_output_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
     selected_scopes = normalize_scope_names(scopes)
 
     if dry_run:
