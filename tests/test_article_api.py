@@ -260,7 +260,20 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     wait_for_job(create_payload["job_id"])
     summary_payload = routes["/ops/summary"].endpoint()
 
-    assert "论文格式本地控制台" in console_response.body.decode("utf-8")
+    console_html = console_response.body.decode("utf-8")
+    assert "论文格式本地控制台" in console_html
+    assert "单篇论文处理" in console_html
+    assert "选择 Word 论文" in console_html
+    assert "一键处理并复核" in console_html
+    assert "高级设置" in console_html
+    assert "分步操作" in console_html
+    assert "Word 版式复核" in console_html
+    assert "论文格式修改工具" in console_html
+    assert "原文不会被覆盖" in console_html
+    assert "总体结论" in console_html
+    assert "历史与排障" in console_html
+    assert "批量任务" not in console_html
+    assert "适合发给学弟学妹使用" not in console_html
     assert health_payload["service"] == "article-api"
     assert health_payload["status"] == "ok"
     assert version_payload["version"] == "0.1.0"

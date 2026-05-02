@@ -469,7 +469,7 @@ def test_normalize_lnu_preface_heading_numbering_uses_zero_preface():
     assert get_paragraph_text(preface).strip() == "序  言"
     assert get_paragraph_text(preface_h2).strip() == "0.1 研究背景"
     assert get_paragraph_text(preface_h3).strip() == "0.1.1 研究现状"
-    assert get_paragraph_text(chapter1).strip() == "1 材料与方法"
+    assert get_paragraph_text(chapter1).strip() == "第1章 材料与方法"
     assert get_paragraph_text(chapter1_h2).strip() == "1.1 实验设计"
 
 
@@ -525,7 +525,7 @@ def test_normalize_lnu_preface_heading_numbering_skips_table_paragraphs():
 
     assert changed == 3
     assert get_paragraph_text(table_like).strip() == "3 1,4-Diaminobutane"
-    assert get_paragraph_text(chapter1).strip() == "1 材料与方法"
+    assert get_paragraph_text(chapter1).strip() == "第1章 材料与方法"
 
 
 def test_fix_heading_paragraph_forces_heading_style_and_clears_char_indent(lnu_cfg, lnu_runtime):
@@ -581,6 +581,40 @@ def test_renumber_body_headings_rewrites_zero_based_intro():
     assert fix_thesis.get_paragraph_text(h2).strip() == "1.1 研究背景"
     assert fix_thesis.get_paragraph_text(h3).strip() == "1.1.1 研究基础"
     assert fix_thesis.get_paragraph_text(h1b).strip() == "2 材料与方法"
+
+
+def test_renumber_lnu_captions_uses_zero_chapter_for_preface_section():
+    preface = _make_paragraph("序  言")
+    preface_pr = ET.SubElement(preface, _w("pPr"))
+    preface_style = ET.SubElement(preface_pr, _w("pStyle"))
+    preface_style.set(_w("val"), "Heading1")
+
+    caption = _make_paragraph("图1.1  绪论框架图")
+    caption_pr = ET.SubElement(caption, _w("pPr"))
+    caption_style = ET.SubElement(caption_pr, _w("pStyle"))
+    caption_style.set(_w("val"), "Caption")
+
+    body_h1 = _make_paragraph("第1章 材料与方法")
+    body_h1_pr = ET.SubElement(body_h1, _w("pPr"))
+    body_h1_style = ET.SubElement(body_h1_pr, _w("pStyle"))
+    body_h1_style.set(_w("val"), "Heading1")
+
+    body_caption = _make_paragraph("图1.9  实验流程图")
+    body_caption_pr = ET.SubElement(body_caption, _w("pPr"))
+    body_caption_style = ET.SubElement(body_caption_pr, _w("pStyle"))
+    body_caption_style.set(_w("val"), "Caption")
+
+    document = _make_doc_root(preface, caption, body_h1, body_caption)
+    style_map = {
+        "Heading1": {"outlineLvl": 0, "sz": 30, "bold": False, "jc": "center", "name": "heading 1", "basedOn": None},
+        "Caption": {"name": "caption", "basedOn": None},
+    }
+
+    changed = fix_thesis.renumber_lnu_captions(document, style_map)
+
+    assert changed == 2
+    assert get_paragraph_text(caption).strip() == "图0.1  绪论框架图"
+    assert get_paragraph_text(body_caption).strip() == "图1.1  实验流程图"
 
 
 def test_lnu_compact_text_restores_heading_gap_after_compacting_mixed_text():

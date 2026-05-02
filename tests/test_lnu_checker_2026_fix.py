@@ -180,6 +180,22 @@ def test_fix_caption_helpers_apply_checker_2026_number_format_and_trim_terminal_
     assert get_paragraph_text(caption) == "图2.1  菌株系统发育树"
 
 
+def test_fix_caption_note_paragraph_normalizes_lnu_note_prefix_to_numbered_form():
+    paragraph = _make_paragraph("注 ：正式实验各组样品初始投料质量均为 1.00 g。", sz=21)
+
+    fix_thesis.fix_caption_note_paragraph(paragraph, cfg=_checker_2026_cfg())
+
+    assert get_paragraph_text(paragraph) == "注1) 正式实验各组样品初始投料质量均为 1.00 g。"
+
+
+def test_fix_caption_note_paragraph_preserves_existing_multi_note_numbering():
+    paragraph = _make_paragraph("注：1) 第一条；2) 第二条。", sz=21)
+
+    fix_thesis.fix_caption_note_paragraph(paragraph, cfg=_checker_2026_cfg())
+
+    assert get_paragraph_text(paragraph) == "注：1) 第一条；2) 第二条。"
+
+
 def test_trim_caption_terminal_punctuation_also_handles_table_caption():
     caption = _make_paragraph("表2.1  组装统计。", sz=21)
 

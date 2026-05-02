@@ -1305,7 +1305,7 @@ def _recent_batch_jobs_payload(*, status: str | None = None, limit: int = 10) ->
     }
 
 
-def _local_console_html() -> str:
+def _legacy_local_console_html() -> str:
     return """<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1694,6 +1694,14 @@ def _local_console_html() -> str:
   </script>
 </body>
 </html>"""
+
+
+def _local_console_html() -> str:
+    html_path = Path(__file__).with_name("local_console.html")
+    try:
+        return html_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return _legacy_local_console_html()
 
 
 def fastapi_available() -> bool:

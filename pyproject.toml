@@ -59,6 +59,9 @@ include = [
   "article_api.*",
 ]
 
+[tool.setuptools.package-data]
+article_api = ["local_console.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

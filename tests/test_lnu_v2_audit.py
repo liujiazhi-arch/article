@@ -246,6 +246,45 @@ def test_abs01_old_size_violation(lnu_cfg):
     assert any("30" in msg for msg in issues)
 
 
+def test_eq03_accepts_lnu_dot_number_equation_reference():
+    paragraph = _make_paragraph("相关参数按式(2.1)计算。")
+    contexts = [_ctx(1, paragraph, "相关参数按式(2.1)计算。", "body", "body")]
+
+    passed, issues, _ = audit_thesis.check_eq03(
+        _doc_with_paragraphs(paragraph),
+        contexts,
+        {},
+        {"eq_number_sep": "."},
+    )
+
+    assert passed, issues
+
+
+def test_eq03_rejects_missing_parentheses_even_for_dot_number():
+    paragraph = _make_paragraph("相关参数按式2.1计算。")
+    contexts = [_ctx(1, paragraph, "相关参数按式2.1计算。", "body", "body")]
+
+    passed, issues, _ = audit_thesis.check_eq03(_doc_with_paragraphs(paragraph), contexts, {})
+
+    assert not passed
+    assert any("式(" in issue or "格式" in issue for issue in issues)
+
+
+def test_eq03_cn_common_still_rejects_dot_number_reference():
+    paragraph = _make_paragraph("相关参数按式(2.1)计算。")
+    contexts = [_ctx(1, paragraph, "相关参数按式(2.1)计算。", "body", "body")]
+
+    passed, issues, _ = audit_thesis.check_eq03(
+        _doc_with_paragraphs(paragraph),
+        contexts,
+        {},
+        {"eq_number_sep": "-"},
+    )
+
+    assert not passed
+    assert any("X-Y" in issue or "式(" in issue for issue in issues)
+
+
 # ---------------------------------------------------------------------------
 # LNU_ABS01 — spacing after
 # ---------------------------------------------------------------------------

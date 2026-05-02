@@ -92,6 +92,18 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert runtime_response.status_code == 200
     assert storage_response.status_code == 200
     assert "论文格式本地控制台" in console_response.text
+    assert "单篇论文处理" in console_response.text
+    assert "选择 Word 论文" in console_response.text
+    assert "一键处理并复核" in console_response.text
+    assert "高级设置" in console_response.text
+    assert "分步操作" in console_response.text
+    assert "Word 版式复核" in console_response.text
+    assert "论文格式修改工具" in console_response.text
+    assert "原文不会被覆盖" in console_response.text
+    assert "总体结论" in console_response.text
+    assert "历史与排障" in console_response.text
+    assert "批量任务" not in console_response.text
+    assert "适合发给学弟学妹使用" not in console_response.text
     assert health_response.json()["service"] == "article-api"
     assert ready_response.json()["status"] == "ready"
     assert ready_response.json()["checks"]["runtime_root"]["status"] == "ok"

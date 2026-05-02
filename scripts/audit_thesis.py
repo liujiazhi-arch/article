@@ -2183,25 +2183,27 @@ def check_eq02(document_root, contexts, style_map, cfg=None):
     return True, [], "全部含编号公式段落"
 
 
-def check_eq03(document_root, contexts, style_map):
-    """正文中引用公式应使用 '式(X-Y)' 或 '式（X-Y）' 格式。"""
-    bad_pat = re.compile(r"式\d")
-    good_pat = re.compile(r"式[（(]\d+-\d+[)）]")
+def check_eq03(document_root, contexts, style_map, cfg=None):
+    """正文中引用公式应使用 profile 约定的 '式(X-Y)' / '式(X.Y)' 格式。"""
+    sep = re.escape((cfg or {}).get("eq_number_sep", "-"))
+    bad_pat = re.compile(r"式(?:[（(])?\d+[.-]\d+")
+    good_pat = re.compile(rf"式[（(]\d+{sep}\d+[)）]")
     bad_positions = []
     samples = []
     for ctx in contexts:
         if not is_main_body_context(ctx):
             continue
         text = ctx["text"]
-        if not bad_pat.search(text):
-            continue
         if good_pat.search(text):
+            continue
+        if not bad_pat.search(text):
             continue
         bad_positions.append(ctx["index"])
         if len(samples) < 3:
             samples.append(f"第{ctx['index']}段公式引用格式异常：\"{excerpt(text)}\"")
     if bad_positions:
-        issues = [f"{len(bad_positions)} 个正文段落的公式引用格式不符合 '式(X-Y)' 规范。"]
+        expected = "式(X.Y)" if (cfg or {}).get("eq_number_sep") == "." else "式(X-Y)"
+        issues = [f"{len(bad_positions)} 个正文段落的公式引用格式不符合 '{expected}' 规范。"]
         issues.extend(samples)
         return False, issues, summarize_positions(bad_positions)
     return True, [], "全部公式引用"
@@ -3725,7 +3727,7 @@ RULE_CHECKERS = {
     "KW01": lambda doc, ctxs, sm, cfg: check_kw01(doc, ctxs, sm, cfg),
     "EQ01": lambda doc, ctxs, sm, cfg: check_eq01(doc, ctxs, sm),
     "EQ02": lambda doc, ctxs, sm, cfg: check_eq02(doc, ctxs, sm, cfg),
-    "EQ03": lambda doc, ctxs, sm, cfg: check_eq03(doc, ctxs, sm),
+    "EQ03": lambda doc, ctxs, sm, cfg: check_eq03(doc, ctxs, sm, cfg),
     "F03": lambda doc, ctxs, sm, cfg: check_f03(doc, ctxs, sm, cfg),
     "F04": lambda doc, ctxs, sm, cfg: check_f04(doc, ctxs, sm, cfg),
     "F05": lambda doc, ctxs, sm, cfg: check_f05(doc, ctxs, sm),

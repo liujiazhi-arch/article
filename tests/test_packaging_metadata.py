@@ -44,3 +44,10 @@ def test_console_script_targets_resolve_to_callables():
         module = importlib.import_module(module_name)
         target_obj = getattr(module, attr_name)
         assert callable(target_obj), f"{script_name} target must be callable"
+
+
+def test_pyproject_includes_local_console_asset():
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+
+    assert data["tool"]["setuptools"]["package-data"]["article_api"] == ["local_console.html"]

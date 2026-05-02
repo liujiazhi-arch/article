@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>论文格式本地控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%231d1d1f'/%3E%3Cpath d='M20 16h18l8 8v24H20z' fill='white'/%3E%3Cpath d='M38 16v9h8' fill='%23e8f1ff'/%3E%3Cpath d='M25 32h14M25 38h14M25 44h10' stroke='%230071e3' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1d1d1f;
+      --soft: #6e6e73;
+      --hairline: rgba(0, 0, 0, 0.08);
+      --blue: #0071e3;
+      --bg: #f5f5f7;
+      --white: #fff;
+      --green: #0b7a4b;
+      --amber: #a15c00;
+      --red: #b42318;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+    button, input, select { font: inherit; }
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 18px;
+      background: #e8e8ed;
+      color: var(--ink);
+      cursor: pointer;
+      transition: transform 160ms ease, background 160ms ease, opacity 160ms ease;
+      white-space: nowrap;
+    }
+    button:hover { transform: translateY(-1px); background: #dedee3; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    button.primary { background: var(--blue); color: #fff; }
+    button.primary:hover { background: #0077ed; }
+    button.text { background: transparent; color: var(--blue); padding: 8px 4px; }
+    input[type="text"], select {
+      width: 100%;
+      height: 44px;
+      border: 1px solid var(--hairline);
+      border-radius: 12px;
+      padding: 0 13px;
+      background: #fff;
+      color: var(--ink);
+      outline: none;
+    }
+    input[type="text"]:focus, select:focus {
+      border-color: rgba(0, 113, 227, 0.55);
+      box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.12);
+    }
+    label { display: block; margin: 0 0 8px; color: var(--soft); font-size: 13px; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      height: 52px;
+      display: flex;
+      justify-content: center;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+      background: rgba(245, 245, 247, 0.82);
+      backdrop-filter: saturate(180%) blur(20px);
+    }
+    .topbar-inner {
+      width: min(1180px, calc(100% - 36px));
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 18px;
+      font-size: 13px;
+    }
+    .brand { font-weight: 700; }
+    .nav { margin-left: auto; display: flex; gap: 26px; color: var(--soft); }
+    .nav button { padding: 0; background: transparent; color: inherit; border-radius: 0; }
+    .nav button.active { color: var(--ink); }
+    .health { color: var(--soft); margin-left: 8px; }
+    .page { display: none; }
+    .page.active { display: block; }
+    .hero {
+      min-height: 300px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 54px 24px 30px;
+    }
+    .hero small {
+      display: block;
+      margin-bottom: 14px;
+      color: var(--soft);
+      font-size: 17px;
+      font-weight: 600;
+    }
+    .hero h1 {
+      max-width: 980px;
+      margin: 0;
+      font-size: clamp(44px, 7.2vw, 84px);
+      line-height: 0.98;
+      letter-spacing: 0;
+      font-weight: 700;
+    }
+    .hero p {
+      max-width: 720px;
+      margin: 18px auto 0;
+      color: var(--soft);
+      font-size: clamp(18px, 2.2vw, 25px);
+      line-height: 1.38;
+    }
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 22px;
+    }
+    .stage {
+      width: min(1120px, calc(100% - 36px));
+      margin: 0 auto 34px;
+      overflow: hidden;
+      border-radius: 28px;
+      background: var(--white);
+    }
+    .stage-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 30px 34px 20px;
+    }
+    .stage-head h2 { margin: 0; font-size: 28px; letter-spacing: 0; }
+    .stage-head p { margin: 8px 0 0; color: var(--soft); line-height: 1.55; }
+    .source-chip {
+      min-width: 88px;
+      text-align: center;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #f5f5f7;
+      color: var(--soft);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .source-chip.ok { color: var(--green); background: #eaf7f0; }
+    .source-chip.running { color: var(--blue); background: #eaf3ff; }
+    .source-chip.failed { color: var(--red); background: #fff0ee; }
+    .stage-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.92fr) minmax(380px, 1.08fr);
+      gap: 42px;
+      padding: 34px;
+      border-top: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    .pane { min-width: 0; }
+    .upload {
+      position: relative;
+      min-height: 210px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed rgba(0, 0, 0, 0.18);
+      border-radius: 22px;
+      background: #fbfbfd;
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .upload strong { display: block; font-size: 21px; margin-bottom: 8px; }
+    .upload span { color: var(--soft); font-size: 14px; }
+    .settings {
+      width: min(980px, calc(100% - 36px));
+      margin: 56px auto;
+      border-radius: 28px;
+      background: var(--white);
+      padding: 34px;
+    }
+    .settings h1 { margin: 0 0 10px; font-size: 42px; letter-spacing: 0; }
+    .settings p { margin: 0 0 24px; color: var(--soft); line-height: 1.55; }
+    .settings-section + .settings-section {
+      margin-top: 28px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    .settings-section h2 { margin: 0 0 12px; font-size: 22px; letter-spacing: 0; }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+    .scope-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .scope-list label {
+      margin: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      height: 36px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: #f5f5f7;
+      color: var(--ink);
+      font-size: 13px;
+    }
+    .toggles {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .toggles label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      margin: 0;
+      color: var(--ink);
+      font-size: 13px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 30px;
+    }
+    .path-preview {
+      min-height: 42px;
+      margin-top: 12px;
+      color: var(--soft);
+      font-size: 13px;
+      word-break: break-all;
+      line-height: 1.55;
+    }
+    .safe-note {
+      display: grid;
+      gap: 8px;
+      margin-top: 18px;
+      padding: 16px 18px;
+      border-radius: 20px;
+      background: #f5f5f7;
+      color: var(--soft);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .safe-note strong { color: var(--ink); font-size: 15px; }
+    .primary-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 28px;
+    }
+    .primary-row .primary { padding: 12px 22px; }
+    .step-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .steps {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin: 2px 0 34px;
+      border-radius: 999px;
+      background: #f5f5f7;
+      padding: 6px;
+    }
+    .step {
+      flex: 1;
+      min-width: 0;
+      min-height: 52px;
+      padding: 10px 12px;
+      border-radius: 999px;
+      background: transparent;
+      text-align: center;
+    }
+    .step b { display: block; margin-bottom: 2px; font-size: 14px; }
+    .step span { color: var(--soft); font-size: 11px; line-height: 1.25; }
+    .step.running { background: #eaf3ff; color: var(--blue); }
+    .step.done { background: #eaf7f0; color: var(--green); }
+    .step.failed { background: #fff0ee; color: var(--red); }
+    .result-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      overflow: hidden;
+      border-radius: 22px;
+      background: rgba(0, 0, 0, 0.06);
+      margin-bottom: 28px;
+    }
+    .metric { background: #fbfbfd; padding: 22px; }
+    .metric b { display: block; font-size: 30px; line-height: 1; margin-bottom: 8px; }
+    .metric span { color: var(--soft); font-size: 13px; }
+    .summary {
+      min-height: 260px;
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 0;
+      border-radius: 24px;
+      padding: 24px;
+      background: #f5f5f7;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.65;
+      overflow: auto;
+    }
+    .report {
+      min-height: 260px;
+      border-radius: 24px;
+      padding: 24px;
+      background: #f5f5f7;
+    }
+    .report-section + .report-section {
+      margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(0, 0, 0, 0.06);
+    }
+    .report-label {
+      margin: 0 0 8px;
+      color: var(--soft);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .report-value {
+      margin: 0;
+      color: var(--ink);
+      font-size: 17px;
+      line-height: 1.55;
+    }
+    .report-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+    .report-list li + li { margin-top: 4px; }
+    .report-link {
+      display: inline-flex;
+      margin-top: 10px;
+      color: var(--blue);
+      font-size: 14px;
+      text-decoration: none;
+    }
+    details { margin-top: 14px; color: var(--soft); font-size: 13px; }
+    details .summary { margin-top: 10px; min-height: 100px; }
+    .records {
+      width: min(980px, calc(100% - 36px));
+      margin: 56px auto;
+      border-radius: 28px;
+      background: var(--white);
+      padding: 34px;
+    }
+    .records h1 { margin: 0 0 10px; font-size: 42px; }
+    .records p { margin: 0 0 24px; color: var(--soft); line-height: 1.55; }
+    .record-query { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 18px; }
+    .muted { color: var(--soft); }
+    @media (max-width: 980px) {
+      .topbar-inner { width: calc(100% - 24px); }
+      .health { display: none; }
+      .stage-grid { grid-template-columns: 1fr; gap: 34px; }
+      .steps { border-radius: 24px; align-items: stretch; flex-wrap: wrap; }
+      .step { flex-basis: calc(50% - 4px); border-radius: 18px; }
+    }
+    @media (max-width: 640px) {
+      .nav { gap: 16px; }
+      .hero { min-height: 300px; padding-top: 44px; }
+      .hero h1 { font-size: 44px; }
+      .stage-head, .pane, .records { padding: 24px; }
+      .stage { width: calc(100% - 20px); border-radius: 24px; }
+      .field-row, .toggles, .result-strip, .record-query { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">论文格式工具</div>
+      <nav class="nav" aria-label="页面导航">
+        <button type="button" class="active" data-view-button="paper">单篇论文处理</button>
+        <button type="button" data-view-button="settings">高级设置</button>
+        <button type="button" data-view-button="records">历史与排障</button>
+      </nav>
+      <div id="health-line" class="health">正在连接本地服务...</div>
+    </div>
+  </header>
+
+  <main>
+    <section id="view-paper" class="page active">
+      <div class="hero">
+        <div>
+          <small>论文格式修改工具</small>
+          <h1>让毕业论文 回到标准格式</h1>
+          <p>选择 Word 文件，自动检查格式问题，生成修复稿，并用 Word 版式复核。</p>
+          <div class="hero-actions">
+            <button type="button" class="primary" data-scroll-target="stage">开始处理</button>
+            <button type="button" class="text" data-scroll-target="stage">选择 Word 论文</button>
+          </div>
+        </div>
+      </div>
+
+      <section class="stage" id="stage">
+        <div class="stage-head">
+          <div>
+            <h2>单篇论文处理</h2>
+            <p>文档留在本机。原文不会被覆盖，修复结果会写入新的 Word 文件。</p>
+          </div>
+          <div id="source-badge" class="source-chip">未选择</div>
+        </div>
+
+        <div class="stage-grid">
+          <div class="pane">
+            <label class="upload" for="paper-file">
+              <input id="paper-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+              <span>
+                <strong>拖入或点选 `.docx` 文件</strong>
+                <span id="upload-hint">上传后只保存到本地运行目录。</span>
+              </span>
+            </label>
+
+            <label for="paper-path">或粘贴本机文件路径</label>
+            <input id="paper-path" type="text" placeholder="/Users/apple/Desktop/论文.docx">
+            <div class="path-preview" id="source-preview">等待选择论文...</div>
+
+            <div class="safe-note" id="safe-note">
+              <strong>安全处理</strong>
+              <span>原文不会被覆盖。选择论文后，这里会显示文件来源和默认输出位置。</span>
+            </div>
+
+            <div class="primary-row">
+              <button type="button" class="primary" id="run-all-button">一键处理并复核</button>
+              <span class="muted">推荐流程会自动完成预检、修复、复查和 Word 版式复核。</span>
+            </div>
+
+          </div>
+
+          <div class="pane">
+            <div id="single-steps" class="steps"></div>
+            <div class="result-strip">
+              <div class="metric"><b id="metric-failed">-</b><span>未通过规则</span></div>
+              <div class="metric"><b id="metric-manual">-</b><span>人工复核项</span></div>
+              <div class="metric"><b id="metric-pages">-</b><span>渲染页数</span></div>
+            </div>
+            <div id="report-card" class="report">
+              <div class="report-section">
+                <p class="report-label">总体结论</p>
+                <p class="report-value" id="report-conclusion">选择一篇论文后开始处理。</p>
+              </div>
+              <div class="report-section">
+                <p class="report-label">关键问题</p>
+                <ul class="report-list" id="report-issues"><li>暂无</li></ul>
+              </div>
+              <div class="report-section">
+                <p class="report-label">建议下一步</p>
+                <p class="report-value" id="report-next">选择文件，然后点击“一键处理并复核”。</p>
+                <a href="#" class="report-link" id="report-output" hidden>查看输出文件路径</a>
+              </div>
+            </div>
+            <pre id="single-summary" class="summary" hidden>选择一篇论文后开始处理。</pre>
+            <details>
+              <summary>展开原始结果数据</summary>
+              <pre id="raw-json" class="summary">暂无</pre>
+            </details>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section id="view-settings" class="page">
+      <div class="settings">
+        <h1>高级设置</h1>
+        <p>普通使用可以保持默认。这里用于切换学校规范、指定输出位置、调整修复范围，或在排查时单独运行某一步。</p>
+
+        <section class="settings-section">
+          <h2>处理选项</h2>
+          <div class="field-row">
+            <div>
+              <label for="single-profile">学校/规范</label>
+              <select id="single-profile"></select>
+            </div>
+            <div>
+              <label for="single-output">修复后输出路径</label>
+              <input id="single-output" type="text" placeholder="留空则自动生成新文件">
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h2>修复范围</h2>
+          <p>默认会处理全部范围。如果只想修某一部分，可以在这里取消勾选。</p>
+          <div id="scope-grid" class="scope-list"></div>
+        </section>
+
+        <section class="settings-section">
+          <h2>可选动作</h2>
+          <div class="toggles">
+            <label><input id="single-toc" type="checkbox"> 同步目录</label>
+            <label><input id="single-renumber" type="checkbox" checked> 标题重编号</label>
+            <label><input id="single-layout" type="checkbox" checked> 页面布局再平衡</label>
+            <label><input id="single-force" type="checkbox"> 跳过保护检查</label>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h2>分步操作</h2>
+          <p>主页面推荐使用一键处理。这里主要用于定位失败步骤或单独复查。</p>
+          <div class="step-actions">
+            <button type="button" id="preflight-button">开始预检</button>
+            <button type="button" id="plan-button">生成修复方案</button>
+            <button type="button" id="apply-button">执行修复</button>
+            <button type="button" id="verify-button">复查结构</button>
+            <button type="button" id="render-button">Word 版式复核</button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-records" class="page">
+      <div class="records">
+        <h1>历史与排障</h1>
+        <p>用任务编号查看历史结果。普通使用时大多不需要这里；它主要用于排查失败步骤。</p>
+        <div class="record-query">
+          <input id="job-id-input" type="text" placeholder="粘贴任务编号">
+          <button type="button" id="load-job-button" class="primary">查看任务</button>
+        </div>
+        <pre id="job-detail" class="summary">等待选择任务...</pre>
+        <pre id="job-result" class="summary" style="margin-top:14px;">等待选择任务...</pre>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const state = { sourcePath: '', uploaded: null, lastApplyOutput: '', pollTimer: null };
+    const SCOPES = [['page','页面'],['abstract','摘要'],['toc','目录'],['headings','标题'],['body_paragraphs','正文'],['figures_tables','图表'],['references','参考文献'],['acknowledgement','致谢'],['appendix','附录']];
+    const STEP_IDS = ['preflight', 'plan', 'apply', 'verify', 'render'];
+    const STEP_INFO = {
+      preflight: ['预检', '野生文档风险'],
+      plan: ['方案', '拆解修复范围'],
+      apply: ['修复', '写出新文件'],
+      verify: ['复查', '结构规则复核'],
+      render: ['版式', 'Word 渲染复核'],
+    };
+    const STATUS_LABELS = { queued:'排队中', running:'执行中', succeeded:'已完成', failed:'失败', ok:'正常', ready:'已就绪', warning:'有风险', blocked:'已阻止', needs_fix:'需要修复', 'needs-fix':'需要修复', 'manual-review-required':'需要人工确认', 'render-check-required':'需要版式复核', 'structure-ready':'结构已通过', unsupported:'暂不支持自动处理' };
+    const OPERATION_LABELS = { audit:'审查', plan:'生成计划', verify:'复查', apply:'修复', batch:'任务组', normalize:'规范化', 'render-verify':'版式复核' };
+
+    async function getJson(url, options) {
+      const response = await fetch(url, options);
+      if (!response.ok) throw new Error(await response.text() || `${response.status}`);
+      return response.json();
+    }
+    function labelStatus(value) { return STATUS_LABELS[value] || value || '-'; }
+    function labelOperation(value) { return OPERATION_LABELS[value] || value || '-'; }
+    function setMetric(id, value) { document.getElementById(id).textContent = value == null ? '-' : value; }
+    function setSummary(text) { document.getElementById('single-summary').textContent = text; }
+    function setRaw(payload) { document.getElementById('raw-json').textContent = JSON.stringify(payload, null, 2); }
+    function setReport({ conclusion, issues, next, output }) {
+      document.getElementById('report-conclusion').textContent = conclusion || '等待处理。';
+      const issueList = document.getElementById('report-issues');
+      const normalizedIssues = Array.isArray(issues) && issues.length ? issues : ['暂无'];
+      issueList.innerHTML = '';
+      normalizedIssues.forEach((item) => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        issueList.appendChild(li);
+      });
+      document.getElementById('report-next').textContent = next || '继续下一步。';
+      const outputLink = document.getElementById('report-output');
+      if (output) {
+        outputLink.hidden = false;
+        outputLink.textContent = `输出文件: ${output}`;
+        outputLink.removeAttribute('href');
+      } else {
+        outputLink.hidden = true;
+      }
+    }
+    function estimateOutputPath(inputPath) {
+      if (!inputPath) return '选择论文后自动生成新文件';
+      const dotIndex = inputPath.toLowerCase().lastIndexOf('.docx');
+      if (dotIndex > -1) return `${inputPath.slice(0, dotIndex)}_fixed.docx`;
+      return `${inputPath}_fixed.docx`;
+    }
+    function updateSafeNote({ fileName, source, path }) {
+      const outputPath = document.getElementById('single-output').value.trim() || estimateOutputPath(path);
+      document.getElementById('safe-note').innerHTML = `
+        <strong>原文不会被覆盖</strong>
+        <span>文件: ${fileName || '未选择'} · 来源: ${source || '本机'} · 默认输出: ${outputPath}</span>
+      `;
+    }
+    function selectedScopes() { return Array.from(document.querySelectorAll('[data-scope]:checked')).map((item) => item.value); }
+    function sourcePathForStep(preferOutput = false) {
+      if (preferOutput && state.lastApplyOutput) return state.lastApplyOutput;
+      return document.getElementById('paper-path').value.trim() || state.sourcePath;
+    }
+    function requestBase(preferOutput = false) {
+      const filePath = sourcePathForStep(preferOutput);
+      if (!filePath) throw new Error('请先选择 Word 论文或填写本机路径。');
+      return { file_path: filePath, profile: document.getElementById('single-profile').value || 'lnu', scopes: selectedScopes() };
+    }
+    function setStep(id, mode) {
+      const el = document.querySelector(`[data-step="${id}"]`);
+      if (!el) return;
+      el.className = `step ${mode || ''}`.trim();
+    }
+    function resetSteps() { STEP_IDS.forEach((id) => setStep(id, '')); }
+
+    function summarizePreflight(payload) {
+      const summary = payload.summary || {};
+      setMetric('metric-failed', '-'); setMetric('metric-manual', '-'); setMetric('metric-pages', '-');
+      setReport({
+        conclusion: `预检结论: ${labelStatus(payload.preflight_status)}`,
+        issues: [
+          `样式冲突: ${summary.style_conflict_count ?? 0}`,
+          `表格标题风险: ${summary.table_heading_risk_count ?? 0}`,
+        ],
+        next: (payload.recommended_actions || ['继续生成修复方案。']).join(' '),
+      });
+      return [`预检结论: ${labelStatus(payload.preflight_status)}`, `文档: ${(payload.document || {}).name || '-'}`, `样式冲突: ${summary.style_conflict_count ?? 0}`, `表格标题风险: ${summary.table_heading_risk_count ?? 0}`, '', '建议:', ...(payload.recommended_actions || ['继续生成修复方案。']).map((item) => `- ${item}`)].join('\n');
+    }
+    function summarizePlan(payload) {
+      const scopes = Array.isArray(payload.scopes) ? payload.scopes : [];
+      setMetric('metric-failed', scopes.reduce((sum, item) => sum + (item.failed_count || 0), 0));
+      setMetric('metric-manual', scopes.reduce((sum, item) => sum + (item.manual_review_count || 0), 0));
+      const failedScopes = scopes.filter((item) => (item.failed_count || 0) > 0).slice(0, 5);
+      setReport({
+        conclusion: `已生成修复方案，共 ${scopes.length} 个范围。`,
+        issues: failedScopes.length ? failedScopes.map((item) => `${item.title || item.id}: 未通过 ${item.failed_count || 0}`) : ['当前范围未发现明显问题'],
+        next: '确认方案后执行修复，系统会写出新的 Word 文件。',
+      });
+      return [`修复方案: ${scopes.length} 个范围`, '', ...scopes.map((item) => `${item.title || item.id}: ${labelStatus(item.status)}，未通过 ${item.failed_count || 0}`)].join('\n');
+    }
+    function summarizeApply(payload) {
+      state.lastApplyOutput = ((payload.output || {}).path || '');
+      const summary = ((payload.verification || {}).summary || {});
+      setMetric('metric-failed', summary.failed_rules); setMetric('metric-manual', summary.manual_review_rules);
+      setReport({
+        conclusion: `修复结论: ${labelStatus(payload.readiness)}`,
+        issues: [
+          `未通过规则: ${summary.failed_rules ?? '-'}`,
+          `人工复核项: ${summary.manual_review_rules ?? '-'}`,
+        ],
+        next: '继续复查结构，并用 Word 版式复核图片、表格和公式。',
+        output: state.lastApplyOutput,
+      });
+      return [`修复结论: ${labelStatus(payload.readiness)}`, `输出文件: ${state.lastApplyOutput || '-'}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, '', ...(payload.post_verify_notices || ['修复已完成，建议继续运行 Word 版式复核。']).map((item) => `- ${item}`)].join('\n');
+    }
+    function summarizeVerify(payload) {
+      const summary = payload.summary || {};
+      setMetric('metric-failed', summary.failed_rules); setMetric('metric-manual', summary.manual_review_rules);
+      setReport({
+        conclusion: `复查结论: ${labelStatus(payload.overall_status || payload.readiness)}`,
+        issues: [
+          `未通过规则: ${summary.failed_rules ?? '-'}`,
+          `人工复核项: ${summary.manual_review_rules ?? '-'}`,
+          `需要版式复核: ${summary.render_check_rules ?? '-'}`,
+        ],
+        next: '最后运行 Word 版式复核，确认最终页面效果。',
+        output: state.lastApplyOutput,
+      });
+      return [`复查结论: ${labelStatus(payload.overall_status || payload.readiness)}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, `需要版式复核: ${summary.render_check_rules ?? '-'}`].join('\n');
+    }
+    function summarizeRender(payload) {
+      const summary = payload.summary || {};
+      const proof = payload.proof || payload.render || {};
+      const pageCount = summary.page_count ?? proof.page_count ?? payload.page_count;
+      setMetric('metric-pages', pageCount);
+      setReport({
+        conclusion: `版式复核完成: ${labelStatus(payload.overall_status || summary.status || 'ok')}`,
+        issues: [`渲染页数: ${pageCount ?? '-'}`, `渲染器: ${summary.renderer || payload.renderer || '-'}`],
+        next: '请以 Word 导出的 PDF/页面图片为最终版式判断。',
+        output: state.lastApplyOutput || summary.pdf_path || proof.pdf_path,
+      });
+      return [`版式复核: ${labelStatus(payload.overall_status || summary.status || 'ok')}`, `渲染器: ${summary.renderer || payload.renderer || '-'}`, `页数: ${pageCount ?? '-'}`, `输出目录: ${summary.output_dir || (payload.output || {}).dir || '-'}`, `PDF 文件: ${summary.pdf_path || proof.pdf_path || '-'}`, '', '提示: 图片、表格和公式以 Word 导出的 PDF/页面图片为最终判断依据。'].join('\n');
+    }
+
+    async function uploadSelectedFile(file) {
+      const form = new FormData();
+      form.append('file', file);
+      document.getElementById('upload-hint').textContent = '正在保存到本地运行目录...';
+      const payload = await getJson('/uploads/docx', { method: 'POST', body: form });
+      state.uploaded = payload; state.sourcePath = payload.stored_path; state.lastApplyOutput = '';
+      document.getElementById('paper-path').value = '';
+      document.getElementById('source-preview').textContent = `${payload.file_name} · ${payload.stored_path}`;
+      document.getElementById('source-badge').textContent = '已选择';
+      document.getElementById('source-badge').className = 'source-chip ok';
+      document.getElementById('upload-hint').textContent = '已保存到本地运行目录。';
+      updateSafeNote({ fileName: payload.file_name, source: '上传暂存', path: payload.stored_path });
+      setReport({
+        conclusion: '已选择论文，可以开始处理。',
+        issues: ['原文不会被覆盖', '修复结果会写入新的 Word 文件'],
+        next: '点击“一键处理并复核”。',
+        output: estimateOutputPath(payload.stored_path),
+      });
+      resetSteps();
+    }
+
+    async function runSingleStep(id) {
+      const endpoint = id === 'render' ? '/render-verify' : `/${id === 'apply' ? 'apply' : id === 'verify' ? 'verify' : id}`;
+      const payload = requestBase(id === 'verify' || id === 'render');
+      if (id === 'apply') {
+        const output = document.getElementById('single-output').value.trim();
+        if (output) payload.output_path = output;
+        payload.toc = document.getElementById('single-toc').checked;
+        payload.renumber_headings = document.getElementById('single-renumber').checked;
+        payload.layout_rebalance = document.getElementById('single-layout').checked;
+        payload.force = document.getElementById('single-force').checked;
+      }
+      if (id === 'render') payload.renderer = 'auto';
+      setStep(id, 'running');
+      document.getElementById('source-badge').textContent = '处理中';
+      document.getElementById('source-badge').className = 'source-chip running';
+      const result = await getJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      setStep(id, 'done');
+      document.getElementById('source-badge').textContent = '已处理';
+      document.getElementById('source-badge').className = 'source-chip ok';
+      setRaw(result);
+      if (id === 'preflight') setSummary(summarizePreflight(result));
+      if (id === 'plan') setSummary(summarizePlan(result));
+      if (id === 'apply') setSummary(summarizeApply(result));
+      if (id === 'verify') setSummary(summarizeVerify(result));
+      if (id === 'render') setSummary(summarizeRender(result));
+    }
+    async function guardedRun(id) {
+      try { await runSingleStep(id); }
+      catch (error) {
+        setStep(id, 'failed');
+        document.getElementById('source-badge').textContent = '处理失败';
+        document.getElementById('source-badge').className = 'source-chip failed';
+        setReport({ conclusion: '处理失败', issues: [String(error)], next: '可展开高级设置里的分步操作，定位失败步骤。' });
+        setSummary(`处理失败\n${String(error)}`);
+      }
+    }
+    async function runAll() {
+      resetSteps();
+      for (const id of STEP_IDS) {
+        try { await runSingleStep(id); }
+        catch (error) {
+          setStep(id, 'failed');
+          document.getElementById('source-badge').textContent = '处理失败';
+          document.getElementById('source-badge').className = 'source-chip failed';
+          setReport({ conclusion: `流程停在「${STEP_INFO[id][0]}」`, issues: [String(error)], next: '可展开高级设置里的分步操作，单独重试失败步骤。' });
+          setSummary(`流程停在「${STEP_INFO[id][0]}」\n${String(error)}`);
+          break;
+        }
+      }
+    }
+    function buildScopeGrid() {
+      const grid = document.getElementById('scope-grid');
+      SCOPES.forEach(([value, label]) => {
+        const item = document.createElement('label');
+        item.innerHTML = `<input type="checkbox" data-scope value="${value}" checked> ${label}`;
+        grid.appendChild(item);
+      });
+    }
+    function buildSteps() {
+      const container = document.getElementById('single-steps');
+      STEP_IDS.forEach((id) => {
+        const [title, desc] = STEP_INFO[id];
+        const item = document.createElement('div');
+        item.className = 'step';
+        item.dataset.step = id;
+        item.innerHTML = `<b>${title}</b><span>${desc}</span>`;
+        container.appendChild(item);
+      });
+    }
+    async function loadProfiles() {
+      const payload = await getJson('/profiles');
+      const select = document.getElementById('single-profile');
+      select.innerHTML = '';
+      for (const item of payload.profiles) {
+        const option = document.createElement('option');
+        option.value = item.id === 'cn-common' ? 'cn-common' : (item.aliases[0] || item.id);
+        option.textContent = [item.school || item.id, item.support_level_label || '', item.id].filter(Boolean).join(' · ');
+        if (option.value === 'lnu') option.selected = true;
+        select.appendChild(option);
+      }
+    }
+    async function refreshOverview() {
+      const health = await getJson('/health');
+      document.getElementById('health-line').textContent = `本地服务正常 · ${health.version}`;
+    }
+    function showView(name) {
+      document.querySelectorAll('.page').forEach((view) => view.classList.remove('active'));
+      document.getElementById(`view-${name}`).classList.add('active');
+      document.querySelectorAll('[data-view-button]').forEach((button) => button.classList.toggle('active', button.dataset.viewButton === name));
+    }
+    function summarizeJobDetail(detail) {
+      const summary = detail.summary || {};
+      const runtime = detail.runtime || {};
+      return [`任务编号: ${detail.job_id || '-'}`, `任务类型: ${labelOperation(detail.operation)}`, `当前状态: ${labelStatus(detail.status)}`, `创建时间: ${detail.created_at || '-'}`, `完成时间: ${detail.finished_at || '-'}`, summary.document_name ? `输入名称: ${summary.document_name}` : '', (summary.input_path || runtime.input_path) ? `输入路径: ${summary.input_path || runtime.input_path}` : '', (summary.output_path || runtime.output_path) ? `输出文件: ${summary.output_path || runtime.output_path}` : '', (detail.error || {}).message ? `错误信息: ${detail.error.message}` : ''].filter(Boolean).join('\n');
+    }
+    function summarizeJobResult(payload) {
+      const summary = payload.summary || {};
+      return [`任务编号: ${payload.job_id || '-'}`, `最终状态: ${labelStatus(payload.status)}`, summary.output_path ? `输出文件: ${summary.output_path}` : '', summary.output_dir ? `输出目录: ${summary.output_dir}` : '', payload.error && payload.error.message ? `错误信息: ${payload.error.message}` : ''].filter(Boolean).join('\n');
+    }
+    async function loadJob(jobId, poll = false) {
+      if (state.pollTimer) clearTimeout(state.pollTimer);
+      try {
+        const detail = await getJson(`/jobs/${jobId}`);
+        document.getElementById('job-detail').textContent = summarizeJobDetail(detail);
+        if (detail.status === 'queued' || detail.status === 'running') {
+          document.getElementById('job-result').textContent = `任务仍在执行中...\n当前状态: ${labelStatus(detail.status)}`;
+          if (poll) state.pollTimer = setTimeout(() => loadJob(jobId, true), 1500);
+          return;
+        }
+        document.getElementById('job-result').textContent = summarizeJobResult(await getJson(`/jobs/${jobId}/result`));
+      } catch (error) {
+        document.getElementById('job-result').textContent = `读取任务失败\n${String(error)}`;
+      }
+    }
+
+    document.querySelectorAll('[data-view-button]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.viewButton)));
+    document.querySelectorAll('[data-scroll-target]').forEach((button) => button.addEventListener('click', () => document.getElementById(button.dataset.scrollTarget).scrollIntoView({ behavior: 'smooth' })));
+    document.getElementById('paper-file').addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (file) uploadSelectedFile(file).catch((error) => {
+        document.getElementById('upload-hint').textContent = `上传失败: ${String(error)}`;
+      });
+    });
+    document.getElementById('paper-path').addEventListener('input', (event) => {
+      const value = event.target.value.trim();
+      if (!value) return;
+      state.sourcePath = value; state.uploaded = null; state.lastApplyOutput = '';
+      document.getElementById('source-preview').textContent = value;
+      document.getElementById('source-badge').textContent = '本机路径';
+      document.getElementById('source-badge').className = 'source-chip ok';
+      updateSafeNote({ fileName: value.split('/').pop(), source: '本机路径', path: value });
+      setReport({
+        conclusion: '已填写论文路径，可以开始处理。',
+        issues: ['原文不会被覆盖', '修复结果会写入新的 Word 文件'],
+        next: '点击“一键处理并复核”。',
+        output: estimateOutputPath(value),
+      });
+      resetSteps();
+    });
+    document.getElementById('run-all-button').addEventListener('click', runAll);
+    document.getElementById('preflight-button').addEventListener('click', () => guardedRun('preflight'));
+    document.getElementById('plan-button').addEventListener('click', () => guardedRun('plan'));
+    document.getElementById('apply-button').addEventListener('click', () => guardedRun('apply'));
+    document.getElementById('verify-button').addEventListener('click', () => guardedRun('verify'));
+    document.getElementById('render-button').addEventListener('click', () => guardedRun('render'));
+    document.getElementById('load-job-button').addEventListener('click', () => {
+      const jobId = document.getElementById('job-id-input').value.trim();
+      if (jobId) loadJob(jobId, false);
+    });
+    buildScopeGrid();
+    buildSteps();
+    Promise.all([loadProfiles(), refreshOverview()]).catch((error) => {
+      document.getElementById('health-line').textContent = `服务连接失败`;
+      setSummary(`加载失败\n${String(error)}`);
+    });
+  </script>
+</body>
+</html>

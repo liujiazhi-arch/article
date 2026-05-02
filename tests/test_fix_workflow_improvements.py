@@ -367,6 +367,50 @@ def test_fix_docx_can_renumber_headings_when_opted_in(tmp_docx, tmp_path):
     assert _paragraph_by_prefix(fixed_doc, "1.1.1 研究现状").text == "1.1.1 研究现状"
 
 
+def test_lnu_headings_scope_formats_h1_as_di_chapter(tmp_path):
+    source_path = Path(tmp_path) / "lnu_h1_chapter_format_source.docx"
+    doc = Document()
+    heading = doc.add_paragraph("1 材料与方法")
+    heading.style = doc.styles["Heading 1"]
+    doc.add_paragraph("这是正文内容。")
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "lnu_h1_chapter_format_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["headings"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    assert _paragraph_by_prefix(fixed_doc, "第1章 材料与方法").text == "第1章 材料与方法"
+
+
+def test_lnu_figures_scope_uses_zero_chapter_caption_number_for_preface(tmp_path):
+    source_path = Path(tmp_path) / "lnu_preface_caption_zero_source.docx"
+    doc = Document()
+    preface = doc.add_paragraph("序  言")
+    preface.style = doc.styles["Heading 1"]
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    caption = doc.add_paragraph("图1.1 绪论框架图")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph("第1章 材料与方法").style = doc.styles["Heading 1"]
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "lnu_preface_caption_zero_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables", "headings"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    assert _paragraph_by_normalized_prefix(fixed_doc, "图0.1 绪论框架图").text.startswith("图0.1")
+
+
 def test_heading_style_prepass_identifies_and_repairs_heading_like_paragraphs(tmp_docx, tmp_path):
     source_path = tmp_docx(make_compliant_doc, filename="heading_prepass_source.docx")
     doc = Document(source_path)
@@ -564,7 +608,7 @@ def test_figures_scope_moves_post_figure_analysis_before_figure_block(tmp_path):
     idx_analysis_2 = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("各组样品 24 h 溶失率结果如图2.1 C 所示"))
     idx_drawing = next(idx for idx, text, has_drawing in paragraph_info if has_drawing)
     idx_caption = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("图2.1 "))
-    idx_note = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("注："))
+    idx_note = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("注"))
     idx_next_h2 = next(idx for idx, text, has_drawing in paragraph_info if text == "2.2 不同改性技术对鹿皮明胶功能特性的影响")
 
     assert idx_analysis_1 < idx_heading_212 < idx_analysis_2 < idx_drawing < idx_caption < idx_note < idx_next_h2
@@ -997,7 +1041,7 @@ def test_figures_scope_converts_existing_blank_separator_to_structured_spacing(t
         for idx, paragraph in enumerate(fixed_doc.paragraphs)
     ]
     idx_drawing = next(idx for idx, text, has_drawing in paragraph_info if has_drawing)
-    idx_note = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("注："))
+    idx_note = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("注"))
     drawing_before, _, _ = _spacing_attrs(fixed_doc.paragraphs[idx_drawing])
     _, note_after, _ = _spacing_attrs(fixed_doc.paragraphs[idx_note])
 
@@ -1149,7 +1193,7 @@ def test_figures_scope_treats_spaced_colon_table_note_as_caption_note(tmp_path):
     fixed_doc = Document(fixed_path)
     fixed_note = next(p for p in fixed_doc.paragraphs if p.text.startswith("注"))
     note_before, _note_after, _ = _spacing_attrs(fixed_note)
-    assert fixed_note.text.startswith("注：") or fixed_note.text.startswith("注 ：")
+    assert fixed_note.text.startswith("注1)")
     assert note_before == "0"
 
     results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
@@ -1307,7 +1351,7 @@ def test_heading_and_figure_scopes_share_gap_budget_without_over_spacing(tmp_pat
         for idx, paragraph in enumerate(fixed_doc.paragraphs)
     ]
     idx_drawing = next(idx for idx, text, has_drawing in paragraph_info if has_drawing)
-    idx_note = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("注："))
+    idx_note = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("注"))
     drawing_before, _, _ = _spacing_attrs(fixed_doc.paragraphs[idx_drawing])
     _, note_after, _ = _spacing_attrs(fixed_doc.paragraphs[idx_note])
 

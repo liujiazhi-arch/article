@@ -1925,15 +1925,24 @@ def renumber_lnu_captions(document_root, style_map=None):
     chapter_no = None
     counters = Counter()
     changed = 0
+    preface_active = False
 
     for node in model.paragraphs:
         if node.section != "body":
             continue
 
         if node.kind == "h1":
-            parsed = _parse_heading_chapter_number(node.text)
-            if parsed is not None:
-                chapter_no = parsed
+            heading_text = (node.text or "").strip()
+            if is_preface_heading_title(heading_text):
+                chapter_no = 0
+                preface_active = True
+            else:
+                parsed = _parse_heading_chapter_number(heading_text)
+                if parsed is not None:
+                    chapter_no = parsed
+                elif preface_active:
+                    chapter_no = 1 if chapter_no in (None, 0) else chapter_no + 1
+                preface_active = False
             continue
 
         if node.module != "body_caption" or chapter_no is None:
@@ -3242,6 +3251,17 @@ def fix_caption_note_paragraph(p_elem, cfg=None, runtime=None):
         set_attr(r_fonts, "eastAsia", "宋体")
         set_attr(r_fonts, "ascii", "Times New Roman")
         set_attr(r_fonts, "hAnsi", "Times New Roman")
+    original_text = get_paragraph_text(p_elem).strip()
+    normalized_text = original_text
+    if re.match(r"^\s*注[\s\u3000]*[:：][\s\u3000]*(?!\d+\)|（[A-Za-z]|\([A-Za-z])", original_text):
+        normalized_text = re.sub(
+            r"^\s*注[\s\u3000]*[:：][\s\u3000]*",
+            "注1) ",
+            original_text,
+            count=1,
+        )
+    if normalized_text != original_text:
+        rewrite_paragraph_text_preserve_runs(p_elem, normalized_text)
 
 
 def fix_equation_paragraph(p_elem, runtime=None):
@@ -3985,7 +4005,7 @@ def normalize_lnu_preface_heading_numbering(body_paragraphs, style_map, table_pa
                 level2 = 0
                 level3 = 0
                 level4 = 0
-                new_text = title if re.match(r"^第\s*\d+\s*章", title) else f"{chapter} {title}"
+                new_text = title if re.match(r"^第\s*\d+\s*章", title) else f"第{chapter}章 {title}"
         elif paragraph_type == "h2":
             level2 += 1
             level3 = 0
@@ -5319,6 +5339,20 @@ def _apply_heading_numbering_prepasses(ctx: FixExecutionContext) -> None:
         renumber_body_headings(ctx.sections.get("body", []), ctx.style_map, ctx.document_model.table_para_ids)
     if ctx.scope_flags.headings and is_lnu_profile(ctx.runtime):
         normalize_lnu_preface_heading_numbering(ctx.sections.get("body", []), ctx.style_map, ctx.document_model.table_para_ids)
+        if not ctx.runtime.renumber_headings:
+            for p_elem in ctx.sections.get("body", []):
+                if id(p_elem) in ctx.document_model.table_para_ids:
+                    continue
+                if classify_paragraph(p_elem, ctx.style_map) != "h1":
+                    continue
+                heading_text = get_paragraph_text(p_elem).strip()
+                if not heading_text or is_preface_heading_title(heading_text) or re.match(r"^第\s*\d+\s*章", heading_text):
+                    continue
+                title = _extract_heading_title(heading_text, "h1") or heading_text
+                chapter_no = _parse_heading_chapter_number(heading_text)
+                if chapter_no is None:
+                    continue
+                rewrite_paragraph_text_preserve_runs(p_elem, f"第{chapter_no}章 {title}")
 
 
 def _apply_toc_prepasses(ctx: FixExecutionContext) -> tuple[FixExecutionContext, dict]:
