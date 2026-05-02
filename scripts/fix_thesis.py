@@ -2135,7 +2135,7 @@ def fix_page_margins(document_root, cfg=None, runtime=None):
     if not is_lnu_profile(runtime):
         return
 
-    for sect_pr in document_root.findall(".//w:sectPr", NSMAP):
+    for sect_pr in body_sect_prs:
         pg_sz = get_or_create(sect_pr, "w:pgSz")
         set_attr(pg_sz, "w", "11906")
         set_attr(pg_sz, "h", "16838")
@@ -4576,9 +4576,10 @@ def fix_lnu_title01(document_root, cfg, allowed_titles=None):
 
 
 def fix_lnu_tb03(document_root, cfg):
-    """LNU_TB03: 修复表格内容为单倍行距"""
+    """LNU_TB03: 修复表格内容为1.5倍行距"""
     fixed = 0
     local_nsmap = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    expected_line = str((cfg or {}).get("table_cell_line") or (cfg or {}).get("body_line") or 360)
     for tbl in document_root.findall(".//w:tbl", local_nsmap):
         if audit_thesis.is_equation_layout_table(tbl):
             continue
@@ -4588,8 +4589,8 @@ def fix_lnu_tb03(document_root, cfg):
                 spacing = get_or_create(p_pr, "w:spacing")
                 current_line = spacing.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}line")
                 current_rule = spacing.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}lineRule")
-                if current_line != "240" or current_rule != "auto":
-                    spacing.set("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}line", "240")
+                if current_line != expected_line or current_rule != "auto":
+                    spacing.set("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}line", expected_line)
                     spacing.set("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}lineRule", "auto")
                     fixed += 1
     return fixed
@@ -5225,7 +5226,115 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
                 updated[part_name] = ET.tostring(footer_root, encoding="utf-8", xml_declaration=True)
         return updated
 
+    def configure_lnu_section_page_footers(rels_root):
+        section_page_numbering_enabled = (
+            active_cfg.get("cover_page_number", True) is False
+            or (
+                active_cfg.get("pg01_format") == "hyphen_wrap"
+                and active_cfg.get("page_number_font") == "宋体"
+            )
+        )
+        if not section_page_numbering_enabled:
+            return None
+        body = document_root.find("w:body", NSMAP)
+        if body is None:
+            return None
+        inline_sects = [
+            p.find("w:pPr/w:sectPr", NSMAP)
+            for p in body.findall("w:p", NSMAP)
+        ]
+        inline_sects = [sect_pr for sect_pr in inline_sects if sect_pr is not None]
+        body_sect_pr = body.find("w:sectPr", NSMAP)
+        if len(inline_sects) < 2 or body_sect_pr is None:
+            return None
+
+        content_types_root = ET.parse(content_types_path).getroot()
+        updated = {}
+        existing_rel_ids = {
+            rel.get("Id")
+            for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
+        }
+        existing_targets = {
+            rel.get("Target")
+            for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
+        }
+
+        def next_rel_id():
+            suffix = 1
+            while f"rIdFooter{suffix}" in existing_rel_ids:
+                suffix += 1
+            rel_id = f"rIdFooter{suffix}"
+            existing_rel_ids.add(rel_id)
+            return rel_id
+
+        def next_footer_target():
+            suffix = 1
+            while f"footer{suffix}.xml" in existing_targets:
+                suffix += 1
+            target = f"footer{suffix}.xml"
+            existing_targets.add(target)
+            return target
+
+        def ensure_footer_content_type(target):
+            part_name = f"/word/{target}"
+            has_override = any(
+                override.get("PartName") == part_name
+                for override in content_types_root.findall(f"{{{CONTENT_TYPES_NS}}}Override")
+            )
+            if has_override:
+                return
+            footer_override = ET.SubElement(content_types_root, f"{{{CONTENT_TYPES_NS}}}Override")
+            footer_override.set("PartName", part_name)
+            footer_override.set(
+                "ContentType",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml",
+            )
+
+        def remove_footer_references(sect_pr):
+            for footer_reference in list(sect_pr.findall("w:footerReference", NSMAP)):
+                sect_pr.remove(footer_reference)
+
+        def attach_footer(sect_pr, *, footer_cfg):
+            remove_footer_references(sect_pr)
+            rel_id = next_rel_id()
+            target = next_footer_target()
+            footer_rel = ET.SubElement(rels_root, f"{{{PACKAGE_REL_NS}}}Relationship")
+            footer_rel.set("Id", rel_id)
+            footer_rel.set("Type", f"{REL_NS}/footer")
+            footer_rel.set("Target", target)
+
+            footer_reference = ET.SubElement(sect_pr, f"{{{W_NS}}}footerReference")
+            set_attr(footer_reference, "type", "default")
+            footer_reference.set(f"{{{REL_NS}}}id", rel_id)
+            ensure_footer_content_type(target)
+            updated[f"word/{target}"] = build_footer_xml(footer_cfg)
+
+        cover_sect_pr = inline_sects[0]
+        frontmatter_sect_pr = inline_sects[-1]
+        remove_footer_references(cover_sect_pr)
+
+        front_pg_num_type = get_or_create(frontmatter_sect_pr, "w:pgNumType")
+        set_attr(front_pg_num_type, "fmt", str(active_cfg.get("frontmatter_page_number_format") or "upperRoman"))
+        set_attr(front_pg_num_type, "start", str(active_cfg.get("frontmatter_page_number_start") or 1))
+        body_pg_num_type = get_or_create(body_sect_pr, "w:pgNumType")
+        set_attr(body_pg_num_type, "fmt", str(active_cfg.get("body_page_number_format") or "decimal"))
+        set_attr(body_pg_num_type, "start", str(active_cfg.get("body_page_number_start") or 1))
+
+        front_cfg = dict(active_cfg)
+        front_cfg["pg01_format"] = str(active_cfg.get("frontmatter_page_number_wrap") or "plain")
+        body_cfg = dict(active_cfg)
+        body_cfg["pg01_format"] = str(active_cfg.get("body_page_number_wrap") or active_cfg.get("pg01_format") or "hyphen_wrap")
+        attach_footer(frontmatter_sect_pr, footer_cfg=front_cfg)
+        attach_footer(body_sect_pr, footer_cfg=body_cfg)
+        updated["word/_rels/document.xml.rels"] = ET.tostring(rels_root, encoding="utf-8", xml_declaration=True)
+        updated["[Content_Types].xml"] = ET.tostring(content_types_root, encoding="utf-8", xml_declaration=True)
+        return updated
+
     rels_root = ET.parse(rels_path).getroot()
+    section_footer_parts = configure_lnu_section_page_footers(rels_root)
+    if section_footer_parts is not None:
+        return section_footer_parts
+
     sect_pr = document_root.find("w:body/w:sectPr", NSMAP)
     if sect_pr is None:
         sect_pr_list = document_root.findall(".//w:sectPr", NSMAP)

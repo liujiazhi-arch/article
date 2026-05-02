@@ -407,6 +407,73 @@ def test_fix_footer_page_number_builds_songti_hyphen_wrapped_footer(tmp_path):
     assert sizes and all(size.get(_w("val")) == "21" for size in sizes)
 
 
+def test_fix_footer_page_number_uses_cover_frontmatter_body_sections(tmp_path):
+    workdir = tmp_path
+    (workdir / "word" / "_rels").mkdir(parents=True)
+    (workdir / "word").mkdir(exist_ok=True)
+    (workdir / "[Content_Types].xml").write_text(
+        (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '</Types>'
+        ),
+        encoding="utf-8",
+    )
+    (workdir / "word" / "_rels" / "document.xml.rels").write_text(
+        (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+        ),
+        encoding="utf-8",
+    )
+
+    cover = _make_paragraph("封面信息")
+    cover_pr = ET.SubElement(cover, _w("pPr"))
+    cover_sect_pr = ET.SubElement(cover_pr, _w("sectPr"))
+    frontmatter_break = _make_paragraph("")
+    front_pr = ET.SubElement(frontmatter_break, _w("pPr"))
+    front_sect_pr = ET.SubElement(front_pr, _w("sectPr"))
+    document = _make_doc_root(cover, frontmatter_break, _make_paragraph("序言"))
+    body = document.find("w:body", NSMAP)
+    assert body is not None
+    body_sect_pr = ET.SubElement(body, _w("sectPr"))
+
+    updated_parts = fix_footer_page_number(str(workdir), document, cfg=_checker_2026_cfg())
+
+    assert cover_sect_pr.find("w:footerReference", NSMAP) is None
+    front_footer_ref = front_sect_pr.find("w:footerReference", NSMAP)
+    body_footer_ref = body_sect_pr.find("w:footerReference", NSMAP)
+    assert front_footer_ref is not None
+    assert body_footer_ref is not None
+
+    front_pg_num = front_sect_pr.find("w:pgNumType", NSMAP)
+    body_pg_num = body_sect_pr.find("w:pgNumType", NSMAP)
+    assert front_pg_num is not None
+    assert front_pg_num.get(_w("fmt")) == "upperRoman"
+    assert front_pg_num.get(_w("start")) == "1"
+    assert body_pg_num is not None
+    assert body_pg_num.get(_w("fmt")) == "decimal"
+    assert body_pg_num.get(_w("start")) == "1"
+
+    rels_root = ET.fromstring(updated_parts["word/_rels/document.xml.rels"])
+    targets_by_id = {
+        rel.get("Id"): rel.get("Target")
+        for rel in rels_root.findall("{http://schemas.openxmlformats.org/package/2006/relationships}Relationship")
+    }
+    front_target = targets_by_id[front_footer_ref.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")]
+    body_target = targets_by_id[body_footer_ref.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")]
+    front_footer = ET.fromstring(updated_parts[f"word/{front_target}"])
+    body_footer = ET.fromstring(updated_parts[f"word/{body_target}"])
+    front_texts = [text_elem.text or "" for text_elem in front_footer.findall(".//w:t", NSMAP)]
+    body_texts = [text_elem.text or "" for text_elem in body_footer.findall(".//w:t", NSMAP)]
+    assert front_texts.count("-") == 0
+    assert body_texts.count("-") == 2
+    assert any("PAGE" in (instr.text or "").upper() for instr in front_footer.findall(".//w:instrText", NSMAP))
+    assert any("PAGE" in (instr.text or "").upper() for instr in body_footer.findall(".//w:instrText", NSMAP))
+
+
 def test_fix_footer_page_number_normalizes_existing_mixed_dash_wrapper(tmp_path):
     workdir = tmp_path
     (workdir / "word" / "_rels").mkdir(parents=True)

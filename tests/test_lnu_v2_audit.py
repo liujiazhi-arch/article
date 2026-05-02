@@ -1225,7 +1225,7 @@ def test_lnu_tb02_rejects_table_text_not_in_fifth_size():
     assert any("24" in msg for msg in issues)
 
 
-def test_lnu_tb03_rejects_table_line_spacing_over_single():
+def test_lnu_tb03_accepts_table_line_spacing_one_point_five():
     tbl = ET.Element(_w("tbl"))
     tr = ET.SubElement(tbl, _w("tr"))
     tc = ET.SubElement(tr, _w("tc"))
@@ -1239,8 +1239,26 @@ def test_lnu_tb03_rejects_table_line_spacing_over_single():
     doc.find(_w("body")).append(tbl)
 
     passed, issues, _ = audit_thesis.check_lnu_tb03(doc, [], {}, {})
+    assert passed
+    assert issues == []
+
+
+def test_lnu_tb03_rejects_table_line_spacing_single():
+    tbl = ET.Element(_w("tbl"))
+    tr = ET.SubElement(tbl, _w("tr"))
+    tc = ET.SubElement(tr, _w("tc"))
+    p = ET.SubElement(tc, _w("p"))
+    p_pr = ET.SubElement(p, _w("pPr"))
+    spacing = ET.SubElement(p_pr, _w("spacing"))
+    spacing.set(_w("line"), "240")
+    run = _make_run("表格内容", sz=21)
+    p.append(run)
+    doc = _make_doc_root()
+    doc.find(_w("body")).append(tbl)
+
+    passed, issues, _ = audit_thesis.check_lnu_tb03(doc, [], {}, {})
     assert not passed
-    assert any("单倍" in msg for msg in issues)
+    assert any("1.5倍" in msg for msg in issues)
 
 
 def test_lnu_tb04_rejects_loose_table_caption_and_missing_post_table_gap(tmp_path):

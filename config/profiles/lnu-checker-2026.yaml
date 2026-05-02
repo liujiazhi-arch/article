@@ -371,7 +371,7 @@ additions:
     scope: undergraduate
     severity: important
     check_level: Auto
-    description: "表格内容单倍行距"
+    description: "表格内容1.5倍行距"
     method: docx-structure
     evidence: "表格单元格段落 line"
     fix: "fix_lnu_tb03()"
@@ -448,11 +448,19 @@ settings:
   caption_label_gap_spaces: 2
   figure_blank_line_twips: 360
   table_blank_line_twips: 360
+  table_cell_line: 360
   figure_caption_line: 360
   figure_note_line: 240
   eq_number_sep: "."
   ref_terminal_punct: "."
   pg01_format: "hyphen_wrap"
+  cover_page_number: false
+  frontmatter_page_number_format: "upperRoman"
+  frontmatter_page_number_start: 1
+  frontmatter_page_number_wrap: "plain"
+  body_page_number_format: "decimal"
+  body_page_number_start: 1
+  body_page_number_wrap: "hyphen_wrap"
   page_number_font: "宋体"
   page_number_size: 21
   toc_title: "目  录"

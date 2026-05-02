@@ -111,6 +111,7 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["body_ascii_font"] == "Times New Roman"
         assert cfg["body_size"] == 24
         assert cfg["body_line"] == 360
+        assert cfg["table_cell_line"] == 360
         assert cfg["body_indent"] == 480
         assert cfg["h1_size"] == 32
         assert cfg["h2_size"] == 28
@@ -139,6 +140,11 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["ref_line_spacing"] == 360
         assert cfg["ref_terminal_punct"] == "."
         assert cfg["pg01_format"] == "hyphen_wrap"
+        assert cfg["cover_page_number"] is False
+        assert cfg["frontmatter_page_number_format"] == "upperRoman"
+        assert cfg["frontmatter_page_number_wrap"] == "plain"
+        assert cfg["body_page_number_format"] == "decimal"
+        assert cfg["body_page_number_wrap"] == "hyphen_wrap"
         assert cfg.get("ref_number_trailing_space", False) is True
         assert cfg.get("acknowledgement_required", True) is True
         assert cfg["check_snap_to_grid"] is True

@@ -80,6 +80,7 @@ DEFAULT_CFG = {
     "caption_size": 21,
     "figure_blank_line_twips": 360,
     "table_blank_line_twips": 360,
+    "table_cell_line": 360,
     "figure_caption_line": 360,
     "figure_note_line": 240,
     "ref_hanging": 560,
@@ -93,6 +94,13 @@ DEFAULT_CFG = {
     "eq_number_sep": "-",        # 公式编号分隔符，辽大为"."
     "ref_terminal_punct": None,  # None=按CJK自动判断；辽大为"."
     "pg01_format": "plain",      # 辽大为'em_dash"即—N—格式
+    "cover_page_number": True,
+    "frontmatter_page_number_format": "upperRoman",
+    "frontmatter_page_number_start": 1,
+    "frontmatter_page_number_wrap": "plain",
+    "body_page_number_format": "decimal",
+    "body_page_number_start": 1,
+    "body_page_number_wrap": "plain",
     "page_number_font": None,
     "page_number_size": None,
     "kw_font": None,             # 关键词字体，辽大为"黑体"
@@ -208,7 +216,7 @@ LNU_RULE_DEFINITIONS = (
     ("LNU_CONC01", "末章标题含结论（辽大）", "minor"),
     ("LNU_S03", "参考文献/致谢前分页符（辽大）", "minor"),
     ("LNU_TITLE01", "摘要等标题双空格格式（辽大）", "minor"),
-    ("LNU_TB03", "表格内容单倍行距（辽大）", "minor"),
+    ("LNU_TB03", "表格内容1.5倍行距（辽大）", "minor"),
     ("LNU_UNIT01", "数字与单位间空格（辽大）", "minor"),
 )
 
@@ -441,11 +449,19 @@ def build_profile_cfg(profile_id, profile_data, settings):
         "ack_font",
         "caption_number_sep",
         "figure_blank_line_twips",
+        "table_cell_line",
         "figure_caption_line",
         "figure_note_line",
         "eq_number_sep",
         "ref_terminal_punct",
         "pg01_format",
+        "cover_page_number",
+        "frontmatter_page_number_format",
+        "frontmatter_page_number_start",
+        "frontmatter_page_number_wrap",
+        "body_page_number_format",
+        "body_page_number_start",
+        "body_page_number_wrap",
         "page_number_font",
         "page_number_size",
         "ref_number_trailing_space",
@@ -2708,14 +2724,15 @@ def check_lnu_title01(document_root, contexts, style_map, cfg):
 
 
 def check_lnu_tb03(document_root, contexts, style_map, cfg):
-    """LNU_TB03: 表格内容应为单倍行距"""
+    """LNU_TB03: 表格内容应为1.5倍行距"""
     issues = []
+    expected_line = parse_int((cfg or {}).get("table_cell_line")) or parse_int((cfg or {}).get("body_line")) or 360
     for tbl in document_root.findall(".//w:tbl", NSMAP):
         for cell in tbl.findall(".//w:tc", NSMAP):
             for p in cell.findall(".//w:p", NSMAP):
                 line_val = get_paragraph_line_spacing(p, style_map)
-                if line_val and line_val > 260:
-                    issues.append(f"表格内容行距过大(line={line_val})，应为单倍(240)")
+                if line_val and line_val != expected_line:
+                    issues.append(f"表格内容行距应为1.5倍({expected_line})，实际 line={line_val}")
     return (len(issues) == 0), issues, f"发现{len(issues)}处"
 
 

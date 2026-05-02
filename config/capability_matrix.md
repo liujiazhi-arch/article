@@ -106,7 +106,7 @@
 | LNU_FMT02 | 图片嵌入型/表格无环绕 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB01 | 表格外框1.5pt内线0.5pt | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB02 | 表格内容宋体五号 | Auto | docx-structure | ✓ | ✓ |
-| LNU_TB03 | 表格内容单倍行距 | Auto | docx-structure | ✓ | ✓ |
+| LNU_TB03 | 表格内容1.5倍行距 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB04 | 表块留白与表题贴表 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF01 | 参考文献英文半角标点 | Semi | docx-structure | ✓ | ✓ |
 | LNU_REF02 | 参考文献编号空格格式 | Auto | docx-structure | ✓ | ✓ |

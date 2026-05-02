@@ -31,6 +31,7 @@ from fix_thesis import (
     fix_cover_layout,
     fix_heading_paragraph,
     fix_insert_toc,
+    fix_page_margins,
     inject_template_components,
     fix_lnu_abs03,
     fix_lnu_ack01,
@@ -692,6 +693,37 @@ def test_fix_cover_layout_preserves_lnu_cover_content(lnu_runtime):
     assert get_paragraph_text(p) == "固定封面文字"
 
 
+def test_fix_page_margins_preserves_cover_page_size_for_lnu(lnu_runtime):
+    cover = _make_paragraph("封面信息")
+    cover_sect = _append_sect_pr(cover, "decimal")
+    cover_pg_sz = ET.SubElement(cover_sect, _w("pgSz"))
+    cover_pg_sz.set(_w("w"), "10000")
+    cover_pg_sz.set(_w("h"), "14000")
+
+    frontmatter_break = _make_paragraph("")
+    frontmatter_sect = _append_sect_pr(frontmatter_break, "upperRoman")
+    frontmatter_pg_sz = ET.SubElement(frontmatter_sect, _w("pgSz"))
+    frontmatter_pg_sz.set(_w("w"), "10000")
+    frontmatter_pg_sz.set(_w("h"), "14000")
+
+    document = _make_doc_root(cover, frontmatter_break, _make_paragraph("序言"))
+    body = document.find("w:body", NSMAP)
+    assert body is not None
+    body_sect = ET.SubElement(body, _w("sectPr"))
+    body_pg_sz = ET.SubElement(body_sect, _w("pgSz"))
+    body_pg_sz.set(_w("w"), "10000")
+    body_pg_sz.set(_w("h"), "14000")
+
+    fix_page_margins(document, {}, runtime=lnu_runtime)
+
+    assert cover_pg_sz.get(_w("w")) == "10000"
+    assert cover_pg_sz.get(_w("h")) == "14000"
+    assert frontmatter_pg_sz.get(_w("w")) == "11906"
+    assert frontmatter_pg_sz.get(_w("h")) == "16838"
+    assert body_pg_sz.get(_w("w")) == "11906"
+    assert body_pg_sz.get(_w("h")) == "16838"
+
+
 def test_normalize_equation_explanation_symbols_splits_plain_tokens_to_subscripts():
     p = _make_paragraph("其中，m2 为称量后总质量（g）；m1 为称量前容器质量（g）；m0 为样品初始投料质量（g）。")
 
@@ -993,6 +1025,34 @@ def test_fix_insert_toc_removes_raw_toc_block_and_inserts_before_body(lnu_runtim
     toc_title = next(p for p in body.findall("w:p", NSMAP) if get_paragraph_text(p).strip() == "目  录")
     page_break_before = toc_title.find("w:pPr/w:pageBreakBefore", NSMAP)
     assert page_break_before is not None and page_break_before.get(_w("val")) in {"1", "true"}
+
+
+def test_fix_insert_toc_starts_at_preface_not_abstracts(lnu_runtime):
+    cover = _make_paragraph("封面信息")
+    abstract_cn = _make_paragraph("摘  要")
+    abstract_en = _make_paragraph("Abstract")
+    keywords = _make_paragraph("关键词：论文；格式")
+    preface = _make_paragraph("序言")
+    heading = _make_paragraph("1.1 研究背景")
+
+    for paragraph in (abstract_cn, abstract_en, preface):
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+        p_style = ET.SubElement(p_pr, _w("pStyle"))
+        p_style.set(_w("val"), "Heading1")
+    heading_ppr = ET.SubElement(heading, _w("pPr"))
+    heading_style = ET.SubElement(heading_ppr, _w("pStyle"))
+    heading_style.set(_w("val"), "Heading2")
+
+    doc = _make_doc_root(cover, abstract_cn, abstract_en, keywords, preface, heading)
+
+    fix_insert_toc(doc, {"toc_auto": True, "toc_title": "目录", "toc_max_level": 3}, runtime=lnu_runtime)
+
+    body = doc.find("w:body", NSMAP)
+    texts = [get_paragraph_text(elem).strip() for elem in body.findall("w:p", NSMAP)]
+    assert texts.index("目  录") == texts.index("序言") - 4
+    assert texts.index("摘  要") < texts.index("目  录")
+    instr_text = "".join((instr.text or "") for instr in doc.findall(".//w:instrText", NSMAP))
+    assert 'TOC \\o "1-3"' in instr_text
 
 
 def test_fix_insert_toc_ignores_numeric_body_style_ids(lnu_runtime):
@@ -1470,15 +1530,15 @@ def test_inject_template_components_copies_missing_styles(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_fix_lnu_tb03_fixes_spacing():
-    """fix_lnu_tb03 sets line=240 on a table cell paragraph with line=360."""
-    # Build: <w:tbl><w:tr><w:tc><w:p><w:pPr><w:spacing line=360></w:pPr></w:p></w:tc></w:tr></w:tbl>
+    """fix_lnu_tb03 sets line=360 on a table cell paragraph with line=240."""
+    # Build: <w:tbl><w:tr><w:tc><w:p><w:pPr><w:spacing line=240></w:pPr></w:p></w:tc></w:tr></w:tbl>
     tbl = ET.Element(_w("tbl"))
     tr = ET.SubElement(tbl, _w("tr"))
     tc = ET.SubElement(tr, _w("tc"))
     p = ET.SubElement(tc, _w("p"))
     p_pr = ET.SubElement(p, _w("pPr"))
     spacing = ET.SubElement(p_pr, _w("spacing"))
-    spacing.set(_w("line"), "360")
+    spacing.set(_w("line"), "240")
     spacing.set(_w("lineRule"), "auto")
 
     doc = ET.Element(_w("document"))
@@ -1489,4 +1549,5 @@ def test_fix_lnu_tb03_fixes_spacing():
 
     assert count >= 1, "Expected at least one paragraph to be fixed"
     line_val = spacing.get(_w("line"))
-    assert line_val == "240", f"Expected line=240 after fix, got {line_val!r}"
+    assert line_val == "360", f"Expected line=360 after fix, got {line_val!r}"
+    assert spacing.get(_w("lineRule")) == "auto"
