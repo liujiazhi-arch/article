@@ -2,16 +2,11 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from copy import deepcopy
-from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
-import sys
 from threading import Lock
-import tempfile
 from time import monotonic, sleep
 from typing import Any, Callable
 from uuid import uuid4
@@ -20,9 +15,11 @@ import audit_thesis
 from article_engine import apply_fix, normalize_document, verify_document
 from article_engine.service import _default_output_path
 from article_api import storage
+from article_api import job_artifacts, job_execution
+from article_api import job_payloads
 from article_api.uploads import build_job_workspace, infer_uploaded_docx_name, stage_job_input_docx
-from fix_thesis import default_normalize_output_path
-from thesis_tool.scopes import normalize_scope_names
+
+JobRecord = job_payloads.JobRecord
 
 
 def _utcnow() -> str:
@@ -47,26 +44,6 @@ def _recovery_error_payload(status: str) -> dict[str, Any]:
     }
 
 
-@dataclass
-class JobRecord:
-    job_id: str
-    operation: str
-    request: dict[str, Any]
-    resolved_request: dict[str, Any]
-    workspace: dict[str, str] | None
-    runtime: dict[str, Any] | None
-    status: str
-    created_at: str
-    updated_at: str
-    started_at: str | None = None
-    finished_at: str | None = None
-    summary: dict[str, Any] | None = None
-    artifacts: list[dict[str, Any]] | None = None
-    result: dict[str, Any] | None = None
-    error: dict[str, Any] | None = None
-    mode: str = "background"
-
-
 _JOB_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "verify": verify_document,
     "apply": apply_fix,
@@ -78,37 +55,24 @@ _JOB_LOCK = Lock()
 _JOB_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="article-job-worker")
 _ACTIVE_FUTURES: dict[str, Future[Any]] = {}
 _FINISHED_STATUSES = {"succeeded", "failed"}
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_SCRIPTS_ROOT = _PROJECT_ROOT / "scripts"
+_PROJECT_ROOT = job_execution.PROJECT_ROOT
+_SCRIPTS_ROOT = job_execution.SCRIPTS_ROOT
 
 
 def _clone_dict(payload: dict[str, Any]) -> dict[str, Any]:
-    return deepcopy(payload)
+    return job_payloads.clone_dict(payload)
 
 
 def _coerce_positive_int(value: Any, *, field_name: str, default: int) -> int:
-    if value is None:
-        return default
-    normalized = int(value)
-    if normalized < 1:
-        raise ValueError(f"{field_name} must be >= 1")
-    return normalized
+    return job_payloads.coerce_positive_int(value, field_name=field_name, default=default)
 
 
 def _coerce_nonnegative_float(value: Any, *, field_name: str, default: float) -> float:
-    if value is None:
-        return default
-    normalized = float(value)
-    if normalized < 0:
-        raise ValueError(f"{field_name} must be >= 0")
-    return normalized
+    return job_payloads.coerce_nonnegative_float(value, field_name=field_name, default=default)
 
 
 def _coerce_positive_float(value: Any, *, field_name: str) -> float:
-    normalized = float(value)
-    if normalized <= 0:
-        raise ValueError(f"{field_name} must be > 0")
-    return normalized
+    return job_payloads.coerce_positive_float(value, field_name=field_name)
 
 
 def _heartbeat_stale_after_seconds() -> float:
@@ -126,44 +90,11 @@ def _recovery_grace_seconds() -> float:
 
 
 def _serialize_job(record: JobRecord, *, include_result: bool) -> dict[str, Any]:
-    payload = {
-        "job_id": record.job_id,
-        "operation": record.operation,
-        "status": record.status,
-        "mode": record.mode,
-        "created_at": record.created_at,
-        "updated_at": record.updated_at,
-        "started_at": record.started_at,
-        "finished_at": record.finished_at,
-        "request": _clone_dict(record.request),
-        "resolved_request": _clone_dict(record.resolved_request),
-        "workspace": deepcopy(record.workspace),
-        "runtime": deepcopy(record.runtime),
-        "result_available": record.status in _FINISHED_STATUSES,
-        "summary": deepcopy(record.summary),
-        "artifacts": deepcopy(record.artifacts),
-        "error": deepcopy(record.error),
-    }
-    if include_result:
-        payload["result"] = deepcopy(record.result)
-    return payload
+    return job_payloads.serialize_job(record, include_result=include_result, finished_statuses=_FINISHED_STATUSES)
 
 
 def _inspection_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "job_id": payload["job_id"],
-        "operation": payload["operation"],
-        "status": payload["status"],
-        "created_at": payload["created_at"],
-        "started_at": payload.get("started_at"),
-        "finished_at": payload.get("finished_at"),
-        "summary": deepcopy(payload.get("summary")),
-        "runtime": deepcopy(payload.get("runtime")),
-        "artifacts": deepcopy(payload.get("artifacts")),
-        "error": deepcopy(payload.get("error")),
-        "cleanup": deepcopy(payload.get("cleanup")),
-        "result_available": payload.get("status") in _FINISHED_STATUSES,
-    }
+    return job_payloads.inspection_from_payload(payload, finished_statuses=_FINISHED_STATUSES)
 
 
 def _get_handler(operation: str) -> Callable[..., dict[str, Any]]:
@@ -175,120 +106,19 @@ def _get_handler(operation: str) -> Callable[..., dict[str, Any]]:
 
 
 def _resolve_request(operation: str, request: dict[str, Any]) -> dict[str, Any]:
-    resolved = _clone_dict(request)
-    resolved["file_path"] = audit_thesis.validate_docx_path(resolved["file_path"])
-    resolved["source_display_name"] = resolved.get("source_display_name") or infer_uploaded_docx_name(
-        resolved["file_path"]
+    return job_payloads.resolve_request(
+        operation,
+        request,
+        default_output_path=_default_output_path,
     )
-    resolved.setdefault("stage_input", False)
-    resolved.setdefault("runtime_root", None)
-    resolved["_explicit_output_path"] = resolved.get("output_path") is not None
-    if operation == "apply":
-        normalized_scopes = normalize_scope_names(resolved.get("scopes"))
-        resolved["scopes"] = sorted(normalized_scopes) if normalized_scopes else None
-        resolved.setdefault("output_path", None)
-        resolved.setdefault("scopes", None)
-        resolved.setdefault("toc", False)
-        resolved.setdefault("renumber_headings", False)
-        resolved.setdefault("layout_rebalance", False)
-        resolved.setdefault("strict_profile", None)
-        resolved.setdefault("dry_run", False)
-        resolved.setdefault("force", False)
-        if resolved["output_path"] is None:
-            resolved["output_path"] = _resolve_default_output_path(
-                resolved["file_path"],
-                resolved["scopes"],
-                source_display_name=resolved.get("source_display_name"),
-            )
-        else:
-            resolved["output_path"] = os.path.abspath(os.path.expanduser(str(resolved["output_path"])))
-    elif operation == "normalize":
-        resolved.setdefault("output_path", None)
-        resolved.setdefault("strict_profile", None)
-        if resolved["output_path"] is None:
-            resolved["output_path"] = _resolve_default_normalize_output_path(
-                resolved["file_path"],
-                source_display_name=resolved.get("source_display_name"),
-            )
-        else:
-            resolved["output_path"] = os.path.abspath(os.path.expanduser(str(resolved["output_path"])))
-    elif operation == "verify":
-        normalized_scopes = normalize_scope_names(resolved.get("scopes"))
-        resolved["scopes"] = sorted(normalized_scopes) if normalized_scopes else None
-        resolved.setdefault("strict_profile", None)
-    resolved["max_attempts"] = _coerce_positive_int(
-        resolved.get("max_attempts"),
-        field_name="max_attempts",
-        default=1,
-    )
-    resolved["retry_delay_seconds"] = _coerce_nonnegative_float(
-        resolved.get("retry_delay_seconds"),
-        field_name="retry_delay_seconds",
-        default=0.0,
-    )
-    timeout_value = resolved.get("timeout_seconds")
-    resolved["timeout_seconds"] = None if timeout_value in (None, "") else _coerce_positive_float(
-        timeout_value,
-        field_name="timeout_seconds",
-    )
-    resolved.setdefault("retry_of_job_id", None)
-    return resolved
 
 
 def _result_summary(operation: str, result: dict[str, Any], resolved_request: dict[str, Any]) -> dict[str, Any]:
-    source_display_name = resolved_request.get("source_display_name")
-    source_file_path = resolved_request.get("source_file_path") or result.get("document", {}).get("path")
-    profile_value = result.get("profile")
-    profile_id = profile_value.get("id") if isinstance(profile_value, dict) else profile_value
-    summary: dict[str, Any] = {
-        "document_name": source_display_name
-        or (os.path.basename(source_file_path) if source_file_path else result.get("document", {}).get("name")),
-        "selected_scopes": deepcopy(result.get("selected_scopes")),
-        "profile_id": profile_id,
-    }
-    if operation == "verify":
-        summary["business_status"] = result.get("overall_status")
-        summary["readiness"] = result.get("readiness")
-        summary["failed_rules"] = result.get("summary", {}).get("failed_rules")
-    elif operation == "apply":
-        summary["result_mode"] = result.get("mode")
-        summary["output_path"] = result.get("output", {}).get("path")
-        if result.get("mode") == "preview":
-            summary["business_status"] = "preview"
-        else:
-            summary["business_status"] = result.get("verification", {}).get("overall_status")
-            summary["readiness"] = result.get("readiness") or result.get("verification", {}).get("readiness")
-            summary["post_verify_notice_count"] = len(result.get("post_verify_notices") or [])
-            summary["guard_blocked"] = bool(result.get("guard", {}).get("blocked"))
-    elif operation == "normalize":
-        summary["output_path"] = result.get("output", {}).get("path")
-        summary["business_status"] = result.get("after", {}).get("preflight_status")
-        summary["changed"] = bool(result.get("changed"))
-        summary["operation_count"] = len(result.get("operations") or [])
-    if resolved_request.get("dry_run") is not None:
-        summary["dry_run"] = bool(resolved_request.get("dry_run"))
-    summary["attempt_count"] = int(resolved_request.get("attempt_count") or 1)
-    summary["max_attempts"] = int(resolved_request.get("max_attempts") or 1)
-    return summary
+    return job_payloads.build_result_summary(operation, result, resolved_request)
 
 
 def _failure_summary(operation: str, resolved_request: dict[str, Any], error: dict[str, Any]) -> dict[str, Any]:
-    source_display_name = resolved_request.get("source_display_name")
-    source_file_path = resolved_request.get("source_file_path") or resolved_request.get("file_path")
-    summary: dict[str, Any] = {
-        "document_name": source_display_name or os.path.basename(source_file_path),
-        "selected_scopes": deepcopy(resolved_request.get("scopes")),
-        "error_code": error["code"],
-    }
-    if operation in {"apply", "normalize"}:
-        summary["output_path"] = resolved_request.get("output_path")
-        if operation == "apply":
-            guard = error.get("guard") or {}
-            summary["guard_blocked"] = bool(guard.get("blocked"))
-            summary["guard_warning_count"] = len(guard.get("warnings") or [])
-    summary["attempt_count"] = int(resolved_request.get("attempt_count") or 1)
-    summary["max_attempts"] = int(resolved_request.get("max_attempts") or 1)
-    return summary
+    return job_payloads.build_failure_summary(operation, resolved_request, error)
 
 
 def _merge_recovery_summary(
@@ -298,19 +128,12 @@ def _merge_recovery_summary(
     *,
     existing_summary: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    base = _failure_summary(operation, resolved_request, error)
-    if not existing_summary:
-        return base
-
-    merged = deepcopy(existing_summary)
-    merged.setdefault("document_name", base["document_name"])
-    merged.setdefault("selected_scopes", base["selected_scopes"])
-    if operation == "apply" and base.get("output_path") is not None:
-        merged.setdefault("output_path", base["output_path"])
-    merged["error_code"] = error["code"]
-    merged["attempt_count"] = int(resolved_request.get("attempt_count") or merged.get("attempt_count") or 1)
-    merged["max_attempts"] = int(resolved_request.get("max_attempts") or merged.get("max_attempts") or 1)
-    return merged
+    return job_payloads.merge_recovery_summary(
+        operation,
+        resolved_request,
+        error,
+        existing_summary=existing_summary,
+    )
 
 
 def _build_failed_record_from_payload(payload: dict[str, Any], *, error: dict[str, Any]) -> JobRecord:
@@ -373,98 +196,24 @@ def _build_artifacts(
     result: dict[str, Any] | None,
     status: str,
 ) -> list[dict[str, Any]]:
-    artifacts: list[dict[str, Any]] = []
-    input_source_path = resolved_request.get("source_file_path")
-    if input_source_path and workspace is not None:
-        artifacts.append(
-            {
-                "kind": "docx",
-                "role": "input",
-                "path": resolved_request["file_path"],
-                "source_path": input_source_path,
-                "download_name": resolved_request.get("source_display_name") or os.path.basename(input_source_path),
-                "workspace": workspace["inputs"],
-                "staged": True,
-                "exists_at_completion": os.path.exists(resolved_request["file_path"]),
-            }
-        )
-
-    if operation not in {"apply", "normalize"}:
-        return artifacts
-
-    output_path = resolved_request.get("output_path")
-    if not output_path:
-        return artifacts
-
-    mode = result.get("mode") if result else ("normalize" if operation == "normalize" else None)
-    wrote_file = bool(status == "succeeded" and mode != "preview")
-    artifacts.append(
-        {
-            "kind": "docx",
-            "role": "output",
-            "path": output_path,
-            "download_name": os.path.basename(output_path),
-            "workspace": workspace["outputs"] if workspace is not None else None,
-            "result_mode": mode or "failed",
-            "written": wrote_file,
-            "exists_at_completion": os.path.exists(output_path),
-        }
+    return job_artifacts.build_artifacts(
+        operation,
+        resolved_request,
+        workspace,
+        result=result,
+        status=status,
     )
-    return artifacts
 
 
 def _normalize_result_payload(result: dict[str, Any], resolved_request: dict[str, Any]) -> dict[str, Any]:
-    source_file_path = resolved_request.get("source_file_path")
-    source_display_name = resolved_request.get("source_display_name")
-    if not source_file_path and not source_display_name:
-        return result
-    normalized = deepcopy(result)
-    if "document" in normalized and isinstance(normalized["document"], dict):
-        if source_file_path:
-            normalized["document"]["path"] = source_file_path
-        if source_display_name:
-            normalized["document"]["name"] = source_display_name
-        elif source_file_path:
-            normalized["document"]["name"] = os.path.basename(source_file_path)
-    return normalized
+    return job_payloads.normalize_result_payload(result, resolved_request)
 
 
 def _build_runtime_metadata(
     resolved_request: dict[str, Any],
     workspace: dict[str, str] | None,
 ) -> dict[str, Any]:
-    runtime_root = resolved_request.get("runtime_root")
-    source_upload_id = resolved_request.get("upload_id")
-    source_file_path = resolved_request.get("source_file_path")
-    staged_input_path = resolved_request["file_path"] if source_file_path else None
-    output_path = resolved_request.get("output_path")
-    return {
-        "cleanup_policy": "manual",
-        "runtime_root": runtime_root,
-        "source_upload_id": source_upload_id,
-        "input_path": resolved_request.get("input_path"),
-        "stage_input_enabled": bool(resolved_request.get("stage_input")),
-        "workspace_present": workspace is not None,
-        "workspace_root": workspace["root"] if workspace else None,
-        "workspace_inputs": workspace["inputs"] if workspace else None,
-        "workspace_outputs": workspace["outputs"] if workspace else None,
-        "source_file_path": source_file_path,
-        "staged_input_path": staged_input_path,
-        "output_path": output_path,
-        "output_dir": resolved_request.get("output_dir"),
-        "summary_file": resolved_request.get("summary_file"),
-        "retry_of_job_id": resolved_request.get("retry_of_job_id"),
-        "max_attempts": int(resolved_request.get("max_attempts") or 1),
-        "retry_delay_seconds": float(resolved_request.get("retry_delay_seconds") or 0.0),
-        "timeout_seconds": resolved_request.get("timeout_seconds"),
-        "attempt_count": 0,
-        "attempts": [],
-        "events": [],
-        "worker_model": "single",
-        "lease_state": "pending",
-        "last_heartbeat_at": None,
-        "heartbeat_count": 0,
-    }
+    return job_payloads.build_runtime_metadata(resolved_request, workspace)
 
 
 def _normalize_runtime_metadata(
@@ -472,117 +221,49 @@ def _normalize_runtime_metadata(
     workspace: dict[str, str] | None,
     runtime: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    normalized = _build_runtime_metadata(resolved_request, workspace)
-    if runtime:
-        normalized.update(deepcopy(runtime))
-    return normalized
+    return job_payloads.normalize_runtime_metadata(resolved_request, workspace, runtime)
 
 
 def _finalize_runtime_metadata(runtime: dict[str, Any]) -> dict[str, Any]:
-    finalized = deepcopy(runtime)
-    workspace_root = finalized.get("workspace_root")
-    staged_input_path = finalized.get("staged_input_path")
-    output_path = finalized.get("output_path")
-    finalized["workspace_exists_at_completion"] = bool(workspace_root and os.path.exists(workspace_root))
-    finalized["staged_input_exists_at_completion"] = bool(staged_input_path and os.path.exists(staged_input_path))
-    finalized["output_exists_at_completion"] = bool(output_path and os.path.exists(output_path))
-    return finalized
+    return job_artifacts.finalize_runtime_metadata(runtime)
 
 
 def _handler_request(resolved_request: dict[str, Any]) -> dict[str, Any]:
-    payload = _clone_dict(resolved_request)
-    payload.pop("stage_input", None)
-    payload.pop("runtime_root", None)
-    payload.pop("upload_id", None)
-    payload.pop("source_file_path", None)
-    payload.pop("source_display_name", None)
-    payload.pop("max_attempts", None)
-    payload.pop("retry_delay_seconds", None)
-    payload.pop("timeout_seconds", None)
-    payload.pop("retry_of_job_id", None)
-    payload.pop("attempt_count", None)
-    return payload
+    return job_execution.handler_request(resolved_request)
 
 
 def _subprocess_env() -> dict[str, str]:
-    env = os.environ.copy()
-    python_path = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = str(_SCRIPTS_ROOT) if not python_path else f"{_SCRIPTS_ROOT}{os.pathsep}{python_path}"
-    env.setdefault("PYTHONIOENCODING", "utf-8")
-    return env
+    return job_execution.subprocess_env(scripts_root=_SCRIPTS_ROOT)
 
 
 def _timeout_error_payload(timeout_seconds: float | None) -> dict[str, Any]:
-    return {
-        "code": "worker_timeout",
-        "type": "TimeoutExpired",
-        "message": f"Job attempt exceeded timeout of {timeout_seconds} seconds",
-        "http_status": 504,
-    }
+    return job_execution.timeout_error_payload(timeout_seconds)
 
 
 def _transient_internal_error_payload(message: str) -> dict[str, Any]:
-    return {
-        "code": "internal_error",
-        "type": "RuntimeError",
-        "message": message,
-        "http_status": 500,
-    }
+    return job_execution.transient_internal_error_payload(message)
 
 
 def _run_handler_subprocess(operation: str, handler_request: dict[str, Any], *, timeout_seconds: float | None) -> dict[str, Any]:
-    request_path = None
-    try:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
-            json.dump({"operation": operation, "request": handler_request}, handle, ensure_ascii=False, sort_keys=True)
-            request_path = handle.name
-        completed = subprocess.run(
-            [sys.executable, "-m", "article_api.job_runner", request_path],
-            cwd=str(_PROJECT_ROOT),
-            env=_subprocess_env(),
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
-    finally:
-        if request_path:
-            try:
-                os.unlink(request_path)
-            except FileNotFoundError:
-                pass
-
-    stdout = completed.stdout.strip()
-    if not stdout:
-        stderr = completed.stderr.strip()
-        raise RuntimeError(f"Job runner returned no payload for {operation}: {stderr or 'empty stdout'}")
-    payload = json.loads(stdout)
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Job runner returned invalid payload type for {operation}")
-    return payload
+    return job_execution.run_handler_subprocess(
+        operation,
+        handler_request,
+        timeout_seconds=timeout_seconds,
+        project_root=_PROJECT_ROOT,
+        scripts_root=_SCRIPTS_ROOT,
+    )
 
 
 def _execute_job_attempt(operation: str, resolved_request: dict[str, Any]) -> dict[str, Any]:
-    try:
-        payload = _run_handler_subprocess(
-            operation,
-            _handler_request(resolved_request),
-            timeout_seconds=resolved_request.get("timeout_seconds"),
-        )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": _timeout_error_payload(resolved_request.get("timeout_seconds"))}
-    except Exception as exc:
-        return {"ok": False, "error": _transient_internal_error_payload(str(exc))}
-    if not isinstance(payload, dict) or "ok" not in payload:
-        return {
-            "ok": False,
-            "error": _transient_internal_error_payload(f"Malformed job runner payload for {operation}"),
-        }
-    return payload
+    return job_execution.execute_job_attempt(
+        operation,
+        resolved_request,
+        run_subprocess=_run_handler_subprocess,
+    )
 
 
 def _is_retryable_error(error: dict[str, Any]) -> bool:
-    return error.get("code") in {"internal_error", "worker_timeout"}
+    return job_execution.is_retryable_error(error)
 
 
 def _append_attempt(runtime: dict[str, Any] | None, *, attempt: int, status: str, error: dict[str, Any] | None = None) -> None:
@@ -649,25 +330,19 @@ def _heartbeat_runtime(runtime: dict[str, Any] | None, *, lease_state: str | Non
 
 
 def _resolve_default_output_path(file_path: str, scopes, *, source_display_name: str | None) -> str:
-    if not source_display_name:
-        return _default_output_path(file_path, scopes)
-    source = Path(file_path)
-    display_path = Path(source_display_name)
-    normalized_scopes = normalize_scope_names(scopes)
-    if normalized_scopes:
-        output_name = f"{display_path.stem}_{'_'.join(sorted(normalized_scopes))}{display_path.suffix or '.docx'}"
-    else:
-        output_name = display_path.name
-    return str(source.with_name(output_name))
+    return job_payloads.resolve_default_output_path(
+        file_path,
+        scopes,
+        source_display_name=source_display_name,
+        default_output_path=_default_output_path,
+    )
 
 
 def _resolve_default_normalize_output_path(file_path: str, *, source_display_name: str | None) -> str:
-    if not source_display_name:
-        return default_normalize_output_path(file_path)
-    source = Path(file_path)
-    display_path = Path(source_display_name)
-    output_name = f"{display_path.stem}_normalized{display_path.suffix or '.docx'}"
-    return str(source.with_name(output_name))
+    return job_payloads.resolve_default_normalize_output_path(
+        file_path,
+        source_display_name=source_display_name,
+    )
 
 
 def clear_jobs() -> None:
@@ -807,49 +482,15 @@ def list_jobs() -> list[dict[str, Any]]:
 
 
 def _resolved_path(path_value: str | None) -> Path | None:
-    if not path_value:
-        return None
-    return Path(path_value).expanduser().resolve()
+    return job_artifacts.resolved_path(path_value)
 
 
 def _is_within(path: Path, root: Path | None) -> bool:
-    if root is None:
-        return False
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
+    return job_artifacts.is_within(path, root)
 
 
 def _cleanup_candidate_map(payload: dict[str, Any]) -> tuple[dict[str, dict[str, str]], list[str]]:
-    runtime = payload.get("runtime") or {}
-    runtime_root = _resolved_path(runtime.get("runtime_root"))
-    workspace_root = _resolved_path(runtime.get("workspace_root"))
-    candidates: dict[str, dict[str, str]] = {}
-    skipped_paths: list[str] = []
-
-    def add_candidate(path_value: str | None, *, kind: str) -> None:
-        candidate_path = _resolved_path(path_value)
-        if candidate_path is None:
-            return
-        candidate_key = str(candidate_path)
-        if workspace_root is not None and candidate_path != workspace_root and _is_within(candidate_path, workspace_root):
-            return
-        if workspace_root is not None and candidate_path == workspace_root:
-            candidates[candidate_key] = {"path": candidate_key, "kind": kind}
-            return
-        if _is_within(candidate_path, runtime_root):
-            candidates.setdefault(candidate_key, {"path": candidate_key, "kind": kind})
-            return
-        skipped_paths.append(candidate_key)
-
-    add_candidate(runtime.get("workspace_root"), kind="workspace")
-    # Upload lifecycle is managed by the upload registry/cleanup endpoints.
-    # Job cleanup only removes per-job runtime data and materialized artifacts.
-    for artifact in payload.get("artifacts") or []:
-        add_candidate(artifact.get("path"), kind=f"artifact:{artifact.get('role') or 'unknown'}")
-    return candidates, skipped_paths
+    return job_artifacts.cleanup_candidate_map(payload)
 
 
 def cleanup_job(job_id: str, *, policy: str = "manual") -> dict[str, Any]:

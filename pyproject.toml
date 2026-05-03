@@ -43,7 +43,6 @@ py-modules = [
   "thesis_workbench",
   "_profile_utils",
   "_thesis_utils",
-  "output_versioning",
 ]
 
 [tool.setuptools.packages.find]

@@ -928,7 +928,8 @@
       const outputLink = document.getElementById('report-output');
       if (output) {
         outputLink.hidden = false;
-        outputLink.textContent = `${outputLabel || '输出文件'}: ${outputSummary(output)}`;
+        const summary = String(outputLabel || '').startsWith('预计') ? plannedVersionSummary(output) : outputSummary(output);
+        outputLink.textContent = `${outputLabel || '输出文件'}: ${summary}`;
         outputLink.title = output;
         outputLink.removeAttribute('href');
       } else {
@@ -946,7 +947,7 @@
         .slice(0, 5)
         .map((scope) => `准备处理: ${(SCOPES.find(([value]) => value === scope) || [scope, scope])[1]}`);
       return [
-        `输出文件: ${payload.output_path ? outputSummary(payload.output_path) : '自动生成修复稿'}`,
+        `输出文件: ${payload.output_path ? outputSummary(payload.output_path) : '自动生成 V01/V02 修复稿'}`,
         ...(planned.length ? planned : selected),
         '写出新的 Word 文件，原文不会被覆盖',
       ];
@@ -976,7 +977,8 @@
       const fileName = fileNameFromPath(displayName || inputPath) || '修复稿.docx';
       const dotIndex = fileName.toLowerCase().lastIndexOf('.docx');
       const baseName = dotIndex > -1 ? fileName.slice(0, dotIndex) : fileName;
-      return `${OUTPUT_DIR}/${baseName}_fixed.docx`;
+      const cleanBaseName = baseName.replace(/_(格式修复|结构整理|版式候选稿)_v\d{2,}$/i, '');
+      return `${OUTPUT_DIR}/${cleanBaseName}_格式修复_V01.docx`;
     }
     function estimateCandidatePath(inputPath, displayName) {
       const fileName = fileNameFromPath(displayName || inputPath) || '候选修复稿.docx';
@@ -1004,6 +1006,9 @@
     function outputSummary(path) {
       return `${displayFileName(path)}（保存到${outputFolderLabel(path)}）`;
     }
+    function plannedVersionSummary(path) {
+      return `将自动生成版本号（保存到${outputFolderLabel(path)}）`;
+    }
     function updateSourcePreview({ fileName, source, path }) {
       document.getElementById('source-preview').innerHTML = `
         <div class="source-summary">
@@ -1013,16 +1018,17 @@
       `;
     }
     function updateSafeNote({ fileName, source, path }) {
-      const outputPath = document.getElementById('single-output').value.trim() || estimateOutputPath(path, fileName);
+      const manualOutputPath = document.getElementById('single-output').value.trim();
+      const outputPath = manualOutputPath || estimateOutputPath(path, fileName);
       document.getElementById('safe-note').innerHTML = `
         <div>
           <strong>原文不会被覆盖</strong>
-          <span>已选择 ${escapeHtml(displayFileName(fileName || path))}，修复稿会保存到${escapeHtml(outputFolderLabel(outputPath))}。</span>
+          <span>已选择 ${escapeHtml(displayFileName(fileName || path))}，修复稿会按 V01、V02 自动递增，保存到${escapeHtml(outputFolderLabel(outputPath))}。</span>
         </div>
         <details>
           <summary>查看路径</summary>
           <code>输入: ${escapeHtml(path || '')}</code>
-          <code>输出: ${escapeHtml(outputPath)}</code>
+          <code>${manualOutputPath ? '输出' : '预计保存位置'}: ${escapeHtml(manualOutputPath || outputFolderLabel(outputPath))}</code>
         </details>
       `;
     }
@@ -1034,7 +1040,7 @@
     function requestBase(preferOutput = false) {
       const filePath = sourcePathForStep(preferOutput);
       if (!filePath) throw new Error('请先选择 Word 论文或填写本机路径。');
-      return { file_path: filePath, profile: document.getElementById('single-profile').value || 'lnu', scopes: selectedScopes() };
+      return { file_path: filePath, source_display_name: sourceDisplayName(), profile: document.getElementById('single-profile').value || 'lnu', scopes: selectedScopes() };
     }
     function setStep(id, mode) {
       const el = document.querySelector(`[data-step="${id}"]`);
@@ -1292,7 +1298,8 @@
       const endpoint = id === 'render' ? '/render-verify' : `/${id === 'apply' ? 'apply' : id === 'verify' ? 'verify' : id}`;
       const payload = requestBase(id === 'verify' || id === 'render');
       if (id === 'apply') {
-        payload.output_path = document.getElementById('single-output').value.trim() || estimateOutputPath(payload.file_path, sourceDisplayName());
+        const explicitOutputPath = document.getElementById('single-output').value.trim();
+        if (explicitOutputPath) payload.output_path = explicitOutputPath;
         payload.toc = document.getElementById('single-toc').checked;
         payload.renumber_headings = document.getElementById('single-renumber').checked;
         payload.layout_rebalance = document.getElementById('single-layout').checked;

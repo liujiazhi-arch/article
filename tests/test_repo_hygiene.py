@@ -19,6 +19,12 @@ def _git_lines(*args: str) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
+def _live_tracked_paths(*paths: str) -> list[str]:
+    tracked = _git_lines("ls-files", *paths)
+    deleted = set(_git_lines("ls-files", "--deleted", *paths))
+    return [path for path in tracked if path not in deleted and (PROJECT_ROOT / path).exists()]
+
+
 def test_gitignore_keeps_runtime_artifacts_out_of_source_control():
     gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
 
@@ -36,23 +42,14 @@ def test_gitignore_keeps_runtime_artifacts_out_of_source_control():
         assert pattern in gitignore
 
 
-def test_outputs_metadata_whitelist_stays_trackable():
+def test_outputs_directory_is_fully_ignored():
     gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
 
-    for pattern in (
-        "outputs/**",
-        "!outputs/.gitkeep",
-        "!outputs/README.md",
-        "!outputs/index/",
-        "!outputs/index/**",
-        "!outputs/milestones/",
-        "!outputs/milestones/**",
-    ):
-        assert pattern in gitignore
+    assert "outputs/" in gitignore
 
 
 def test_runtime_only_directories_have_no_tracked_files():
-    tracked = _git_lines("ls-files", "runs", "output", ".article_runtime", ".tmp_render_probe_out")
+    tracked = _live_tracked_paths("runs", "output", ".article_runtime", ".tmp_render_probe_out", "outputs")
     assert tracked == []
 
 

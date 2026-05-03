@@ -2,6 +2,26 @@
 
 基于 OOXML 结构分析的毕业论文格式审查与修复工具。
 
+当前产品边界只保留单文档处理链路，不再提供批量处理入口。
+
+保留能力：
+
+- `audit`
+- `plan`
+- `preflight`
+- `normalize`
+- `apply`
+- `verify`
+- `render-verify`
+- `article-local`
+- `article-api`
+- `article-doctor`
+- `article-backup`
+- `article-restore`
+- `article-maintain`
+
+运行产物默认只留在本地 `outputs/`，仓库内不再维护输出索引或里程碑记录。
+
 当前稳定主链：
 
 - `scripts/thesis_workbench.py`：推荐用户入口
@@ -15,8 +35,8 @@
 在仓库根目录执行：
 
 ```bash
-# 安装依赖
-python3 -m pip install -r requirements.txt
+# 安装当前仓库
+python3 -m pip install -e .
 
 # 全量审查
 python3 scripts/thesis_workbench.py audit 你的论文.docx --profile lnu

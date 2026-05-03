@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from . import app as app_module
+from . import app_ops
 from . import storage
 from .local_env import resolved_roots, root_env_scope, utcnow
 
@@ -19,12 +19,12 @@ def run_storage_maintenance(
             run_vacuum=run_vacuum,
             run_analyze=run_analyze,
         )
-        storage_view = app_module._ops_storage_payload()
+        storage_view = app_ops.build_ops_storage_payload()
     return {
-        "service": app_module.SERVICE_NAME,
-        "stage": app_module.SERVICE_STAGE,
-        "version": app_module.SERVICE_VERSION,
-        "api_version": app_module.API_VERSION,
+        "service": app_ops.SERVICE_NAME,
+        "stage": app_ops.SERVICE_STAGE,
+        "version": app_ops.SERVICE_VERSION,
+        "api_version": app_ops.API_VERSION,
         "observed_at": utcnow(),
         "roots": {
             "state_root": str(resolved_state_root),

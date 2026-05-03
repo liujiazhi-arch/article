@@ -42,12 +42,5 @@ node_modules/
 ~$*.docx
 outputs/.~*.docx
 
-# Generated thesis outputs stay local by default.
-# Tracked metadata and promoted milestones are whitelisted below.
-outputs/**
-!outputs/.gitkeep
-!outputs/README.md
-!outputs/index/
-!outputs/index/**
-!outputs/milestones/
-!outputs/milestones/**
+# Generated thesis outputs stay local.
+outputs/

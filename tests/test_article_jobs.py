@@ -7,6 +7,7 @@ import pytest
 from docx import Document
 
 import article_api.jobs as jobs_module
+import article_api.output_naming as output_naming
 import article_api.storage as storage_module
 from article_api.inspection import build_job_inspection, get_job_inspection, get_job_runtime_snapshot
 from article_api.jobs import (
@@ -630,6 +631,81 @@ def test_apply_job_freezes_default_output_path_when_not_provided(tmp_docx):
 
     assert status["resolved_request"]["output_path"].endswith("article_job_default_output_headings.docx")
     assert status["artifacts"][0]["path"].endswith("article_job_default_output_headings.docx")
+
+
+def test_apply_job_with_display_name_uses_next_versioned_output(monkeypatch, tmp_docx, tmp_path):
+    clear_jobs()
+    monkeypatch.setattr(output_naming, "DEFAULT_OUTPUT_DIR", tmp_path / "versioned-outputs")
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="runtime_upload_name.docx",
+        rule_ids=("H02",),
+    )
+    output_dir = output_naming.DEFAULT_OUTPUT_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+    existing = output_dir / "article_job_versioned_格式修复_V01.docx"
+    existing.write_bytes(b"existing")
+
+    job = _create_and_wait_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "source_display_name": "article_job_versioned.docx",
+            "scopes": ["headings"],
+        },
+    )
+    status = get_job(job["job_id"])
+
+    assert status["resolved_request"]["output_path"].endswith("article_job_versioned_格式修复_V02.docx")
+
+
+def test_staged_apply_job_with_display_name_keeps_versioned_basename_in_workspace(monkeypatch, tmp_docx, tmp_path):
+    clear_jobs()
+    monkeypatch.setattr(output_naming, "DEFAULT_OUTPUT_DIR", tmp_path / "versioned-outputs")
+    runtime_root = tmp_path / "runtime"
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="runtime_upload_staged_name.docx",
+        rule_ids=("H02",),
+    )
+
+    job = _create_and_wait_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "source_display_name": "article_job_upload_display.docx",
+            "scopes": ["headings"],
+            "stage_input": True,
+            "runtime_root": str(runtime_root),
+        },
+    )
+    status = get_job(job["job_id"])
+
+    assert status["resolved_request"]["output_path"].startswith(status["workspace"]["outputs"])
+    assert status["resolved_request"]["output_path"].endswith("article_job_upload_display_格式修复_V01.docx")
+
+
+def test_apply_job_strips_existing_version_suffix_from_display_name(monkeypatch, tmp_docx, tmp_path):
+    clear_jobs()
+    monkeypatch.setattr(output_naming, "DEFAULT_OUTPUT_DIR", tmp_path / "versioned-outputs")
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="runtime_upload_versioned.docx",
+        rule_ids=("H02",),
+    )
+
+    job = _create_and_wait_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "source_display_name": "article_job_versioned_input_格式修复_V01.docx",
+            "scopes": ["headings"],
+        },
+    )
+    status = get_job(job["job_id"])
+
+    assert status["resolved_request"]["output_path"].endswith("article_job_versioned_input_格式修复_V01.docx")
+    assert "V01_格式修复" not in status["resolved_request"]["output_path"]
 
 
 def test_normalize_job_freezes_default_output_path_when_not_provided(tmp_path):

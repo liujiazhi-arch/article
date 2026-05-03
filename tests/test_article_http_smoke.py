@@ -287,7 +287,7 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     download_response = client.get(f"/jobs/{job_id}/artifacts/output/download")
     assert download_response.status_code == 200
     assert download_response.content
-    assert "article_http_smoke_headings.docx" in download_response.headers.get("content-disposition", "")
+    assert "article_http_smoke_%E6%A0%BC%E5%BC%8F%E4%BF%AE%E5%A4%8D_V01.docx" in download_response.headers.get("content-disposition", "")
 
     cleanup_response = client.post(f"/jobs/{job_id}/cleanup")
     assert cleanup_response.status_code == 200

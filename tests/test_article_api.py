@@ -5,6 +5,7 @@ from docx import Document
 
 import article_api.app as app_module
 import article_api.jobs as jobs_module
+import article_api.output_naming as output_naming
 from article_api.app import (
     ApplyRequest,
     NormalizeRequest,
@@ -839,6 +840,7 @@ def test_fake_app_job_verify_can_stage_input(monkeypatch, tmp_docx, tmp_path):
 def test_fake_app_upload_endpoint_stores_docx_and_job_downloads_output(monkeypatch, tmp_docx, tmp_path):
     clear_jobs()
     clear_uploads()
+    monkeypatch.setattr(output_naming, "DEFAULT_OUTPUT_DIR", tmp_path / "versioned-outputs")
     app = _build_fake_app(monkeypatch)
     routes = _routes_by_path(app)
     source_path = tmp_docx(make_compliant_doc, filename="article_api_upload_apply.docx")
@@ -882,17 +884,18 @@ def test_fake_app_upload_endpoint_stores_docx_and_job_downloads_output(monkeypat
     assert create_response["request"]["upload_id"] == upload_response["upload_id"]
     assert "file_path" not in create_response["request"]
     assert status["summary"]["document_name"] == "article_api_upload_apply.docx"
-    assert status["summary"]["output_path"].endswith("article_api_upload_apply_headings.docx")
+    assert Path(status["summary"]["output_path"]).name.startswith("article_api_upload_apply_格式修复_V")
     assert result["result"]["document"]["name"] == "article_api_upload_apply.docx"
     assert result["runtime"]["source_upload_id"] == upload_response["upload_id"]
     assert download_response["job_id"] == create_response["job_id"]
     assert download_response["artifact_role"] == "output"
-    assert download_response["filename"] == "article_api_upload_apply_headings.docx"
+    assert download_response["filename"].startswith("article_api_upload_apply_格式修复_V")
 
 
 def test_fake_app_upload_normalize_job_keeps_original_name(monkeypatch, tmp_path):
     clear_jobs()
     clear_uploads()
+    monkeypatch.setattr(output_naming, "DEFAULT_OUTPUT_DIR", tmp_path / "versioned-outputs")
     app = _build_fake_app(monkeypatch)
     routes = _routes_by_path(app)
     source_path = _make_style_conflict_lnu_doc(tmp_path / "article_api_upload_normalize.docx")
@@ -915,7 +918,7 @@ def test_fake_app_upload_normalize_job_keeps_original_name(monkeypatch, tmp_path
     result = routes["/jobs/{job_id}/result"].endpoint(create_response["job_id"])
 
     assert create_response["request"]["upload_id"] == upload_response["upload_id"]
-    assert result["summary"]["output_path"].endswith("article_api_upload_normalize_normalized.docx")
+    assert Path(result["summary"]["output_path"]).name.startswith("article_api_upload_normalize_结构整理_V")
     assert result["result"]["document"]["name"] == "article_api_upload_normalize.docx"
     assert result["runtime"]["source_upload_id"] == upload_response["upload_id"]
 
@@ -973,6 +976,32 @@ def test_fake_app_apply_endpoint_creates_missing_output_parent(monkeypatch, tmp_
 
     assert payload["output"]["path"] == str(output_path)
     assert output_path.exists()
+
+
+def test_fake_app_apply_endpoint_auto_versions_display_name(monkeypatch, tmp_docx, tmp_path):
+    clear_jobs()
+    clear_uploads()
+    monkeypatch.setattr(output_naming, "DEFAULT_OUTPUT_DIR", tmp_path / "versioned-outputs")
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+    source_path = tmp_docx(make_compliant_doc, filename="runtime_apply_versioned.docx")
+    doc = Document(source_path)
+    RULE_MUTATORS["H02"](doc)
+    doc.save(source_path)
+    existing = output_naming.DEFAULT_OUTPUT_DIR / "article_api_sync_versioned_格式修复_V01.docx"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_bytes(b"existing")
+
+    payload = routes["/apply"].endpoint(
+        ApplyRequest(
+            file_path=str(source_path),
+            source_display_name="article_api_sync_versioned_格式修复_V01.docx",
+            scopes=["headings"],
+        )
+    )
+
+    assert payload["output"]["path"].endswith("article_api_sync_versioned_格式修复_V02.docx")
+    assert "V01_格式修复" not in payload["output"]["path"]
 
 
 def test_fake_app_upload_verify_job_supports_upload_id_and_stage_input(monkeypatch, tmp_docx, tmp_path):

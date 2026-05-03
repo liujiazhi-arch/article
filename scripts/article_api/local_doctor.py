@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import app as app_module
+from . import app_ops
 from . import storage
 from .local_env import command_with_roots, resolved_roots, root_env_scope, utcnow
 
@@ -97,10 +98,10 @@ def build_doctor_report(*, state_root: str | None = None, runtime_root: str | No
         runtime_root=resolved_runtime_root,
     )
     return {
-        "service": app_module.SERVICE_NAME,
-        "stage": app_module.SERVICE_STAGE,
-        "version": app_module.SERVICE_VERSION,
-        "api_version": app_module.API_VERSION,
+        "service": app_ops.SERVICE_NAME,
+        "stage": app_ops.SERVICE_STAGE,
+        "version": app_ops.SERVICE_VERSION,
+        "api_version": app_ops.API_VERSION,
         "observed_at": utcnow(),
         "status": summary_view["status"],
         "summary": {
