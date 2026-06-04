@@ -95,7 +95,7 @@ article-local profiles
 
 - `page`：页边距、页码、页脚等页面层设置
 - `abstract`：中文摘要、英文摘要、关键词
-- `toc`：目录重建、目录条目与 TOC 规则
+- `toc`：目录补全/规范、目录条目与 TOC 规则
 - `headings`：各级标题、编号、分页
 - `body_paragraphs`：正文段落、空格、标点、正文内引用、公式正文相关规则
 - `figures_tables`：图题、表题、图片段落、表格边框和表格内容
@@ -243,7 +243,7 @@ python3 scripts/thesis_workbench.py render-verify 修复后_WPS复核版.docx --
 ## Runtime 规则规模
 
 - `cn-common` 当前 runtime：49 条规则
-- `lnu-checker-2026` 当前 runtime：74 条规则
+- `lnu-checker-2026` 当前 runtime：73 条规则
 
 规则能力清单见 `config/capability_matrix.md`。
 
