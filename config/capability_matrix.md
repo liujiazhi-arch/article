@@ -112,6 +112,7 @@
 | LNU_REF03 | 参考文献字号、行距、两端对齐与禁用断字 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF04 | 参考文献文献类型标识 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF05 | 参考文献序号连续性 | Auto | docx-structure | ✓ | ✓ |
+| LNU_REF06 | 参考文献题名大小写与期刊名风格一致性 | Semi | docx-structure | ✗ | ✓ |
 | LNU_ABS01 | 中文摘要标题格式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_ABS02 | Abstract 标题格式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_ABS03 | 英文摘要正文格式 | Auto | docx-structure | ✓ | ✓ |

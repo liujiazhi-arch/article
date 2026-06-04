@@ -105,7 +105,7 @@ SCOPE_DEFINITIONS = (
         id="references",
         title="参考文献",
         description="参考文献列表、编号、缩进和标点。",
-        rule_ids=("R01", "R02", "R03", "R04", "R05", "REF01", "LNU_REF01", "LNU_REF02", "LNU_REF03", "LNU_REF04", "LNU_REF05"),
+        rule_ids=("R01", "R02", "R03", "R04", "R05", "REF01", "LNU_REF01", "LNU_REF02", "LNU_REF03", "LNU_REF04", "LNU_REF05", "LNU_REF06"),
         aliases=("reference", "bibliography"),
     ),
     ScopeDefinition(

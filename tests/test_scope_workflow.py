@@ -71,6 +71,18 @@ def _build_abstract_pu01_scope_doc(path: Path) -> Path:
     return path
 
 
+def _build_reference_style_review_doc(path: Path) -> Path:
+    doc = Document()
+    doc.add_paragraph("第1章 绪论").style = "Heading 1"
+    doc.add_paragraph("正文引用已有上标占位。")
+    doc.add_paragraph("参考文献").style = "Heading 1"
+    doc.add_paragraph("[1] Smith J. Effects of Gelatin on Fish Quality[J]. Food Hydrocolloids, 2020, 100: 105.")
+    doc.add_paragraph("[2] Wang L. Effects of gelatin on fish quality[J]. Food Hydrocolloids, 2021, 101: 106.")
+    doc.add_paragraph("[3] Brown P. Gelatin properties in fish[J]. Food Hydrocoll., 2022, 102: 107.")
+    doc.save(path)
+    return path
+
+
 def test_scope_plan_groups_failed_rules_by_scope(tmp_docx):
     docx_path = _build_multi_violation_doc(
         tmp_docx,
@@ -339,6 +351,21 @@ def test_c01_without_any_superscript_citations_is_manual_review(tmp_docx):
 
     assert c01_item["action"] == "manual_review"
     assert scopes["body_paragraphs"]["manual_review_count"] >= 1
+
+
+def test_reference_style_review_rule_is_grouped_under_references_manual_review(tmp_path):
+    source_path = _build_reference_style_review_doc(Path(tmp_path) / "reference_style_review.docx")
+
+    plan = build_scope_plan(str(source_path), profile_path="lnu", scopes=["references"])
+    scopes = {scope["id"]: scope for scope in plan["scopes"]}
+    ref_scope = scopes["references"]
+    item = next(rule for rule in ref_scope["failed_items"] if rule["id"] == "LNU_REF06")
+
+    assert ref_scope["manual_review_count"] >= 1
+    assert item["action"] == "manual_review"
+    assert item["check_level"] == "Semi"
+    assert item["autofix"] == "✗"
+    assert any("题名大小写风格不统一" in issue for issue in item["issues"])
 
 
 def test_build_document_diagnostics_reports_heading_risks(tmp_path):

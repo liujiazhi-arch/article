@@ -1100,6 +1100,39 @@ def test_lnu_ref03_ignores_empty_paragraphs_inside_reference_section():
     assert passed, issues
 
 
+def test_lnu_ref06_reports_human_readable_title_and_journal_style_mismatches():
+    title = _make_paragraph("参考文献")
+    ref1_text = "[1] Smith J. Effects of Gelatin on Fish Quality[J]. Food Hydrocolloids, 2020, 100: 105."
+    ref2_text = "[2] Wang L. Effects of gelatin on fish quality[J]. Food Hydrocolloids, 2021, 101: 106."
+    ref3_text = "[3] Brown P. Gelatin properties in fish[J]. Food Hydrocoll., 2022, 102: 107."
+    ref1 = _make_paragraph(ref1_text)
+    ref2 = _make_paragraph(ref2_text)
+    ref3 = _make_paragraph(ref3_text)
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref1, ref1_text, "reference", "backmatter"),
+        _ctx(3, ref2, ref2_text, "reference", "backmatter"),
+        _ctx(4, ref3, ref3_text, "reference", "backmatter"),
+    ]
+
+    passed, issues, evidence = audit_thesis.check_lnu_ref06(
+        _doc_with_paragraphs(title, ref1, ref2, ref3),
+        contexts,
+        {},
+        {},
+    )
+
+    assert not passed
+    joined = "\n".join(issues)
+    assert "题名大小写风格不统一" in joined
+    assert "期刊名全称/缩写风格不统一" in joined
+    assert "[1]" in joined and "Effects of Gelatin on Fish Quality" in joined and "Title Case" in joined
+    assert "[2]" in joined and "Effects of gelatin on fish quality" in joined and "sentence case" in joined
+    assert "[3]" in joined and "Food Hydrocoll." in joined and "缩写" in joined
+    assert "建议" in joined
+    assert evidence == "第2段、第3段、第4段"
+
+
 def test_lnu_toc02_accepts_sample_spacing(lnu_cfg):
     title = _make_paragraph("目  录")
     entry = _make_paragraph("第1章 正文格式说明\t2")

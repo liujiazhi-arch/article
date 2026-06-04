@@ -243,7 +243,7 @@ python3 scripts/thesis_workbench.py render-verify 修复后_WPS复核版.docx --
 ## Runtime 规则规模
 
 - `cn-common` 当前 runtime：49 条规则
-- `lnu-checker-2026` 当前 runtime：73 条规则
+- `lnu-checker-2026` 当前 runtime：74 条规则
 
 规则能力清单见 `config/capability_matrix.md`。
 

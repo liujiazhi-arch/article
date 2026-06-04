@@ -168,6 +168,17 @@ additions:
     fix: "reorder_references_by_appearance()"
     source: lnu-checker-2026
 
+  - id: LNU_REF06
+    module: reference
+    scope: undergraduate
+    severity: minor
+    check_level: Semi
+    description: "参考文献英文题名大小写与期刊名全称/缩写风格一致性"
+    method: docx-structure
+    evidence: "参考文献题名和期刊名文本模式"
+    fix: null
+    source: lnu-checker-2026
+
   - id: LNU_ACK01
     module: acknowledgement
     scope: undergraduate

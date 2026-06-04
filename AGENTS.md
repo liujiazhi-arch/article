@@ -51,7 +51,7 @@ CLI
 ## 当前规则规模
 
 - `cn-common` runtime：49 条
-- `lnu-checker-2026` runtime：73 条
+- `lnu-checker-2026` runtime：74 条
 
 能力矩阵以 `config/capability_matrix.md` 为准，但前提是它必须与当前 runtime 同步。
 
