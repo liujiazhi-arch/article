@@ -198,6 +198,7 @@ LNU_RULE_DEFINITIONS = (
     ("LNU_REF03", "参考文献字号五号，1.5倍行距", "important"),
     ("LNU_REF04", "参考文献文献类型标识（辽大）", "important"),
     ("LNU_REF05", "参考文献序号连续性（辽大）", "important"),
+    ("LNU_REF06", "参考文献题名大小写与期刊名风格一致性（辽大）", "minor"),
     ("LNU_TB01", "表格外框1.5pt内线0.5pt", "important"),
     ("LNU_TOC01", "目录标题与条目样式（辽大）", "minor"),
     ("LNU_TOC02", "目录条目行距多倍1.15倍，段后5磅（辽大）", "minor"),
@@ -3085,6 +3086,152 @@ def check_lnu_ref04(document_root, contexts, style_map, cfg):
     return (len(issues) == 0), issues, f"发现{len(issues)}处"
 
 
+@dataclass(frozen=True)
+class ReferenceStyleFinding:
+    index: int
+    number: str
+    title: str
+    title_style: str | None
+    journal: str | None
+    journal_style: str | None
+
+
+_REFERENCE_PREFIX_RE = re.compile(r"^\s*\[(\d+)\]\s*(.+)$")
+_REFERENCE_TYPE_RE = re.compile(r"\[([JMDCP])\]")
+_TITLE_CASE_SMALL_WORDS = {
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "but",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "nor",
+    "of",
+    "on",
+    "or",
+    "over",
+    "per",
+    "the",
+    "to",
+    "vs",
+    "via",
+    "with",
+    "without",
+}
+
+
+def _split_reference_title_and_journal(text):
+    match = _REFERENCE_PREFIX_RE.match(text or "")
+    if match is None:
+        return None
+    number, payload = match.groups()
+    type_match = _REFERENCE_TYPE_RE.search(payload)
+    if type_match is None:
+        return None
+    before_type = payload[: type_match.start()].strip(" .")
+    after_type = payload[type_match.end() :].strip()
+    after_type = re.sub(r"^[.。]\s*", "", after_type)
+    title_match = re.search(r"\.\s*([^.;。；]+)$", before_type)
+    title = title_match.group(1).strip(" .") if title_match is not None else before_type
+    if not title or not re.search(r"[A-Za-z]", title):
+        return None
+    journal = None
+    if type_match.group(1) == "J":
+        journal = re.split(r",\s*\d{4}\b|,\s*\d+\b", after_type, maxsplit=1)[0].strip(" ,")
+        journal = journal or None
+    return number, title, journal
+
+
+def _classify_reference_title_style(title):
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", title or "")
+    words = [word for word in words if len(word) > 1]
+    if len(words) < 3:
+        return None
+    content_words = [word for word in words if word.lower() not in _TITLE_CASE_SMALL_WORDS]
+    if not content_words:
+        return None
+    capitalized_content = sum(1 for word in content_words if word[0].isupper())
+    lowercase_later_words = sum(1 for word in words[1:] if word[0].islower())
+    if capitalized_content >= max(3, len(content_words) - 1):
+        return "Title Case"
+    if words[0][0].isupper() and lowercase_later_words >= max(2, len(words[1:]) - 1):
+        return "sentence case"
+    return None
+
+
+def _classify_journal_name_style(journal):
+    if not journal or not re.search(r"[A-Za-z]", journal):
+        return None
+    if "." in journal:
+        return "缩写"
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", journal)
+    if len(words) >= 2:
+        return "全称"
+    return None
+
+
+def _collect_reference_style_findings(contexts):
+    findings = []
+    for ctx in iter_reference_section_contexts(contexts, skip_empty=True):
+        parsed = _split_reference_title_and_journal(ctx.get("text", ""))
+        if parsed is None:
+            continue
+        number, title, journal = parsed
+        findings.append(
+            ReferenceStyleFinding(
+                index=ctx["index"],
+                number=number,
+                title=title,
+                title_style=_classify_reference_title_style(title),
+                journal=journal,
+                journal_style=_classify_journal_name_style(journal),
+            )
+        )
+    return findings
+
+
+def check_lnu_ref06(document_root, contexts, style_map, cfg):
+    """LNU_REF06: 参考文献英文题名大小写和期刊名全称/缩写风格应统一，报告人工确认清单。"""
+    findings = _collect_reference_style_findings(contexts)
+    title_styles = {finding.title_style for finding in findings if finding.title_style is not None}
+    journal_styles = {finding.journal_style for finding in findings if finding.journal_style is not None}
+    issues = []
+    affected_positions = set()
+
+    if len(title_styles) > 1:
+        title_items = [finding for finding in findings if finding.title_style is not None]
+        issues.append(
+            "题名大小写风格不统一：同一参考文献列表中同时出现 Title Case 和 sentence case。"
+            "建议统一为其中一种；本工具只报告，不自动改写专有名词、缩写、物种名或化学名。"
+        )
+        for finding in title_items[:6]:
+            affected_positions.add(finding.index)
+            issues.append(
+                f"  [{finding.number}] 题名「{finding.title}」；当前判断：{finding.title_style}。"
+            )
+
+    if len(journal_styles) > 1:
+        journal_items = [finding for finding in findings if finding.journal_style is not None]
+        issues.append(
+            "期刊名全称/缩写风格不统一：同一参考文献列表中同时出现期刊全称和缩写。"
+            "建议统一使用全称或统一使用规范缩写。"
+        )
+        for finding in journal_items[:6]:
+            affected_positions.add(finding.index)
+            issues.append(
+                f"  [{finding.number}] 期刊名「{finding.journal}」；当前判断：{finding.journal_style}。"
+            )
+
+    if issues:
+        return False, issues, summarize_positions(sorted(affected_positions))
+    return True, [], "参考文献题名大小写与期刊名风格未发现明显混用"
+
+
 _CITATION_NUM_RE = re.compile(r"\[(\d+(?:[-,，、]\d+)*)\]")
 
 
@@ -3832,6 +3979,7 @@ LNU_RULE_CHECKERS = {
     "LNU_REF03": check_lnu_ref03,
     "LNU_REF04": check_lnu_ref04,
     "LNU_REF05": check_lnu_ref05,
+    "LNU_REF06": check_lnu_ref06,
     "LNU_TB01": check_lnu_tb01,
     "LNU_TOC01": check_lnu_toc01,
     "LNU_TOC02": check_lnu_toc02,
