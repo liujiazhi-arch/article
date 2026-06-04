@@ -9,6 +9,7 @@ from article_api.uploads import (
     resolve_runtime_root,
     stage_local_docx,
     store_uploaded_docx,
+    store_uploaded_pdf,
 )
 
 from .conftest import make_compliant_doc
@@ -107,6 +108,38 @@ def test_store_uploaded_docx_rejects_non_docx_name(tmp_path):
 
     with pytest.raises(ValueError, match="Only .docx uploads are supported"):
         store_uploaded_docx(FakeUpload(), runtime_root=runtime_root)
+
+
+def test_store_uploaded_pdf_writes_upload_into_runtime_and_preserves_chinese_name(tmp_path):
+    runtime_root = tmp_path / "runtime"
+
+    class FakeUpload:
+        filename = "20221303306-刘佳轾-排版复核.pdf"
+
+        def __init__(self):
+            self.file = BytesIO(b"%PDF-1.7\nfake-pdf-binary")
+
+    stored = store_uploaded_pdf(FakeUpload(), runtime_root=runtime_root)
+
+    assert stored.file_name == FakeUpload.filename
+    assert stored.size_bytes == len(b"%PDF-1.7\nfake-pdf-binary")
+    assert Path(stored.stored_path).exists()
+    assert Path(stored.stored_path).read_bytes() == b"%PDF-1.7\nfake-pdf-binary"
+    assert Path(stored.stored_path).name.endswith(FakeUpload.filename)
+    assert Path(stored.workspace_dir) == runtime_root / "uploads"
+
+
+def test_store_uploaded_pdf_rejects_non_pdf_name(tmp_path):
+    runtime_root = tmp_path / "runtime"
+
+    class FakeUpload:
+        filename = "article_upload_http.docx"
+
+        def __init__(self):
+            self.file = BytesIO(b"bad")
+
+    with pytest.raises(ValueError, match="Only .pdf uploads are supported"):
+        store_uploaded_pdf(FakeUpload(), runtime_root=runtime_root)
 
 
 def test_infer_uploaded_docx_name_restores_original_filename(tmp_path):

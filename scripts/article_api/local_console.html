@@ -17,12 +17,22 @@
       --green: #0b7a4b;
       --amber: #a15c00;
       --red: #b42318;
+      --glass: rgba(255, 255, 255, 0.72);
+      --panel-shadow: 0 30px 80px rgba(0, 0, 0, 0.08);
+      --soft-shadow: 0 18px 50px rgba(0, 0, 0, 0.06);
     }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
-      background: var(--bg);
+      min-height: 100vh;
+      overflow-x: hidden;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(245, 245, 247, 0.96) 44%, rgba(255, 255, 255, 0.98) 100%),
+        radial-gradient(1200px 620px at 50% -18%, rgba(0, 113, 227, 0.18), transparent 58%),
+        radial-gradient(980px 520px at 92% 18%, rgba(12, 126, 112, 0.10), transparent 56%),
+        var(--bg);
       color: var(--ink);
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
       letter-spacing: 0;
@@ -68,6 +78,14 @@
       border-bottom: 1px solid rgba(0, 0, 0, 0.04);
       background: rgba(245, 245, 247, 0.82);
       backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      transition: height 220ms ease, background 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+    }
+    .topbar.compact {
+      height: 46px;
+      border-bottom-color: rgba(0, 0, 0, 0.08);
+      background: var(--glass);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.06);
     }
     .topbar-inner {
       width: min(1180px, calc(100% - 36px));
@@ -77,7 +95,36 @@
       gap: 18px;
       font-size: 13px;
     }
-    .brand { font-weight: 700; }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .brand-mark {
+      width: 0;
+      height: 24px;
+      opacity: 0;
+      transform: scale(0.82) rotate(-8deg);
+      transition: width 260ms ease, opacity 260ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      pointer-events: none;
+    }
+    .brand-mark img {
+      display: block;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      object-fit: cover;
+      box-shadow: 0 8px 18px rgba(0, 113, 227, 0.18);
+    }
+    .topbar.brand-active .brand-mark,
+    .topbar.compact .brand-mark,
+    .brand:hover .brand-mark {
+      width: 24px;
+      opacity: 1;
+      transform: scale(1) rotate(0deg);
+    }
     .nav { margin-left: auto; display: flex; gap: 26px; color: var(--soft); }
     .nav button { padding: 0; background: transparent; color: inherit; border-radius: 0; }
     .nav button.active { color: var(--ink); }
@@ -85,11 +132,25 @@
     .page { display: none; }
     .page.active { display: block; }
     .hero {
+      position: relative;
       min-height: 300px;
       display: grid;
       place-items: center;
       text-align: center;
-      padding: 54px 24px 30px;
+      padding: 72px 24px 34px;
+      isolation: isolate;
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 16px max(18px, calc((100vw - 1180px) / 2)) 0;
+      z-index: -1;
+      border-radius: 34px;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.38)),
+        linear-gradient(90deg, rgba(0, 113, 227, 0.08), rgba(12, 126, 112, 0.07));
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.9);
+      opacity: 0.72;
     }
     .hero small {
       display: block;
@@ -125,7 +186,10 @@
       margin: 0 auto 34px;
       overflow: hidden;
       border-radius: 28px;
-      background: var(--white);
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: var(--panel-shadow);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
     }
     .stage-head {
       display: flex;
@@ -167,59 +231,53 @@
       background: #fbfbfd;
       text-align: center;
       margin-bottom: 24px;
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.85);
+      transition: transform 220ms ease, border-color 220ms ease, background 220ms ease, box-shadow 220ms ease;
     }
     .upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .upload strong { display: block; font-size: 21px; margin-bottom: 8px; }
     .upload span { color: var(--soft); font-size: 14px; }
-    .settings {
-      width: min(980px, calc(100% - 36px));
-      margin: 56px auto;
-      border-radius: 28px;
-      background: var(--white);
-      padding: 34px;
+    .upload:hover,
+    .upload.upload-active {
+      transform: translateY(-2px) scale(1.01);
+      border-color: rgba(0, 113, 227, 0.48);
+      background: #f5faff;
+      box-shadow: 0 18px 45px rgba(0, 113, 227, 0.12), inset 0 1px rgba(255, 255, 255, 0.92);
     }
-    .settings h1 { margin: 0 0 10px; font-size: 42px; letter-spacing: 0; }
-    .settings p { margin: 0 0 24px; color: var(--soft); line-height: 1.55; }
-    .settings-section + .settings-section {
-      margin-top: 28px;
-      padding-top: 24px;
-      border-top: 1px solid rgba(0, 0, 0, 0.06);
+    .pdf-upload {
+      position: relative;
+      min-height: 112px;
+      display: grid;
+      align-content: center;
+      gap: 6px;
+      padding: 18px 20px;
+      border: 1px dashed rgba(0, 113, 227, 0.35);
+      border-radius: 14px;
+      background: #f6fbff;
+      cursor: pointer;
+      transition: transform 220ms ease, border-color 220ms ease, background 220ms ease, box-shadow 220ms ease;
     }
-    .settings-section h2 { margin: 0 0 12px; font-size: 22px; letter-spacing: 0; }
-    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
-    .scope-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+    .pdf-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .pdf-upload strong { color: var(--ink); font-size: 17px; }
+    .pdf-upload span { color: #526173; font-size: 13px; line-height: 1.45; }
+    .pdf-upload.dragging {
+      border-color: rgba(0, 113, 227, 0.8);
+      background: #eaf4ff;
+      transform: translateY(-2px) scale(1.01);
+      box-shadow: 0 18px 40px rgba(0, 113, 227, 0.12);
+    }
+    .pdf-path-fallback {
       margin-top: 10px;
     }
-    .scope-list label {
-      margin: 0;
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      height: 36px;
-      padding: 0 12px;
-      border-radius: 999px;
-      background: #f5f5f7;
-      color: var(--ink);
+    .pdf-path-fallback label {
+      font-size: 12px;
+      color: var(--soft);
+    }
+    .pdf-path-fallback input {
+      margin-top: 6px;
       font-size: 13px;
     }
-    .toggles {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 18px;
-    }
-    .toggles label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 38px;
-      margin: 0;
-      color: var(--ink);
-      font-size: 13px;
-    }
+    .field-row { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 0; }
     .actions {
       display: flex;
       flex-wrap: wrap;
@@ -354,6 +412,10 @@
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.04);
       transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
     }
+    .workflow-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 34px rgba(0, 0, 0, 0.07);
+    }
     .workflow-card.selected {
       border-color: rgba(0, 113, 227, 0.28);
       background: #f4f9ff;
@@ -411,6 +473,15 @@
       background: #f0f4f8;
       color: #516173;
     }
+    .workflow-card.weakened {
+      opacity: 0.72;
+      background: #fbfbfd;
+      border-color: rgba(0, 0, 0, 0.06);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.03);
+    }
+    .workflow-card.weakened.selected {
+      opacity: 0.92;
+    }
     .workflow-actions button:disabled {
       background: #c9d6e4;
       color: #fff;
@@ -440,12 +511,16 @@
       border-radius: 999px;
       background: transparent;
       text-align: center;
+      transition: transform 220ms ease, color 220ms ease, background 220ms ease, box-shadow 220ms ease;
     }
     .step b { display: block; margin-bottom: 2px; font-size: 14px; }
     .step span { color: var(--soft); font-size: 11px; line-height: 1.25; }
     .step.running { background: #eaf3ff; color: var(--blue); }
     .step.done { background: #eaf7f0; color: var(--green); }
     .step.failed { background: #fff0ee; color: var(--red); }
+    .step.step-pulse {
+      animation: stepPulse 900ms ease;
+    }
     .result-strip {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -457,6 +532,7 @@
     }
     .metric { background: #fbfbfd; padding: 22px; }
     .metric b { display: block; font-size: 30px; line-height: 1; margin-bottom: 8px; }
+    .metric b.metric-updated { animation: metricPop 620ms ease; }
     .metric span { color: var(--soft); font-size: 13px; }
     .summary {
       min-height: 260px;
@@ -477,7 +553,9 @@
       border-radius: 24px;
       padding: 24px;
       background: #f5f5f7;
+      transition: transform 260ms ease, box-shadow 260ms ease, background 260ms ease;
     }
+    .report.report-updated { animation: reportRefresh 680ms ease; }
     .report-section + .report-section {
       margin-top: 20px;
       padding-top: 18px;
@@ -564,17 +642,234 @@
     }
     details { margin-top: 14px; color: var(--soft); font-size: 13px; }
     details .summary { margin-top: 10px; min-height: 100px; }
-    .records {
-      width: min(980px, calc(100% - 36px));
-      margin: 56px auto;
-      border-radius: 28px;
-      background: var(--white);
-      padding: 34px;
+    .record-panel {
+      display: grid;
+      gap: 16px;
     }
-    .records h1 { margin: 0 0 10px; font-size: 42px; }
-    .records p { margin: 0 0 24px; color: var(--soft); line-height: 1.55; }
-    .record-query { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 18px; }
+    .record-query { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+    .record-help {
+      margin: 0;
+      color: var(--soft);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .record-result {
+      display: grid;
+      gap: 14px;
+      margin-top: 2px;
+    }
+    .record-result[hidden] { display: none; }
+    .record-output {
+      margin: 0;
+      padding: 16px;
+      border-radius: 18px;
+      background: #f7f8fb;
+      color: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .record-detail {
+      margin: 0;
+      color: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .split-workbench {
+      display: grid;
+      gap: 18px;
+    }
+    .workbench-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 20px 0 0;
+    }
+    .workbench-nav button {
+      min-height: 42px;
+      font-weight: 700;
+    }
+    .workbench-nav button.secondary {
+      background: #eef1f5;
+      color: #445364;
+    }
+    .downstream-note {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: #f7f8fb;
+      border: 1px dashed rgba(68, 83, 100, 0.22);
+      color: #536579;
+      line-height: 1.55;
+    }
+    .downstream-note strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ink);
+      font-size: 15px;
+    }
+    .troubleshooting-anchor {
+      width: min(1120px, calc(100% - 36px));
+      margin: 0 auto 56px;
+    }
+    .candidate-mode-group {
+      display: grid;
+      gap: 12px;
+      margin: 18px 0 14px;
+    }
+    .candidate-mode {
+      display: grid;
+      gap: 8px;
+      padding: 16px 18px;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 16px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .candidate-mode.selected {
+      border-color: rgba(0, 113, 227, 0.28);
+      background: #f4f9ff;
+    }
+    .candidate-mode-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .candidate-mode-header strong {
+      font-size: 16px;
+    }
+    .candidate-mode p {
+      margin: 0;
+      color: #536579;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .candidate-mode small {
+      color: var(--soft);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .candidate-status {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .candidate-status-panel {
+      display: grid;
+      gap: 14px;
+      min-height: 180px;
+      padding: 18px 20px;
+      border-radius: 18px;
+      background: #fff;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+    }
+    .candidate-status-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .candidate-status-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .candidate-status-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: #eaf3ff;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .candidate-status-copy {
+      margin: 0;
+      color: #536579;
+      font-size: 14px;
+      line-height: 1.65;
+    }
+    .candidate-status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .candidate-status-item {
+      min-width: 0;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #f7f8fb;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    .candidate-status-item b {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--soft);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .candidate-status-item span {
+      display: block;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    .candidate-status-notes {
+      margin: 0;
+      padding-left: 18px;
+      color: #536579;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+    .candidate-status-notes li + li {
+      margin-top: 4px;
+    }
     .muted { color: var(--soft); }
+    .motion-reveal {
+      opacity: 0;
+      transform: translateY(28px);
+      filter: blur(8px);
+      transition: opacity 760ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 760ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 760ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .motion-reveal.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+    .motion-reveal.delay-1 { transition-delay: 90ms; }
+    .motion-reveal.delay-2 { transition-delay: 180ms; }
+    .motion-reveal.delay-3 { transition-delay: 270ms; }
+    @keyframes stepPulse {
+      0% { transform: scale(1); }
+      45% { transform: scale(1.035); box-shadow: 0 10px 28px rgba(0, 113, 227, 0.12); }
+      100% { transform: scale(1); box-shadow: none; }
+    }
+    @keyframes metricPop {
+      0% { color: var(--ink); transform: translateY(0); }
+      45% { color: var(--blue); transform: translateY(-2px); }
+      100% { color: var(--ink); transform: translateY(0); }
+    }
+    @keyframes reportRefresh {
+      0% { transform: translateY(0); background: #f5f5f7; box-shadow: none; }
+      45% { transform: translateY(-2px); background: #f7fbff; box-shadow: 0 22px 55px rgba(0, 113, 227, 0.11); }
+      100% { transform: translateY(0); background: #f5f5f7; box-shadow: none; }
+    }
     @media (max-width: 980px) {
       .topbar-inner { width: calc(100% - 24px); }
       .health { display: none; }
@@ -588,12 +883,28 @@
       .hero h1 { font-size: 44px; }
       .stage-head, .pane, .records { padding: 24px; }
       .stage { width: calc(100% - 20px); border-radius: 24px; }
-      .field-row, .toggles, .result-strip, .record-query { grid-template-columns: 1fr; }
+      .field-row, .result-strip, .record-query { grid-template-columns: 1fr; }
       .render-pdf-row, .workflow-card { grid-template-columns: 1fr; }
+      .workbench-nav { flex-direction: column; }
+      .candidate-status-grid { grid-template-columns: 1fr; }
       .workflow-actions {
         grid-column: 1;
         grid-row: auto;
         justify-content: flex-start;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.001ms !important;
+      }
+      .motion-reveal {
+        opacity: 1;
+        transform: none;
+        filter: none;
       }
     }
   </style>
@@ -601,11 +912,10 @@
 <body>
   <header class="topbar">
     <div class="topbar-inner">
-      <div class="brand">论文格式工具</div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><img src="assets/lnu-emblem.jpg" alt=""></span><span>辽宁大学毕业论文格式</span></div>
       <nav class="nav" aria-label="页面导航">
-        <button type="button" class="active" data-view-button="paper">单篇论文处理</button>
-        <button type="button" data-view-button="settings">高级设置</button>
-        <button type="button" data-view-button="records">历史与排障</button>
+        <button type="button" class="active" data-view-button="paper">主流程</button>
+        <button type="button" data-view-button="records">任务查询</button>
       </nav>
       <div id="health-line" class="health">正在连接本地服务...</div>
     </div>
@@ -615,21 +925,21 @@
     <section id="view-paper" class="page active">
       <div class="hero">
         <div>
-          <small>论文格式修改工具</small>
-          <h1>让毕业论文 回到标准格式</h1>
-          <p>选择 Word 文件，自动检查格式问题，生成修复稿；版式复核按 Word/WPS 状态选择模式。</p>
-          <div class="hero-actions">
+          <small class="motion-reveal">辽宁大学毕业论文</small>
+          <h1 class="motion-reveal delay-1">格式检查与修复</h1>
+          <p class="motion-reveal delay-2">上传 DOCX，生成修复稿；再上传导出的 PDF 复审。</p>
+          <div class="hero-actions motion-reveal delay-3">
             <button type="button" class="primary" data-scroll-target="stage">开始处理</button>
-            <button type="button" class="text" data-scroll-target="stage">选择 Word 论文</button>
+            <button type="button" class="text" data-scroll-target="render-workflows">上传 PDF 复审</button>
           </div>
         </div>
       </div>
 
-      <section class="stage" id="stage">
+      <section class="stage motion-reveal" id="stage">
         <div class="stage-head">
           <div>
-            <h2>单篇论文处理</h2>
-            <p>文档留在本机。原文不会被覆盖，修复结果会写入新的 Word 文件。</p>
+            <h2>辽宁大学毕业论文格式</h2>
+            <p>DOCX 修复 → PDF 复审 → 必要时生成下一版。</p>
           </div>
           <div id="source-badge" class="source-chip">未选择</div>
         </div>
@@ -639,67 +949,43 @@
             <label class="upload" for="paper-file">
               <input id="paper-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
               <span>
-                <strong>拖入或点选 `.docx` 文件</strong>
-                <span id="upload-hint">上传后只保存到本地运行目录。</span>
+                <span style="display:block;margin-bottom:6px;color:var(--soft);font-size:12px;">第 1 步</span>
+                <strong>上传 DOCX</strong>
+                <span id="upload-hint">原文不会被覆盖。</span>
               </span>
             </label>
 
-            <label for="paper-path">或粘贴本机文件路径</label>
+            <label for="paper-path">本机 DOCX 路径</label>
             <input id="paper-path" type="text" placeholder="/Users/apple/Desktop/论文.docx">
             <div class="path-preview" id="source-preview">等待选择论文...</div>
 
             <div class="safe-note" id="safe-note">
-              <strong>安全处理</strong>
-              <span>原文不会被覆盖。选择论文后，这里会显示文件来源和默认输出位置。</span>
+              <strong>未选择文件</strong>
+              <span>请选择辽宁大学毕业论文 DOCX。</span>
             </div>
 
             <div class="primary-row">
-              <button type="button" class="primary" id="run-all-button">一键处理到结构复查</button>
-              <span class="muted">推荐流程会完成预检、修复和结构复查；版式复核从下方三种 Word/WPS 模式中选择。</span>
+              <button type="button" class="primary" id="run-all-button">一键生成修复稿</button>
+              <span class="muted">完成后打开修复稿导出 PDF。</span>
             </div>
 
-            <div class="render-workflows" id="render-workflows">
-              <p class="render-kicker">排版修复 · 页面渲染层</p>
-              <h3>修复打开 Word/WPS 后才看得到的排版问题</h3>
-              <p>上方流程主要处理字体、标题、目录、参考文献等结构格式；这里专门处理 PDF 页数、空白页、图表挤页、标题孤页这些页面排版问题。普通用户优先导出 PDF 后复核，自动连接 Word 只作为高级入口。</p>
+            <div class="render-workflows motion-reveal" id="render-workflows">
+              <div class="muted" style="margin-bottom:6px;font-size:12px;">第 2 步</div>
+              <p class="render-kicker">上传 PDF 复审</p>
+              <h3>检查导出的 PDF</h3>
               <div class="render-pdf-row">
                 <div>
-                  <label for="render-pdf-path">默认用户模式：先从 Word/WPS 导出 PDF，再填写 PDF 路径</label>
-                  <input id="render-pdf-path" type="text" placeholder="/Users/apple/Desktop/论文.pdf">
-                </div>
-                <button type="button" class="primary" id="render-manual-button">开始排版复核</button>
-              </div>
-              <div class="workflow-grid">
-                <div class="workflow-card selected" data-workflow-mode="default_user">
-                  <div class="workflow-title">
-                    <strong>默认用户模式</strong>
-                    <span class="workflow-badge">推荐</span>
-                  </div>
-                  <span>已经完成前面的格式修复后，用 Word/WPS 导出 PDF，让工具按真实页面打分。最稳，适合普通用户、最终提交前复核和多人使用。</span>
-                  <div class="workflow-actions">
-                    <button type="button" id="render-manual-copy-button">用这个模式修排版</button>
+                  <label class="pdf-upload" id="render-pdf-upload-zone" for="render-pdf-file">
+                    <input id="render-pdf-file" type="file" accept=".pdf,application/pdf">
+                    <strong>上传 PDF</strong>
+                    <span id="render-pdf-hint">用修复稿导出的 PDF。</span>
+                  </label>
+                  <div class="pdf-path-fallback">
+                    <label for="render-pdf-path">本机 PDF 路径</label>
+                    <input id="render-pdf-path" type="text" placeholder="/Users/apple/Desktop/论文.pdf">
                   </div>
                 </div>
-                <div class="workflow-card" data-workflow-mode="advanced_word">
-                  <div class="workflow-title">
-                    <strong>高级模式</strong>
-                    <span class="workflow-badge">本机调试</span>
-                  </div>
-                  <span>让后端尝试自动打开 Microsoft Word 并导出 PDF。只有确认本机 Word 没有恢复弹窗、权限弹窗、导出超时问题时再用；失败后回到默认用户模式。</span>
-                  <div class="workflow-actions">
-                    <button type="button" id="render-word-button">自动导出并复核</button>
-                  </div>
-                </div>
-                <div class="workflow-card gated" data-workflow-mode="agent_candidate">
-                  <div class="workflow-title">
-                    <strong>Agent 候选稿模式</strong>
-                    <span class="workflow-badge">复核后排障工具</span>
-                  </div>
-                  <span>这不是普通修复入口。先用默认用户模式或高级模式完成 PDF 版式复核；只有复核发现可行动的图表挤页、标题孤页或大块空白时，再生成一个可回退的排版候选稿。</span>
-                  <div class="workflow-actions">
-                    <button type="button" id="render-agent-button" disabled>先完成 PDF 版式复核后再使用</button>
-                  </div>
-                </div>
+                <button type="button" class="primary" id="render-manual-button">开始复审</button>
               </div>
             </div>
 
@@ -707,12 +993,12 @@
 
           <div class="pane">
             <div id="single-steps" class="steps"></div>
-            <div class="result-strip">
+            <div class="result-strip motion-reveal delay-1">
               <div class="metric"><b id="metric-failed">-</b><span>未通过规则</span></div>
               <div class="metric"><b id="metric-manual">-</b><span>人工复核项</span></div>
               <div class="metric"><b id="metric-pages">-</b><span>渲染页数</span></div>
             </div>
-            <div id="report-card" class="report">
+            <div id="report-card" class="report motion-reveal delay-2">
               <div class="report-section">
                 <p class="report-label">总体结论</p>
                 <p class="report-value" id="report-conclusion">选择一篇论文后开始处理。</p>
@@ -723,7 +1009,7 @@
               </div>
               <div class="report-section">
                 <p class="report-label">建议下一步</p>
-                <p class="report-value" id="report-next">选择文件，然后点击“一键处理到结构复查”。</p>
+            <p class="report-value" id="report-next">选择文件，然后点击“一键生成修复稿”。</p>
                 <button type="button" class="primary report-action" id="report-action-button" hidden>继续</button>
                 <div class="report-progress" id="report-progress" hidden>
                   <div class="report-progress-head">
@@ -738,79 +1024,54 @@
             </div>
             <pre id="single-summary" class="summary" hidden>选择一篇论文后开始处理。</pre>
             <details>
-              <summary>展开原始结果数据</summary>
+              <summary>技术详情</summary>
               <pre id="raw-json" class="summary">暂无</pre>
             </details>
           </div>
         </div>
       </section>
-    </section>
 
-    <section id="view-settings" class="page">
-      <div class="settings">
-        <h1>高级设置</h1>
-        <p>普通使用可以保持默认。这里用于切换学校规范、指定输出位置、调整修复范围，或在排查时单独运行某一步。</p>
-
-        <section class="settings-section">
-          <h2>处理选项</h2>
-          <div class="field-row">
-            <div>
-              <label for="single-profile">学校/规范</label>
-              <select id="single-profile"></select>
-            </div>
-            <div>
-              <label for="single-output">修复后输出路径</label>
-              <input id="single-output" type="text" placeholder="留空则自动生成新文件">
-            </div>
-          </div>
-        </section>
-
-        <section class="settings-section">
-          <h2>修复范围</h2>
-          <p>默认会处理全部范围。如果只想修某一部分，可以在这里取消勾选。</p>
-          <div id="scope-grid" class="scope-list"></div>
-        </section>
-
-        <section class="settings-section">
-          <h2>可选动作</h2>
-          <div class="toggles">
-            <label><input id="single-toc" type="checkbox"> 同步目录</label>
-            <label><input id="single-renumber" type="checkbox" checked> 标题重编号</label>
-            <label><input id="single-layout" type="checkbox"> 页面布局再平衡（慢速，排版排障时再开）</label>
-            <label><input id="single-force" type="checkbox"> 跳过保护检查</label>
-          </div>
-        </section>
-
-        <section class="settings-section">
-          <h2>分步操作</h2>
-          <p>主页面推荐使用一键处理。这里主要用于定位失败步骤或单独复查。</p>
-          <div class="step-actions">
-            <button type="button" id="preflight-button">开始预检</button>
-            <button type="button" id="plan-button">生成修复方案</button>
-            <button type="button" id="apply-button">执行修复</button>
-            <button type="button" id="verify-button">复查结构</button>
-            <button type="button" id="render-button">Word 版式复核</button>
-          </div>
-        </section>
-      </div>
     </section>
 
     <section id="view-records" class="page">
-      <div class="records">
-        <h1>历史与排障</h1>
-        <p>用任务编号查看历史结果。普通使用时大多不需要这里；它主要用于排查失败步骤。</p>
-        <div class="record-query">
-          <input id="job-id-input" type="text" placeholder="粘贴任务编号">
-          <button type="button" id="load-job-button" class="primary">查看任务</button>
+      <section class="stage motion-reveal">
+        <div class="stage-head">
+          <div>
+            <h2>任务查询</h2>
+            <p>粘贴任务编号，查看处理状态和输出文件。</p>
+          </div>
+          <span id="record-status-badge" class="source-chip">未查询</span>
         </div>
-        <pre id="job-detail" class="summary">等待选择任务...</pre>
-        <pre id="job-result" class="summary" style="margin-top:14px;">等待选择任务...</pre>
-      </div>
+        <div class="stage-grid">
+          <div class="pane record-panel">
+            <div class="record-query">
+              <input id="job-id-input" type="text" placeholder="粘贴任务编号">
+              <button type="button" id="load-job-button" class="primary">查看任务</button>
+            </div>
+            <p class="record-help">生成修复稿或下一版 DOCX 后，可在这里粘贴任务编号查看结果。</p>
+          </div>
+          <div class="pane">
+            <div id="record-result" class="record-result" hidden>
+              <div class="report">
+                <div class="report-section">
+                  <p class="report-label">任务状态</p>
+                  <pre id="job-detail" class="record-detail"></pre>
+                </div>
+                <div class="report-section">
+                  <p class="report-label">输出结果</p>
+                  <pre id="job-result" class="record-output"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </section>
+
   </main>
 
   <script>
-    const state = { sourcePath: '', sourceDisplayName: '', uploaded: null, lastApplyOutput: '', lastPlanScopes: [], lastRenderPayload: null, selectedWorkflowMode: 'default_user', pollTimer: null };
+    const state = { sourcePath: '', sourceDisplayName: '', uploaded: null, lastApplyOutput: '', lastPlanScopes: [], lastRenderPayload: null, selectedWorkflowMode: 'default_user', candidate_mode: 'fast_candidate', pollTimer: null, previousView: 'paper' };
     const SCOPES = [['page','页面'],['abstract','摘要'],['toc','目录'],['headings','标题'],['body_paragraphs','正文'],['figures_tables','图表'],['references','参考文献'],['acknowledgement','致谢'],['appendix','附录']];
     const STEP_IDS = ['preflight', 'plan', 'apply', 'verify', 'render'];
     const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];
@@ -819,17 +1080,19 @@
       plan: ['方案', '拆解修复范围'],
       apply: ['修复', '写出新文件'],
       verify: ['复查', '结构规则复核'],
-      render: ['版式', 'Word/WPS PDF 版式复核'],
+      render: ['PDF', '复审'],
     };
     const STEP_PROGRESS = {
-      preflight: { value: 18, title: '正在预检文档', items: ['读取 Word 文件结构', '检查样式冲突和表格标题风险', '判断是否适合自动修复'] },
-      plan: { value: 38, title: '正在生成修复方案', items: ['按学校规范拆解修复范围', '统计每个范围的未通过规则', '整理需要人工复核的问题'] },
-      apply: { value: 66, title: '正在执行修复', items: ['创建修复稿输出位置', '按方案修复论文格式问题', '写出新的 Word 文件，原文不会被覆盖'] },
-      verify: { value: 84, title: '正在复查结构', items: ['读取刚生成的修复稿', '复查结构规则是否通过', '统计仍需人工确认的问题'] },
-      render: { value: 95, title: '正在进行 Word/WPS PDF 版式复核', items: ['读取真实版式复核证据', '检查页面、图表和空白区域', '整理最终复核提示'] },
+      preflight: { value: 18, title: '正在预检', items: ['读取 DOCX', '检查结构风险'] },
+      plan: { value: 38, title: '正在生成方案', items: ['按辽宁大学格式拆解范围', '统计未通过规则'] },
+      apply: { value: 66, title: '正在修复', items: ['生成修复稿', '原文不覆盖'] },
+      verify: { value: 84, title: '正在复查', items: ['复查修复稿', '统计剩余问题'] },
+      render: { value: 95, title: '正在 PDF 复审', items: ['读取 PDF', '检查版面问题'] },
     };
+    const AGENT_CANDIDATE_PROGRESS = { submitted: 30, running: 55, finalizing: 80, finished: 100 };
     const STATUS_LABELS = { queued:'排队中', running:'执行中', succeeded:'已完成', failed:'失败', ok:'正常', ready:'已就绪', warning:'有风险', blocked:'已阻止', needs_fix:'需要修复', 'needs-fix':'需要修复', 'manual-review-required':'需要人工确认', 'render-check-required':'需要版式复核', 'structure-ready':'结构已通过', unsupported:'暂不支持自动处理' };
-    const OPERATION_LABELS = { audit:'审查', plan:'生成计划', verify:'复查', apply:'修复', normalize:'规范化', 'render-verify':'版式复核' };
+    const CANDIDATE_PHASE_LABELS = { submitted:'任务已提交', processing:'后端处理中', finalizing:'等待结果整理', completed:'结果已返回' };
+    const OPERATION_LABELS = { audit:'审查', plan:'生成计划', verify:'复查', apply:'修复', normalize:'规范化', 'render-verify':'PDF 复审' };
     const OUTPUT_DIR = '/Users/apple/Desktop/论文格式修复输出';
     const LOCAL_APP_URL = 'http://127.0.0.1:8000/';
 
@@ -840,10 +1103,12 @@
     function showFileModeNotice() {
       setReport({
         conclusion: '请从本地服务页面使用工具',
-        issues: ['当前是直接打开 HTML 文件，无法上传或处理 Word 文件。'],
-        next: `请打开 ${LOCAL_APP_URL}；本地服务需要保持运行。`,
+        issues: ['当前是文件预览，不能上传。'],
+        next: `请打开 ${LOCAL_APP_URL}`,
       });
-      document.getElementById('upload-hint').textContent = '当前是文件预览模式，请打开本地服务页面后再上传。';
+      document.getElementById('upload-hint').textContent = '请从本地服务页面上传。';
+      const pdfHint = document.getElementById('render-pdf-hint');
+      if (pdfHint) pdfHint.textContent = '请从本地服务页面上传 PDF。';
       document.getElementById('source-badge').textContent = '文件预览';
       document.getElementById('source-badge').className = 'source-chip failed';
     }
@@ -858,11 +1123,27 @@
     }
     function labelStatus(value) { return STATUS_LABELS[value] || value || '-'; }
     function labelOperation(value) { return OPERATION_LABELS[value] || value || '-'; }
-    function setMetric(id, value) { document.getElementById(id).textContent = value == null ? '-' : value; }
+    function pulseElement(element, className) {
+      if (!element) return;
+      element.classList.remove(className);
+      void element.offsetWidth;
+      element.classList.add(className);
+      element.addEventListener('animationend', () => element.classList.remove(className), { once: true });
+    }
+    function setMetric(id, value) {
+      const element = document.getElementById(id);
+      const nextValue = value == null ? '-' : value;
+      if (element.textContent !== String(nextValue)) {
+        element.textContent = nextValue;
+        pulseElement(element, 'metric-updated');
+      } else {
+        element.textContent = nextValue;
+      }
+    }
     function setSummary(text) { document.getElementById('single-summary').textContent = text; }
     function setRaw(payload) { document.getElementById('raw-json').textContent = JSON.stringify(payload, null, 2); }
     function setBusy(isBusy) {
-      ['run-all-button', 'report-action-button', 'preflight-button', 'plan-button', 'apply-button', 'verify-button', 'render-button', 'render-manual-button', 'render-manual-copy-button', 'render-word-button', 'render-agent-button'].forEach((id) => {
+      ['run-all-button', 'report-action-button', 'render-manual-button'].forEach((id) => {
         const button = document.getElementById(id);
         if (button) button.disabled = isBusy;
       });
@@ -906,6 +1187,7 @@
       });
     }
     function setReport({ conclusion, issues, next, output, outputLabel, action }) {
+      const reportCard = document.getElementById('report-card');
       document.getElementById('report-conclusion').textContent = conclusion || '等待处理。';
       const issueList = document.getElementById('report-issues');
       const normalizedIssues = Array.isArray(issues) && issues.length ? issues : ['暂无'];
@@ -936,6 +1218,168 @@
         outputLink.hidden = true;
         outputLink.removeAttribute('title');
       }
+      pulseElement(reportCard, 'report-updated');
+    }
+    function candidateStatusPayload(items) {
+      const payload = {
+        badge: '等待开始',
+        title: '下一版 DOCX 状态',
+        summary: '先完成 PDF 复审，再决定是否生成下一版 DOCX。',
+        strategy: candidateModeLabel(selectedCandidateMode()),
+        progress: '尚未开始',
+        jobId: '提交后生成',
+        output: '桌面/论文格式修复输出',
+        notes: [],
+      };
+      if (items && typeof items === 'object' && !Array.isArray(items)) {
+        if (items.badge) payload.badge = String(items.badge).trim();
+        if (items.title) payload.title = String(items.title).trim();
+        if (items.summary) payload.summary = String(items.summary).trim();
+        if (items.strategy) payload.strategy = candidateModeLabel(String(items.strategy).trim());
+        if (items.progress) payload.progress = String(items.progress).trim();
+        if (items.jobId) payload.jobId = String(items.jobId).trim();
+        if (items.output) payload.output = candidateStatusOutputSummary(String(items.output).trim());
+        if (Array.isArray(items.notes)) payload.notes = items.notes.filter(Boolean).map((item) => String(item).trim()).filter(Boolean);
+        if (!payload.notes.length) {
+          payload.notes = [
+            payload.strategy === '慢速紧凑优化'
+              ? '慢速模式会优先尝试压缩对象流附近的留白，必要时会自动回退。'
+              : '默认先快速生成下一版 DOCX，确认是否能及时产出可回退版本。',
+          ];
+        }
+        return payload;
+      }
+      const lines = Array.isArray(items) ? items.filter(Boolean).map((item) => String(item).trim()).filter(Boolean) : [];
+      lines.forEach((line) => {
+        if (line.startsWith('已选择:')) {
+          payload.badge = '已就绪';
+          payload.strategy = candidateModeLabel(line.replace('已选择:', '').trim());
+          payload.summary = candidateModeSummary(payload.strategy);
+          return;
+        }
+        if (line.startsWith('当前任务编号:')) {
+          payload.jobId = line.replace('当前任务编号:', '').trim();
+          if (payload.progress === '尚未开始') payload.progress = '已提交，等待后端处理';
+          return;
+        }
+        if (line.startsWith('优化模式:') || line.startsWith('候选模式:') || line.startsWith('当前模式:')) {
+          payload.strategy = candidateModeLabel(line.replace(/^优化模式:|^候选模式:|^当前模式:/, '').trim());
+          return;
+        }
+        if (line.startsWith('后端状态:')) {
+          const statusText = line.replace('后端状态:', '').trim();
+          payload.badge = statusText;
+          payload.progress = statusText;
+          if (statusText === '排队中') payload.summary = '下一版 DOCX 任务已进入队列，页面会持续刷新任务状态。';
+          if (statusText === '执行中') payload.summary = '后端任务仍在运行，页面会继续轮询，不是页面卡死。';
+          if (statusText === '已完成') payload.summary = '后端任务已经完成，页面正在整理下一版 DOCX 结果。';
+          return;
+        }
+        if (line.startsWith('阶段:')) {
+          const phaseText = candidatePhaseLabel(line.replace('阶段:', '').trim());
+          payload.badge = phaseText;
+          payload.progress = phaseText;
+          if (phaseText === '等待结果整理') payload.summary = '后端任务已经结束，页面正在整理最终结果。';
+          return;
+        }
+        if (line.startsWith('预计下一版路径:') || line.startsWith('预计候选稿路径:')) {
+          payload.output = candidateStatusOutputSummary(line.replace(/^预计下一版路径:|^预计候选稿路径:/, '').trim());
+          if (payload.badge !== '生成失败' && payload.progress !== '等待结果整理') {
+            payload.summary = '下一版 DOCX 已经有明确输出位置，完成后可回到 Word/WPS 导出 PDF 继续复审。';
+          }
+          return;
+        }
+        if (line.startsWith('下一版 DOCX:') || line.startsWith('候选稿:')) {
+          payload.badge = '已生成';
+          payload.progress = '下一版 DOCX 已写出';
+          payload.output = candidateStatusOutputSummary(line.replace(/^下一版 DOCX:|^候选稿:/, '').trim());
+          payload.summary = '下一版 DOCX 已经生成，请回到 Word/WPS 导出 PDF 后继续复审。';
+          return;
+        }
+        if (line.startsWith('降级原因:')) {
+          payload.notes.push(`已自动改用快速生成：${line.replace('降级原因:', '').trim()}`);
+          return;
+        }
+        if (line.startsWith('失败原因:')) {
+          payload.badge = '生成失败';
+          payload.progress = '请重试';
+          payload.summary = '后端任务已返回失败结果，本次没有产出可用新版本。';
+          payload.notes.push(`失败原因：${line.replace('失败原因:', '').trim()}`);
+          return;
+        }
+        if (line.startsWith('心跳间隔:')) {
+          payload.notes.push(`最近一次状态更新：${line.replace('心跳间隔:', '').trim()}前`);
+          return;
+        }
+        if (line.startsWith('超时阈值:')) {
+          payload.notes.push(`超时保护：${line.replace('超时阈值:', '').trim()}`);
+          return;
+        }
+        if (line.includes('不是页面卡死')) {
+          payload.summary = '后端任务仍在运行，页面会继续轮询，不是页面卡死。';
+          return;
+        }
+        if (line.includes('等待结果整理')) {
+          payload.badge = '等待结果整理';
+          payload.progress = '等待结果整理';
+          payload.summary = '后端任务已经结束，页面正在整理最终结果。';
+          return;
+        }
+        if (line.includes('等待后端返回任务编号')) {
+          payload.badge = '提交中';
+          payload.progress = '正在提交任务';
+          payload.summary = '正在向后端提交下一版 DOCX 任务，提交成功后会显示任务编号。';
+          return;
+        }
+        if (line.includes('本次请求原本是慢速紧凑优化')) {
+          payload.notes.push('本次慢速紧凑优化已自动回退为快速生成。');
+          return;
+        }
+        if (line.startsWith('重试入口:')) {
+          payload.notes.push('可重新确认并生成下一版 DOCX。');
+          return;
+        }
+        payload.notes.push(line);
+      });
+      if (!payload.notes.length) {
+        payload.notes = [
+          payload.strategy === '慢速紧凑优化'
+            ? '慢速模式会优先尝试压缩对象流附近的留白，必要时会自动回退。'
+            : '默认先快速生成下一版 DOCX，确认是否能及时产出可回退版本。',
+        ];
+      }
+      return payload;
+    }
+    function setCandidateStatus(items) {
+      const panel = document.getElementById('candidate-status');
+      if (!panel) return;
+      const payload = candidateStatusPayload(items);
+      panel.innerHTML = `
+        <div class="candidate-status-head">
+          <p class="candidate-status-title">${escapeHtml(payload.title)}</p>
+          <span class="candidate-status-badge">${escapeHtml(payload.badge)}</span>
+        </div>
+        <p class="candidate-status-copy">${escapeHtml(payload.summary)}</p>
+        <div class="candidate-status-grid">
+          <div class="candidate-status-item">
+            <b>当前模式</b>
+            <span>${escapeHtml(payload.strategy)}</span>
+          </div>
+          <div class="candidate-status-item">
+            <b>当前进展</b>
+            <span>${escapeHtml(payload.progress)}</span>
+          </div>
+          <div class="candidate-status-item">
+            <b>任务编号</b>
+            <span>${escapeHtml(payload.jobId)}</span>
+          </div>
+          <div class="candidate-status-item">
+            <b>输出位置</b>
+            <span>${escapeHtml(payload.output)}</span>
+          </div>
+        </div>
+        ${payload.notes.length ? `<ul class="candidate-status-notes">${payload.notes.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+      `;
     }
     function progressItemsForStep(id, payload = {}) {
       if (id !== 'apply') return (STEP_PROGRESS[id] || {}).items || ['正在处理，请稍等。'];
@@ -981,10 +1425,11 @@
       return `${OUTPUT_DIR}/${cleanBaseName}_格式修复_V01.docx`;
     }
     function estimateCandidatePath(inputPath, displayName) {
-      const fileName = fileNameFromPath(displayName || inputPath) || '候选修复稿.docx';
+      const fileName = fileNameFromPath(displayName || inputPath) || '下一版修复稿.docx';
       const dotIndex = fileName.toLowerCase().lastIndexOf('.docx');
       const baseName = dotIndex > -1 ? fileName.slice(0, dotIndex) : fileName;
-      return `${OUTPUT_DIR}/${baseName}_layout_candidate.docx`;
+      const cleanBaseName = baseName.replace(/_(格式修复|结构整理|版式候选稿)_v\d{2,}$/i, '');
+      return `${OUTPUT_DIR}/${cleanBaseName}_PDF复审修复_V01.docx`;
     }
     function escapeHtml(value) {
       return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -1009,6 +1454,21 @@
     function plannedVersionSummary(path) {
       return `将自动生成版本号（保存到${outputFolderLabel(path)}）`;
     }
+    function candidateModeLabel(value) {
+      if (value === 'fast_candidate' || value === 'compact_candidate') return candidateModeMeta(value).label;
+      return value || candidateModeMeta(selectedCandidateMode()).label;
+    }
+    function candidatePhaseLabel(value) {
+      return CANDIDATE_PHASE_LABELS[value] || labelStatus(value);
+    }
+    function candidateStatusOutputSummary(path) {
+      return path ? `${displayFileName(path)} · ${outputFolderLabel(path)}` : '生成后显示';
+    }
+    function candidateModeSummary(modeLabel) {
+      return modeLabel === '慢速紧凑优化'
+        ? '当前已切换到慢速紧凑优化，适合明确需要继续压缩对象流附近留白时再尝试。'
+        : '当前已选择快速生成，优先保证下一版 DOCX 能及时产出。';
+    }
     function updateSourcePreview({ fileName, source, path }) {
       document.getElementById('source-preview').innerHTML = `
         <div class="source-summary">
@@ -1018,7 +1478,7 @@
       `;
     }
     function updateSafeNote({ fileName, source, path }) {
-      const manualOutputPath = document.getElementById('single-output').value.trim();
+      const manualOutputPath = '';
       const outputPath = manualOutputPath || estimateOutputPath(path, fileName);
       document.getElementById('safe-note').innerHTML = `
         <div>
@@ -1032,7 +1492,7 @@
         </details>
       `;
     }
-    function selectedScopes() { return Array.from(document.querySelectorAll('[data-scope]:checked')).map((item) => item.value); }
+    function selectedScopes() { return SCOPES.map(([value]) => value); }
     function sourcePathForStep(preferOutput = false) {
       if (preferOutput && state.lastApplyOutput) return state.lastApplyOutput;
       return document.getElementById('paper-path').value.trim() || state.sourcePath;
@@ -1040,39 +1500,206 @@
     function requestBase(preferOutput = false) {
       const filePath = sourcePathForStep(preferOutput);
       if (!filePath) throw new Error('请先选择 Word 论文或填写本机路径。');
-      return { file_path: filePath, source_display_name: sourceDisplayName(), profile: document.getElementById('single-profile').value || 'lnu', scopes: selectedScopes() };
+      return { file_path: filePath, source_display_name: sourceDisplayName(), profile: 'lnu', scopes: selectedScopes() };
+    }
+    function candidateModeMeta(mode = state.candidate_mode) {
+      if (mode === 'compact_candidate') {
+        return {
+          label: '慢速紧凑优化',
+          requestMode: 'compact_candidate',
+          buttonLabel: '生成慢速紧凑版 DOCX',
+          statusLine: '当前模式: 慢速紧凑优化',
+        };
+      }
+      return {
+        label: '快速生成',
+        requestMode: 'fast_candidate',
+        buttonLabel: '生成下一版 DOCX',
+        statusLine: '当前模式: 快速生成',
+      };
+    }
+    function selectedCandidateMode() {
+      return state.candidate_mode || 'fast_candidate';
+    }
+    function updateCandidateModeUI() {
+      const mode = selectedCandidateMode();
+      document.querySelectorAll('[data-candidate-mode]').forEach((item) => {
+        item.classList.toggle('selected', item.dataset.candidateMode === mode);
+        const input = item.querySelector('input[type="radio"]');
+        if (input) input.checked = item.dataset.candidateMode === mode;
+      });
+    }
+    function candidateRuntimeLines(source = {}) {
+      const lines = [];
+      const phase = source.phase || source.runtime_phase;
+      const heartbeatAge = source.heartbeat_age_seconds;
+      const timeoutSeconds = source.timeout_seconds;
+      const degradeReason = source.degrade_reason;
+      if (phase) lines.push(`阶段: ${phase}`);
+      if (heartbeatAge != null) lines.push(`心跳间隔: ${heartbeatAge} 秒`);
+      if (timeoutSeconds != null) lines.push(`超时阈值: ${timeoutSeconds} 秒`);
+      if (degradeReason) lines.push(`降级原因: ${degradeReason}`);
+      return lines;
+    }
+    function candidateModeFromPayload(source = {}) {
+      return source.candidate_mode || source.candidate_request_mode || source.mode || selectedCandidateMode();
+    }
+    function candidateStatusItems(detail, options = {}) {
+      const runtime = detail.runtime || {};
+      const summary = detail.summary || {};
+      const jobId = options.jobId || detail.job_id || '-';
+      const resolvedMode = candidateModeFromPayload({ ...runtime, ...summary, ...detail });
+      const requestMode = runtime.candidate_request_mode || summary.candidate_request_mode || resolvedMode;
+      const degraded = Boolean(runtime.degraded_from_compact || summary.degraded_from_compact || detail.degraded_from_compact);
+      const outputPath = candidateOutputPath(detail, options.outputPath || '');
+      const items = [`当前任务编号: ${jobId}`, `优化模式: ${candidateModeMeta(resolvedMode).label}`];
+      if (options.statusText) items.push(options.statusText);
+      if (requestMode === 'compact_candidate' && resolvedMode !== requestMode) items.push('本次请求原本是慢速紧凑优化');
+      if (degraded) items.push('已从慢速紧凑优化降级为快速生成');
+      if (options.includeRunningNotice) items.push('后端任务仍在运行，不是页面卡死');
+      if (options.includeFinishedNotice) items.push('后端任务已结束，正在等待结果整理');
+      items.push(...candidateRuntimeLines({ ...runtime, ...summary, ...detail }));
+      if (outputPath) items.push(`预计下一版路径: ${outputPath}`);
+      if (options.failed) items.push('重试入口: 确认 PDF 复审结果后重新生成下一版 DOCX。');
+      return items;
     }
     function setStep(id, mode) {
       const el = document.querySelector(`[data-step="${id}"]`);
       if (!el) return;
       el.className = `step ${mode || ''}`.trim();
+      if (mode) pulseElement(el, 'step-pulse');
     }
     function resetSteps() { STEP_IDS.forEach((id) => setStep(id, '')); }
     function renderHasActionableFindings() {
       const summary = (state.lastRenderPayload || {}).summary || {};
       return Number(summary.actionable_finding_count || 0) > 0;
     }
-    function updateAgentCandidateAvailability() {
-      const button = document.getElementById('render-agent-button');
-      const card = document.querySelector('[data-workflow-mode="agent_candidate"]');
-      if (!button || !card) return;
-      const available = renderHasActionableFindings();
-      button.disabled = !available;
-      button.textContent = available ? '生成排版候选稿' : '先完成 PDF 版式复核后再使用';
-      button.title = available ? '基于刚才的 PDF 版式复核结果生成可回退候选稿' : 'Agent 候选稿只用于复核后排障，普通修复请先走默认用户模式或高级模式。';
-      card.classList.toggle('gated', !available);
+    function severityLabel(value) {
+      const labels = { error: '严重', warning: '警告', info: '提示' };
+      return labels[value] || value || '提示';
     }
+    function renderFindingName(value) {
+      const names = {
+        large_blank_region: '大块空白',
+        blank_page: '疑似空白页',
+        object_overflow: '图表/对象挤页',
+        object_near_page_edge: '图表靠近页边',
+        heading_isolated: '标题孤页',
+        heading_near_page_bottom: '标题贴近页底',
+        page_image_missing: '页面图片缺失',
+        pdf_text_missing: 'PDF 文本不可读',
+      };
+      return names[value] || value || '版式问题';
+    }
+    function formatRenderFinding(finding, index) {
+      const page = finding.page || finding.page_number;
+      const pageText = page ? `第 ${page} 页` : '页码未定位';
+      const name = renderFindingName(finding.id || finding.type);
+      const severity = severityLabel(finding.severity);
+      const message = finding.message || finding.detail || '需要打开 PDF 对照页面确认。';
+      return `${index + 1}. ${pageText} · ${name}（${severity}）：${message}`;
+    }
+    function renderFindingItems(payload, limit = 6) {
+      const findings = Array.isArray(payload.render_findings) ? payload.render_findings : [];
+      const visibleFindings = findings.slice(0, limit).map(formatRenderFinding);
+      if (findings.length > limit) visibleFindings.push(`另有 ${findings.length - limit} 条问题，详见详细报告。`);
+      return visibleFindings;
+    }
+    function renderReviewItems(payload, limit = 4) {
+      return (Array.isArray(payload.review_items) ? payload.review_items : [])
+        .slice(0, limit)
+        .map((item) => `复核建议: ${item}`);
+    }
+    function renderReportPath(payload) {
+      return payload.report_path || (payload.summary || {}).report_path || '';
+    }
+    function renderResultIssueItems(payload) {
+      const summary = payload.summary || {};
+      const findings = renderFindingItems(payload);
+      const reviewItems = renderReviewItems(payload);
+      const reportPath = renderReportPath(payload);
+      const base = [
+        'PDF 复审不修改 DOCX。',
+        `页数: ${summary.page_count ?? payload.page_count ?? '-'}`,
+        `Layout Score: ${summary.layout_score ?? (payload.layout_score || {}).score ?? '-'}`,
+      ];
+      if (findings.length) {
+        base.push(...findings);
+      } else {
+        base.push('未发现明确可自动定位的页面问题。');
+      }
+      if (reviewItems.length) base.push(...reviewItems);
+      return base;
+    }
+    function renderResultNextText(payload) {
+      const summary = payload.summary || {};
+      const actionableCount = Number(summary.actionable_finding_count || 0);
+      if (actionableCount > 0) {
+        return `发现 ${actionableCount} 个可行动排版问题。确认后可以生成下一版 DOCX；新版本生成后仍需再次导出 PDF 复审。`;
+      }
+      return '本次没有发现明确可自动处理的页面问题，最终仍建议人工快速翻看 PDF。';
+    }
+    function formatRuleList(ruleIds, limit = 8) {
+      if (!Array.isArray(ruleIds) || !ruleIds.length) return '未返回规则编号';
+      const visible = ruleIds.slice(0, limit);
+      const suffix = ruleIds.length > limit ? ` 等 ${ruleIds.length} 条` : '';
+      return `${visible.join(', ')}${suffix}`;
+    }
+    function formatRuleSummary(item, prefix) {
+      const scopeText = item.scope_title || item.scope_id || '未分类范围';
+      const ruleText = [item.id, item.name].filter(Boolean).join(' · ');
+      const levelText = item.check_level ? `；检查层级: ${item.check_level}` : '';
+      return `${prefix}: ${scopeText} / ${ruleText || '未知规则'}${levelText}`;
+    }
+    function verifyIssueGroups(payload) {
+      const failedScopeItems = [];
+      const renderCheckItems = [];
+      const manualReviewItems = [];
+      const unsupportedItems = [];
+      (Array.isArray(payload.scopes) ? payload.scopes : [])
+        .filter((scope) => (scope.failed_count || 0) > 0)
+        .forEach((scope) => {
+          failedScopeItems.push(`结构未通过: ${scope.title || scope.id}（${scope.failed_count || 0} 条），规则: ${formatRuleList(scope.failed_rules)}`);
+        });
+      (Array.isArray(payload.render_check_rules) ? payload.render_check_rules : []).forEach((item) => {
+        renderCheckItems.push(formatRuleSummary(item, '需要版式复核原因'));
+      });
+      (Array.isArray(payload.manual_review_rules) ? payload.manual_review_rules : []).forEach((item) => {
+        manualReviewItems.push(formatRuleSummary(item, '人工复核'));
+      });
+      (Array.isArray(payload.unsupported_rules) ? payload.unsupported_rules : []).forEach((item) => {
+        unsupportedItems.push(formatRuleSummary(item, '暂不支持自动修复'));
+      });
+      return { failedScopeItems, renderCheckItems, manualReviewItems, unsupportedItems };
+    }
+    function verifyIssueItems(payload) {
+      const summary = payload.summary || {};
+      const groups = verifyIssueGroups(payload);
+      const items = [
+        ...groups.failedScopeItems,
+        ...groups.renderCheckItems,
+        ...groups.manualReviewItems,
+        ...groups.unsupportedItems,
+      ];
+      if (!items.length) {
+        items.push(`未通过规则: ${summary.failed_rules ?? 0}`);
+        items.push(`人工复核项: ${summary.manual_review_rules ?? 0}`);
+        items.push(`需要版式复核: ${summary.render_check_rules ?? 0}`);
+      }
+      return items;
+    }
+    function updateAgentCandidateAvailability() {}
 
     function summarizePreflight(payload) {
       const summary = payload.summary || {};
       setMetric('metric-failed', '-'); setMetric('metric-manual', '-'); setMetric('metric-pages', '-');
       setReport({
-        conclusion: `预检结论: ${labelStatus(payload.preflight_status)}`,
+        conclusion: `预检: ${labelStatus(payload.preflight_status)}`,
         issues: [
           `样式冲突: ${summary.style_conflict_count ?? 0}`,
           `表格标题风险: ${summary.table_heading_risk_count ?? 0}`,
         ],
-        next: (payload.recommended_actions || ['继续生成修复方案。']).join(' '),
+        next: (payload.recommended_actions || ['继续生成方案。']).join(' '),
         action: { label: '生成修复方案', step: 'plan' },
       });
       return [`预检结论: ${labelStatus(payload.preflight_status)}`, `文档: ${(payload.document || {}).name || '-'}`, `样式冲突: ${summary.style_conflict_count ?? 0}`, `表格标题风险: ${summary.table_heading_risk_count ?? 0}`, '', '建议:', ...(payload.recommended_actions || ['继续生成修复方案。']).map((item) => `- ${item}`)].join('\n');
@@ -1084,13 +1711,13 @@
       setMetric('metric-manual', scopes.reduce((sum, item) => sum + (item.manual_review_count || 0), 0));
       const failedScopes = scopes.filter((item) => (item.failed_count || 0) > 0).slice(0, 5);
       setReport({
-        conclusion: `已生成修复方案，共 ${scopes.length} 个范围。`,
+        conclusion: `方案已生成: ${scopes.length} 个范围`,
         issues: failedScopes.length ? failedScopes.map((item) => `${item.title || item.id}: 未通过 ${item.failed_count || 0}`) : ['当前范围未发现明显问题'],
-        next: '确认方案后执行修复，系统会写出新的 Word 文件。',
+        next: '继续执行修复。',
         action: { label: '执行修复', step: 'apply' },
       });
       setProgress({
-        title: '修复方案已准备好',
+        title: '方案已准备好',
         value: 45,
         items: failedScopes.length ? failedScopes.map((item) => `待修复: ${item.title || item.id}（未通过 ${item.failed_count || 0}）`) : ['当前范围未发现明显问题', '可以继续执行修复，系统会生成新的 Word 文件'],
       });
@@ -1107,7 +1734,7 @@
           `未通过规则: ${summary.failed_rules ?? '-'}`,
           `人工复核项: ${summary.manual_review_rules ?? '-'}`,
         ],
-        next: '修复稿已经写出。下一步复查结构，再用 Word 版式复核图片、表格和公式。',
+        next: '继续复查结构，然后导出 PDF。',
         output: state.lastApplyOutput,
         action: { label: '复查结构', step: 'verify' },
       });
@@ -1118,37 +1745,62 @@
           state.lastApplyOutput ? `输出文件: ${outputSummary(state.lastApplyOutput)}` : '输出文件已写出',
           `未通过规则: ${summary.failed_rules ?? '-'}`,
           `人工复核项: ${summary.manual_review_rules ?? '-'}`,
-          '建议继续点击“复查结构”确认修复结果',
+          '继续复查结构',
         ],
       });
-      return [`修复结论: ${labelStatus(payload.readiness)}`, `输出文件: ${state.lastApplyOutput ? outputSummary(state.lastApplyOutput) : '-'}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, '', ...(payload.post_verify_notices || ['修复已完成，建议继续运行 Word 版式复核。']).map((item) => `- ${item}`)].join('\n');
+      return [`修复结论: ${labelStatus(payload.readiness)}`, `输出文件: ${state.lastApplyOutput ? outputSummary(state.lastApplyOutput) : '-'}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, '', ...(payload.post_verify_notices || ['修复已完成，建议继续导出 PDF 复审。']).map((item) => `- ${item}`)].join('\n');
     }
     function summarizeVerify(payload) {
       const summary = payload.summary || {};
+      const issueGroups = verifyIssueGroups(payload);
+      const issueItems = verifyIssueItems(payload);
       setMetric('metric-failed', summary.failed_rules); setMetric('metric-manual', summary.manual_review_rules);
       setReport({
         conclusion: `结构复查已结束: ${labelStatus(payload.overall_status || payload.readiness)}`,
-        issues: [
-          `未通过规则: ${summary.failed_rules ?? '-'}`,
-          `人工复核项: ${summary.manual_review_rules ?? '-'}`,
-          `需要版式复核: ${summary.render_check_rules ?? '-'}`,
-        ],
-        next: '这一步不是卡住，结构复查已经返回结果。接下来按实际环境选择下方的版式复核模式；普通用户推荐先用 Word/WPS 导出 PDF。',
+        issues: issueItems,
+        next: '导出 PDF 后，在左侧上传复审。',
         output: state.lastApplyOutput,
         action: null,
       });
       setProgress({
-        title: '结构复查已结束，等待版式复核',
+        title: '结构复查完成',
         value: 100,
         items: [
-          `未通过规则: ${summary.failed_rules ?? '-'}`,
-          `人工复核项: ${summary.manual_review_rules ?? '-'}`,
-          `需要版式复核: ${summary.render_check_rules ?? '-'}`,
-          '这一步已经结束，不是后端卡住',
-          '请在下方选择“默认用户模式”或“高级模式”进行版式复核',
+          ...issueItems,
+          '结构复查完成',
+          '请上传导出的 PDF',
         ],
       });
-      return [`结构复查已结束: ${labelStatus(payload.overall_status || payload.readiness)}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, `需要版式复核: ${summary.render_check_rules ?? '-'}`, '下一步: 选择下方版式复核模式。'].join('\n');
+      const lines = [
+        `结构复查已结束: ${labelStatus(payload.overall_status || payload.readiness)}`,
+        `未通过规则: ${summary.failed_rules ?? '-'}`,
+        `人工复核项: ${summary.manual_review_rules ?? '-'}`,
+        `需要版式复核: ${summary.render_check_rules ?? '-'}`,
+        '',
+      ];
+      if (issueGroups.failedScopeItems.length) {
+        lines.push('结构未通过范围:');
+        lines.push(...issueGroups.failedScopeItems.map((item) => `- ${item}`));
+        lines.push('');
+      }
+      if (issueGroups.renderCheckItems.length) {
+        lines.push('需要版式复核原因:');
+        lines.push(...issueGroups.renderCheckItems.map((item) => `- ${item}`));
+        lines.push('');
+      }
+      if (issueGroups.manualReviewItems.length || issueGroups.unsupportedItems.length) {
+        lines.push('其他人工确认项:');
+        lines.push(...issueGroups.manualReviewItems.map((item) => `- ${item}`));
+        lines.push(...issueGroups.unsupportedItems.map((item) => `- ${item}`));
+        lines.push('');
+      }
+      if (!issueGroups.failedScopeItems.length && !issueGroups.renderCheckItems.length && !issueGroups.manualReviewItems.length && !issueGroups.unsupportedItems.length) {
+        lines.push('具体原因:');
+        lines.push(...issueItems.map((item) => `- ${item}`));
+        lines.push('');
+      }
+      lines.push('下一步: 上传导出的 PDF。');
+      return lines.join('\n');
     }
     function summarizeRender(payload) {
       const summary = payload.summary || {};
@@ -1158,56 +1810,123 @@
       const renderEngine = summary.render_engine || payload.render_engine || summary.renderer || payload.renderer || '-';
       const score = summary.layout_score ?? (payload.layout_score || {}).score;
       const findings = summary.render_finding_count ?? (payload.render_findings || []).length;
+      const issueItems = renderResultIssueItems(payload);
+      const hasActionable = Number(summary.actionable_finding_count || 0) > 0;
       setMetric('metric-pages', pageCount);
       setReport({
-        conclusion: `版式复核完成: ${labelStatus(payload.overall_status || summary.status || 'ok')}`,
-        issues: [
-          `模式: ${workflowMode.title || labelStatus(summary.render_workflow_mode)}`,
-          `渲染证据: ${renderEngine}`,
-          `页数: ${pageCount ?? '-'}`,
-          `Layout Score: ${score ?? '-'}`,
-          `可行动问题: ${summary.actionable_finding_count ?? '-'}`,
-          `Finding 数: ${findings ?? '-'}`,
-        ],
-        next: '请以 Word/WPS 导出的 PDF 或页面图片为最终版式判断；如有可行动问题，再进入候选稿模式。',
+        conclusion: hasActionable ? 'PDF 复审完成: 需要修复' : `PDF 复审完成: ${labelStatus(payload.overall_status || summary.status || 'ok')}`,
+        issues: issueItems,
+        next: renderResultNextText(payload),
         output: state.lastApplyOutput || summary.pdf_path || proof.pdf_path,
-        action: null,
+        action: hasActionable ? { label: '按这些问题生成下一版 DOCX', step: 'pdfFollowupFix' } : null,
       });
       setProgress({
-        title: '全部流程已完成',
+        title: hasActionable ? 'PDF 复审完成：发现问题' : 'PDF 复审完成：未发现明确问题',
         value: 100,
-        items: [
-          `模式: ${workflowMode.title || labelStatus(summary.render_workflow_mode)}`,
-          `渲染证据: ${renderEngine}`,
-          `Layout Score: ${score ?? '-'}`,
-          `可行动问题: ${summary.actionable_finding_count ?? '-'}`,
-        ],
+        items: issueItems,
       });
       updateAgentCandidateAvailability();
-      return [`版式复核: ${labelStatus(payload.overall_status || summary.status || 'ok')}`, `模式: ${workflowMode.title || labelStatus(summary.render_workflow_mode)}`, `渲染证据: ${renderEngine}`, `页数: ${pageCount ?? '-'}`, `Layout Score: ${score ?? '-'}`, `可行动问题: ${summary.actionable_finding_count ?? '-'}`, `输出目录: ${payload.output_dir || summary.output_dir || (payload.output || {}).dir || '-'}`, `PDF 文件: ${payload.render_pdf_path || summary.pdf_path || proof.pdf_path || '-'}`, '', '提示: 图片、表格和公式以 Word/WPS 导出的 PDF/页面图片为最终判断依据。'].join('\n');
+      return [`PDF 复审: ${labelStatus(payload.overall_status || summary.status || 'ok')}`, `页数: ${pageCount ?? '-'}`, `Layout Score: ${score ?? '-'}`, `可行动问题: ${summary.actionable_finding_count ?? '-'}`, `详细报告: ${renderReportPath(payload) || '-'}`, '', '具体问题:', ...issueItems.map((item) => `- ${item}`), '', '提示: 如有可行动问题，可生成下一版 DOCX 后再次导出 PDF 复审。'].join('\n');
+    }
+
+    function renderWorkflowStatusItems(mode, phase, detail = {}) {
+      const isDefault = mode === 'default_user';
+      if (phase === 'running' && isDefault) {
+        return [
+          '已读取用户填写的 PDF 路径',
+          '后端正在检查 PDF 是否存在',
+          '正在把 PDF 转成页面图片',
+          '正在分析页数、空白页、图表挤页和标题孤页',
+        ];
+      }
+      if (phase === 'success') {
+        return detail.issueItems || [
+          'PDF 复审不修改 DOCX。',
+          `页数: ${detail.pageCount ?? '-'}`,
+          `Layout Score: ${detail.score ?? '-'}`,
+          '未发现明确可自动定位的页面问题。',
+        ];
+      }
+      return [
+        '状态: 版式复核失败',
+        `错误: ${detail.errorText || '-'}`,
+        '下一步: 检查 PDF 路径后重试，或重新导出 PDF',
+      ];
+    }
+
+    function summarizeRenderStatus(payload) {
+      const summary = payload.summary || {};
+      const proof = payload.proof || payload.render || {};
+      const workflowMode = payload.render_workflow_mode || {};
+      const pageCount = summary.page_count ?? proof.page_count ?? payload.page_count;
+      const score = summary.layout_score ?? (payload.layout_score || {}).score;
+      return {
+        modeTitle: workflowMode.title || labelStatus(summary.render_workflow_mode),
+        pdfPath: payload.render_pdf_path || summary.pdf_path || proof.pdf_path || '',
+        pageCount,
+        score,
+        issueItems: renderResultIssueItems(payload),
+      };
     }
 
     function renderPdfPath() {
       return document.getElementById('render-pdf-path').value.trim();
     }
+    function candidateOutputPath(detail, fallback = '') {
+      return (detail.summary || {}).output_path || (detail.resolved_request || {}).output_path || fallback || '';
+    }
+    function setRenderPdfSelection(payload, file) {
+      const displayName = payload.file_name || (file && file.name) || fileNameFromPath(payload.stored_path);
+      document.getElementById('render-pdf-path').value = payload.stored_path || '';
+      document.getElementById('render-pdf-hint').textContent = `${displayName} 已选择。`;
+      setReport({
+        conclusion: 'PDF 已选择。',
+        issues: ['准备复审页面版式'],
+        next: '点击“开始复审”。',
+        action: { label: '开始复审', step: 'renderManual' },
+      });
+      setProgress({ visible: false });
+    }
+    async function uploadSelectedPdf(file) {
+      if (!file) return;
+      const fileName = file.name || '';
+      if (fileName && !fileName.toLowerCase().endsWith('.pdf')) {
+        throw new Error('请导入 PDF 文件。先用 Word/WPS 导出 PDF，再上传复核。');
+      }
+      const form = new FormData();
+      form.append('file', file);
+      document.getElementById('render-pdf-hint').textContent = '正在保存 PDF...';
+      const payload = await getJson('/uploads/pdf', { method: 'POST', body: form });
+      setRenderPdfSelection(payload, file);
+    }
     async function runRenderWorkflow(mode) {
       if (mode === 'agent_candidate') {
-        if (!renderHasActionableFindings()) throw new Error('Agent 候选稿不是常规入口。请先用默认用户模式或高级模式完成 PDF 版式复核；只有发现可行动排版问题后再生成候选稿。');
-        await runAgentCandidate();
+        if (!renderHasActionableFindings()) throw new Error('请先导入 Word/WPS 导出的 PDF 完成复审；只有发现可行动排版问题后，才需要生成下一版 DOCX。');
+        await runPdfFollowupFix();
         return;
       }
       const payload = requestBase(true);
       if (mode === 'default_user') {
         const pdfPath = renderPdfPath();
-        if (!pdfPath) throw new Error('默认用户模式需要先填写 Word/WPS 导出的 PDF 路径。');
+        if (!pdfPath) throw new Error('请先上传导出的 PDF。');
         payload.workflow_mode = 'default_user';
         payload.rendered_pdf = pdfPath;
       } else {
-        payload.workflow_mode = 'advanced_word';
-        payload.renderer = 'word-pdf';
+        const pdfPath = renderPdfPath();
+        if (!pdfPath) throw new Error('请先上传导出的 PDF。');
+        payload.workflow_mode = 'default_user';
+        payload.rendered_pdf = pdfPath;
       }
       setStep('render', 'running');
-      showRunningReport('render', payload);
+      const modeLabel = mode === 'default_user' ? 'PDF 复审' : 'PDF 复审';
+      const runningItems = renderWorkflowStatusItems(mode, 'running');
+      setReport({
+        conclusion: `${modeLabel}中`,
+        issues: runningItems,
+        next: '请稍等。',
+        action: null,
+      });
+      setProgress({ title: `${modeLabel}中`, value: 55, items: runningItems, currentIndex: 1 });
       setBusy(true);
       const result = await getJson('/render-verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       state.lastRenderPayload = result;
@@ -1216,11 +1935,71 @@
       document.getElementById('source-badge').className = 'source-chip ok';
       setRaw(result);
       setSummary(summarizeRender(result));
+      setProgress({ title: `${modeLabel}成功`, value: 100, items: renderWorkflowStatusItems(mode, 'success', summarizeRenderStatus(result)) });
       setBusy(false);
     }
-    async function runAgentCandidate() {
+    async function pollAgentCandidateJob(jobId) {
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        const detail = await getJson(`/jobs/${jobId}`);
+        const status = detail.status;
+        if (status === 'queued' || status === 'running') {
+          const items = candidateStatusItems(detail, {
+            statusText: `后端状态: ${labelStatus(status)}`,
+            includeRunningNotice: true,
+          });
+          setReport({
+            conclusion: '下一版 DOCX 已提交后端任务。',
+            issues: items,
+            next: '后端正在写出新的 DOCX；完成后页面会自动更新结果。',
+            output: candidateOutputPath(detail),
+            outputLabel: '下一版输出',
+          });
+          setCandidateStatus(items);
+          setProgress({
+            title: status === 'queued' ? '下一版 DOCX 任务排队中' : '下一版 DOCX 后端任务运行中',
+            value: AGENT_CANDIDATE_PROGRESS.running,
+            items,
+            currentIndex: 1,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          continue;
+        }
+        if (status === 'failed') {
+          const message = ((detail.error || {}).message || '下一版 DOCX 生成失败');
+          const error = new Error(message);
+          error.jobId = jobId;
+          error.outputPath = candidateOutputPath(detail);
+          error.backendStatus = status;
+          throw error;
+        }
+        const finalizingItems = candidateStatusItems(detail, {
+          statusText: '后端状态: 已完成',
+          includeFinishedNotice: true,
+        });
+        setReport({
+          conclusion: '下一版 DOCX 后端任务已完成。',
+          issues: finalizingItems,
+          next: '等待结果整理，随后会显示下一版 DOCX 结果。',
+          output: candidateOutputPath(detail),
+          outputLabel: '下一版输出',
+        });
+        setCandidateStatus(finalizingItems);
+        setProgress({
+          title: '下一版 DOCX 后端任务已完成，等待结果整理',
+          value: AGENT_CANDIDATE_PROGRESS.finalizing,
+          items: finalizingItems,
+          currentIndex: 2,
+        });
+        const resultPayload = await getJson(`/jobs/${jobId}/result`);
+        return { detail, resultPayload };
+      }
+      throw new Error('下一版 DOCX 仍在后端执行，页面轮询已超时。请到“任务查询”输入任务编号查看。');
+    }
+    async function runPdfFollowupFix() {
       const base = requestBase(true);
       const candidateScopes = ['headings', 'figures_tables'];
+      const mode = selectedCandidateMode();
+      const modeMeta = candidateModeMeta(mode);
       const payload = {
         ...base,
         scopes: candidateScopes,
@@ -1229,41 +2008,77 @@
         renumber_headings: true,
         layout_rebalance: true,
         force: false,
+        candidate_mode: mode,
+        candidate_request_mode: modeMeta.requestMode,
       };
       setReport({
-        conclusion: '正在生成候选修复稿。',
-        issues: ['只处理标题和图表排布相关范围', '候选稿不会覆盖原文', '生成后仍需导出 PDF 再复核'],
-        next: '候选稿生成后，请用 Word/WPS 导出 PDF，再回到默认用户模式复核。',
+        conclusion: '正在提交下一版 DOCX 生成任务。',
+        issues: ['按 PDF 复审问题继续修复', '不覆盖原文'],
+        next: '请稍等。',
         output: payload.output_path,
-        outputLabel: '候选输出',
+        outputLabel: '下一版输出',
       });
-      setProgress({ title: '正在生成候选修复稿', value: 62, items: ['修复 headings', '修复 figures_tables', '启用 layout_rebalance', '写出候选 DOCX'] });
-      setBusy(true);
-      const result = await getJson('/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      state.lastApplyOutput = ((result.output || {}).path || payload.output_path);
-      setRaw(result);
-      setReport({
-        conclusion: '候选修复稿已生成。',
-        issues: [
-          `候选稿: ${outputSummary(state.lastApplyOutput)}`,
-          '下一步请用 Word/WPS 打开候选稿并导出 PDF',
-          '再填写 PDF 路径，使用默认用户模式复核',
+      setCandidateStatus({
+        badge: '提交中',
+        summary: '正在向后端提交下一版 DOCX 任务，提交成功后会显示任务编号与输出位置。',
+        strategy: modeMeta.label,
+        progress: '正在提交任务',
+        jobId: '等待返回',
+        output: payload.output_path,
+        notes: [
+          mode === 'compact_candidate'
+            ? '慢速模式耗时更长，必要时会自动回退为快速生成。'
+            : '快速生成默认关闭慢速重排，优先保证及时产出。',
         ],
-        next: '候选稿不是最终稿，必须经过 Word/WPS PDF 复核后再决定是否保留。',
-        output: state.lastApplyOutput,
-        outputLabel: '候选输出',
       });
-      setProgress({ title: '候选稿已生成', value: 76, items: ['候选 DOCX 已写出', '等待 Word/WPS 导出 PDF', '用默认用户模式复核 PDF'] });
+      setProgress({ title: '正在生成下一版 DOCX', value: AGENT_CANDIDATE_PROGRESS.submitted, items: ['准备修复范围', '提交任务', '等待结果'], currentIndex: 1 });
+      setBusy(true);
+      const job = await getJson('/jobs/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const submittedItems = candidateStatusItems(job, {
+        jobId: job.job_id,
+        outputPath: payload.output_path,
+        statusText: `后端状态: ${labelStatus(job.status)}`,
+        includeRunningNotice: true,
+      });
+      setReport({
+        conclusion: '下一版 DOCX 已提交后端任务。',
+        issues: submittedItems,
+        next: '正在写出新文件。',
+        output: candidateOutputPath(job, payload.output_path),
+        outputLabel: '下一版输出',
+      });
+      setCandidateStatus(submittedItems);
+      setProgress({ title: '下一版 DOCX 生成中', value: AGENT_CANDIDATE_PROGRESS.submitted, items: submittedItems, currentIndex: 1 });
+      const { resultPayload } = await pollAgentCandidateJob(job.job_id);
+      const result = resultPayload.result || {};
+      state.lastApplyOutput = ((result.output || {}).path || payload.output_path);
+      const runtime = resultPayload.runtime || result.runtime || {};
+      const summary = resultPayload.summary || result.summary || {};
+      const finalItems = candidateStatusItems({ ...resultPayload, runtime, summary }, {
+        jobId: job.job_id,
+        outputPath: state.lastApplyOutput,
+        statusText: '后端状态: 已完成',
+      });
+      setRaw(resultPayload);
+      setReport({
+        conclusion: '下一版 DOCX 已生成。',
+        issues: [`下一版 DOCX: ${outputSummary(state.lastApplyOutput)}`, '请导出 PDF 后复审'],
+        next: '上传新 PDF 复审。',
+        output: state.lastApplyOutput,
+        outputLabel: '下一版输出',
+      });
+      setCandidateStatus(finalItems.concat([`下一版 DOCX: ${state.lastApplyOutput}`]));
+      setProgress({ title: '下一版 DOCX 已生成', value: AGENT_CANDIDATE_PROGRESS.finished, items: [`任务编号: ${job.job_id}`, `输出: ${outputSummary(state.lastApplyOutput)}`, '请导出 PDF 复审'] });
       const verifySummary = ((result.verification || {}).summary || {});
       setMetric('metric-failed', verifySummary.failed_rules);
       setMetric('metric-manual', verifySummary.manual_review_rules);
       setSummary([
-        'Agent 候选稿已生成',
-        `候选稿: ${outputSummary(state.lastApplyOutput)}`,
+        '下一版 DOCX 已生成',
+        `下一版 DOCX: ${outputSummary(state.lastApplyOutput)}`,
         `未通过规则: ${verifySummary.failed_rules ?? '-'}`,
         `人工复核项: ${verifySummary.manual_review_rules ?? '-'}`,
         '',
-        '下一步: 用 Word/WPS 打开候选稿并导出 PDF，再用默认用户模式复核。',
+        '下一步: 用 Word/WPS 打开新版本并导出 PDF，再上传 PDF 复审。',
       ].join('\n'));
       setBusy(false);
     }
@@ -1271,7 +2086,7 @@
     async function uploadSelectedFile(file) {
       const form = new FormData();
       form.append('file', file);
-      document.getElementById('upload-hint').textContent = '正在保存到本地运行目录...';
+      document.getElementById('upload-hint').textContent = '正在保存...';
       const payload = await getJson('/uploads/docx', { method: 'POST', body: form });
       const displayName = payload.file_name || file.name || fileNameFromPath(payload.stored_path);
       state.uploaded = payload; state.sourcePath = payload.stored_path; state.sourceDisplayName = displayName; state.lastApplyOutput = ''; state.lastRenderPayload = null;
@@ -1279,15 +2094,15 @@
       updateSourcePreview({ fileName: displayName, source: '已上传', path: payload.stored_path });
       document.getElementById('source-badge').textContent = '已选择';
       document.getElementById('source-badge').className = 'source-chip ok';
-      document.getElementById('upload-hint').textContent = '已保存到本地运行目录。';
+      document.getElementById('upload-hint').textContent = '已选择。';
       updateSafeNote({ fileName: displayName, source: '已上传', path: payload.stored_path });
       setReport({
-        conclusion: '已选择论文，可以开始处理。',
-        issues: ['原文不会被覆盖', '修复结果会写入新的 Word 文件'],
-        next: '点击“一键处理到结构复查”。',
+        conclusion: 'DOCX 已选择。',
+        issues: ['原文不会被覆盖'],
+        next: '点击“一键生成修复稿”。',
         output: estimateOutputPath(payload.stored_path, displayName),
         outputLabel: '预计输出',
-        action: { label: '一键处理到结构复查', step: 'runAll' },
+        action: { label: '一键生成修复稿', step: 'runAll' },
       });
       setProgress({ visible: false });
       resetSteps();
@@ -1298,16 +2113,16 @@
       const endpoint = id === 'render' ? '/render-verify' : `/${id === 'apply' ? 'apply' : id === 'verify' ? 'verify' : id}`;
       const payload = requestBase(id === 'verify' || id === 'render');
       if (id === 'apply') {
-        const explicitOutputPath = document.getElementById('single-output').value.trim();
-        if (explicitOutputPath) payload.output_path = explicitOutputPath;
-        payload.toc = document.getElementById('single-toc').checked;
-        payload.renumber_headings = document.getElementById('single-renumber').checked;
-        payload.layout_rebalance = document.getElementById('single-layout').checked;
-        payload.force = document.getElementById('single-force').checked;
+        payload.toc = false;
+        payload.renumber_headings = true;
+        payload.layout_rebalance = false;
+        payload.force = false;
       }
       if (id === 'render') {
-        payload.workflow_mode = 'advanced_word';
-        payload.renderer = 'word-pdf';
+        const pdfPath = renderPdfPath();
+        if (!pdfPath) throw new Error('版式复核需要先拖入或点选 Word/WPS 导出的 PDF 文件。');
+        payload.workflow_mode = 'default_user';
+        payload.rendered_pdf = pdfPath;
       }
       setStep(id, 'running');
       document.getElementById('source-badge').textContent = '处理中';
@@ -1333,7 +2148,7 @@
         setStep(id, 'failed');
         document.getElementById('source-badge').textContent = '处理失败';
         document.getElementById('source-badge').className = 'source-chip failed';
-        setReport({ conclusion: '处理失败', issues: [String(error)], next: '可展开高级设置里的分步操作，定位失败步骤。' });
+        setReport({ conclusion: '处理失败', issues: [String(error)], next: '请检查文件后重试。' });
         setProgress({ title: '处理失败', value: 100, items: [`失败步骤: ${STEP_INFO[id]?.[0] || id}`, String(error)] });
         setSummary(`处理失败\n${String(error)}`);
       }
@@ -1346,21 +2161,31 @@
         setStep('render', 'failed');
         document.getElementById('source-badge').textContent = '处理失败';
         document.getElementById('source-badge').className = 'source-chip failed';
-        const modeLabel = mode === 'default_user' ? '默认用户模式' : mode === 'advanced_word' ? '高级模式' : 'Agent 候选稿模式';
-        const mainIssue = mode === 'advanced_word'
-          ? 'Word 自动导出 PDF 没有完成，通常是 Word 没被自动化流程成功驱动，或 Word 正在等待权限、恢复文档、允许访问文件这类弹窗确认。'
-          : userFacingError(error);
-        const fallback = mode === 'advanced_word'
-          ? '请先手动打开 Microsoft Word，看是否有权限申请、恢复文档或允许访问文件的弹窗；如果出现权限申请，请点击允许，然后再试一次高级模式。仍然失败时，改用 Word/WPS 手动导出 PDF，再走默认用户模式。'
-          : mode === 'default_user'
+        const modeLabel = mode === 'default_user' ? 'PDF 复审' : '下一版 DOCX';
+        const mainIssue = userFacingError(error);
+        const errorText = userFacingError(error);
+        const fallback = mode === 'default_user'
             ? '请确认 PDF 路径存在，并且它确实由当前修复稿从 Word/WPS 导出。'
-            : '候选稿生成失败时，请先回到结构复查结果，缩小修复范围后再重试。';
+            : '下一版 DOCX 生成失败时，请先回到结构复查结果，缩小修复范围后再重试。';
+        const statusItems = mode === 'agent_candidate' && error.jobId
+          ? [
+              `当前任务编号: ${error.jobId}`,
+              `优化模式: ${candidateModeLabel(selectedCandidateMode())}`,
+              '后端任务已返回失败，不是页面卡死',
+              `失败原因: ${errorText}`,
+              ...(error.outputPath ? [`预计下一版路径: ${error.outputPath}`] : []),
+              '重试入口: 确认 PDF 复审结果后重新生成下一版 DOCX。',
+            ]
+          : renderWorkflowStatusItems(mode, 'failed', { errorText });
         setReport({
           conclusion: `${modeLabel}失败`,
-          issues: [mainIssue, fallback],
+          issues: mode === 'agent_candidate' && error.jobId ? [...statusItems, fallback] : [mainIssue, fallback],
           next: '版式问题以 Word/WPS 导出的 PDF 或页面图片为最终判断依据。',
         });
-        setProgress({ title: `${modeLabel}失败`, value: 100, items: [mainIssue, fallback] });
+        if (mode === 'agent_candidate') {
+          setCandidateStatus(statusItems);
+        }
+        setProgress({ title: `${modeLabel}失败`, value: AGENT_CANDIDATE_PROGRESS.finished, items: statusItems });
         setSummary(`${modeLabel}失败\n${mainIssue}\n${fallback}`);
       }
     }
@@ -1373,20 +2198,12 @@
           setStep(id, 'failed');
           document.getElementById('source-badge').textContent = '处理失败';
           document.getElementById('source-badge').className = 'source-chip failed';
-          setReport({ conclusion: `流程停在「${STEP_INFO[id][0]}」`, issues: [String(error)], next: '可展开高级设置里的分步操作，单独重试失败步骤。' });
+          setReport({ conclusion: `流程停在「${STEP_INFO[id][0]}」`, issues: [String(error)], next: '请检查文件后重试。' });
           setProgress({ title: `流程停在「${STEP_INFO[id][0]}」`, value: 100, items: [`失败步骤: ${STEP_INFO[id][0]}`, String(error)] });
           setSummary(`流程停在「${STEP_INFO[id][0]}」\n${String(error)}`);
           break;
         }
       }
-    }
-    function buildScopeGrid() {
-      const grid = document.getElementById('scope-grid');
-      SCOPES.forEach(([value, label]) => {
-        const item = document.createElement('label');
-        item.innerHTML = `<input type="checkbox" data-scope value="${value}" checked> ${label}`;
-        grid.appendChild(item);
-      });
     }
     function buildSteps() {
       const container = document.getElementById('single-steps');
@@ -1399,54 +2216,151 @@
         container.appendChild(item);
       });
     }
-    async function loadProfiles() {
-      const payload = await getJson('/profiles');
-      const select = document.getElementById('single-profile');
-      select.innerHTML = '';
-      for (const item of payload.profiles) {
-        const option = document.createElement('option');
-        option.value = item.id === 'cn-common' ? 'cn-common' : (item.aliases[0] || item.id);
-        option.textContent = [item.school || item.id, item.support_level_label || '', item.id].filter(Boolean).join(' · ');
-        if (option.value === 'lnu') option.selected = true;
-        select.appendChild(option);
-      }
-    }
     async function refreshOverview() {
       const health = await getJson('/health');
       document.getElementById('health-line').textContent = `本地服务正常 · ${health.version}`;
     }
+    function scrollToElement(id) {
+      const target = document.getElementById(id);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function syncTopbarState() {
+      const topbar = document.querySelector('.topbar');
+      const active = document.querySelector('.page.active');
+      const activeName = active && active.id ? active.id.replace(/^view-/, '') : 'paper';
+      const activeBrand = window.scrollY > 16 || activeName !== 'paper';
+      if (topbar) topbar.className = activeBrand ? 'topbar compact brand-active' : 'topbar';
+    }
+    function initAppleMotion() {
+      syncTopbarState();
+      window.addEventListener('scroll', syncTopbarState, { passive: true });
+
+      const revealItems = Array.from(document.querySelectorAll('.motion-reveal'));
+      const revealVisibleItems = () => {
+        const viewportBottom = window.innerHeight * 0.92;
+        revealItems.forEach((item) => {
+          if (item.classList.contains('is-visible')) return;
+          const rect = item.getBoundingClientRect();
+          if (rect.top <= viewportBottom && rect.bottom >= 0) item.classList.add('is-visible');
+        });
+      };
+      if ('IntersectionObserver' in window) {
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target);
+          });
+        }, { threshold: 0.16, rootMargin: '0px 0px -8% 0px' });
+        revealItems.forEach((item) => observer.observe(item));
+      } else {
+        revealItems.forEach((item) => item.classList.add('is-visible'));
+      }
+      requestAnimationFrame(revealVisibleItems);
+      window.addEventListener('scroll', revealVisibleItems, { passive: true });
+      window.addEventListener('resize', revealVisibleItems);
+
+      const uploadZone = document.querySelector('.upload');
+      if (uploadZone) {
+        ['dragenter', 'dragover'].forEach((eventName) => {
+          uploadZone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            uploadZone.classList.add('upload-active');
+          });
+        });
+        ['dragleave', 'drop'].forEach((eventName) => {
+          uploadZone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            uploadZone.classList.remove('upload-active');
+          });
+        });
+      }
+    }
+    function openPaperAndScroll(targetId) {
+      showView('paper');
+      requestAnimationFrame(() => scrollToElement(targetId));
+    }
     function showView(name) {
+      const active = document.querySelector('.page.active');
+      if (active && active.id) state.previousView = active.id.replace(/^view-/, '');
       document.querySelectorAll('.page').forEach((view) => view.classList.remove('active'));
       document.getElementById(`view-${name}`).classList.add('active');
       document.querySelectorAll('[data-view-button]').forEach((button) => button.classList.toggle('active', button.dataset.viewButton === name));
+      syncTopbarState();
     }
     function summarizeJobDetail(detail) {
       const summary = detail.summary || {};
       const runtime = detail.runtime || {};
-      return [`任务编号: ${detail.job_id || '-'}`, `任务类型: ${labelOperation(detail.operation)}`, `当前状态: ${labelStatus(detail.status)}`, `创建时间: ${detail.created_at || '-'}`, `完成时间: ${detail.finished_at || '-'}`, summary.document_name ? `输入名称: ${summary.document_name}` : '', (summary.input_path || runtime.input_path) ? `输入路径: ${summary.input_path || runtime.input_path}` : '', (summary.output_path || runtime.output_path) ? `输出文件: ${summary.output_path || runtime.output_path}` : '', (detail.error || {}).message ? `错误信息: ${detail.error.message}` : ''].filter(Boolean).join('\n');
+      return [
+        `任务编号: ${detail.job_id || '-'}`,
+        `任务类型: ${labelOperation(detail.operation)}`,
+        `当前状态: ${labelStatus(detail.status)}`,
+        `创建时间: ${detail.created_at || '-'}`,
+        `完成时间: ${detail.finished_at || '-'}`,
+        summary.document_name ? `输入名称: ${summary.document_name}` : '',
+        (summary.input_path || runtime.input_path) ? `输入路径: ${summary.input_path || runtime.input_path}` : '',
+        (summary.output_path || runtime.output_path) ? `输出文件: ${summary.output_path || runtime.output_path}` : '',
+        runtime.candidate_mode || summary.candidate_mode ? `优化模式: ${candidateModeLabel(runtime.candidate_mode || summary.candidate_mode)}` : '',
+        runtime.candidate_request_mode || summary.candidate_request_mode ? `请求模式: ${candidateModeLabel(runtime.candidate_request_mode || summary.candidate_request_mode)}` : '',
+        (runtime.degraded_from_compact || summary.degraded_from_compact) ? '已从慢速紧凑优化降级为快速生成' : '',
+        runtime.degrade_reason || summary.degrade_reason ? `降级原因: ${runtime.degrade_reason || summary.degrade_reason}` : '',
+        runtime.phase ? `阶段: ${candidatePhaseLabel(runtime.phase)}` : '',
+        runtime.heartbeat_age_seconds != null ? `心跳间隔: ${runtime.heartbeat_age_seconds} 秒` : '',
+        runtime.timeout_seconds != null ? `超时阈值: ${runtime.timeout_seconds} 秒` : '',
+        (detail.error || {}).message ? `错误信息: ${detail.error.message}` : '',
+      ].filter(Boolean).join('\n');
     }
     function summarizeJobResult(payload) {
       const summary = payload.summary || {};
-      return [`任务编号: ${payload.job_id || '-'}`, `最终状态: ${labelStatus(payload.status)}`, summary.output_path ? `输出文件: ${summary.output_path}` : '', summary.output_dir ? `输出目录: ${summary.output_dir}` : '', payload.error && payload.error.message ? `错误信息: ${payload.error.message}` : ''].filter(Boolean).join('\n');
+      return [
+        `任务编号: ${payload.job_id || '-'}`,
+        `最终状态: ${labelStatus(payload.status)}`,
+        summary.output_path ? `输出文件: ${summary.output_path}` : '',
+        summary.output_dir ? `输出目录: ${summary.output_dir}` : '',
+        summary.candidate_mode ? `优化模式: ${candidateModeLabel(summary.candidate_mode)}` : '',
+        summary.candidate_request_mode ? `请求模式: ${candidateModeLabel(summary.candidate_request_mode)}` : '',
+        summary.degraded_from_compact ? '已从慢速紧凑优化降级为快速生成' : '',
+        summary.degrade_reason ? `降级原因: ${summary.degrade_reason}` : '',
+        summary.phase ? `阶段: ${candidatePhaseLabel(summary.phase)}` : '',
+        summary.heartbeat_age_seconds != null ? `心跳间隔: ${summary.heartbeat_age_seconds} 秒` : '',
+        summary.timeout_seconds != null ? `超时阈值: ${summary.timeout_seconds} 秒` : '',
+        payload.error && payload.error.message ? `错误信息: ${payload.error.message}` : '',
+      ].filter(Boolean).join('\n');
+    }
+    function setRecordStatus(label, tone = '') {
+      const badge = document.getElementById('record-status-badge');
+      badge.textContent = label;
+      badge.className = `source-chip ${tone}`.trim();
+    }
+    function showRecordResult() {
+      document.getElementById('record-result').hidden = false;
     }
     async function loadJob(jobId, poll = false) {
       if (state.pollTimer) clearTimeout(state.pollTimer);
+      showRecordResult();
+      setRecordStatus('查询中', 'running');
+      document.getElementById('job-detail').textContent = `任务编号: ${jobId}`;
+      document.getElementById('job-result').textContent = '正在读取任务状态...';
       try {
         const detail = await getJson(`/jobs/${jobId}`);
         document.getElementById('job-detail').textContent = summarizeJobDetail(detail);
         if (detail.status === 'queued' || detail.status === 'running') {
+          setRecordStatus(labelStatus(detail.status), 'running');
           document.getElementById('job-result').textContent = `任务仍在执行中...\n当前状态: ${labelStatus(detail.status)}`;
           if (poll) state.pollTimer = setTimeout(() => loadJob(jobId, true), 1500);
           return;
         }
+        setRecordStatus(labelStatus(detail.status), detail.status === 'failed' ? 'failed' : 'ok');
         document.getElementById('job-result').textContent = summarizeJobResult(await getJson(`/jobs/${jobId}/result`));
       } catch (error) {
+        setRecordStatus('查询失败', 'failed');
         document.getElementById('job-result').textContent = `读取任务失败\n${String(error)}`;
       }
     }
 
+    initAppleMotion();
     document.querySelectorAll('[data-view-button]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.viewButton)));
-    document.querySelectorAll('[data-scroll-target]').forEach((button) => button.addEventListener('click', () => document.getElementById(button.dataset.scrollTarget).scrollIntoView({ behavior: 'smooth' })));
+    document.querySelectorAll('[data-scroll-target]').forEach((button) => button.addEventListener('click', () => openPaperAndScroll(button.dataset.scrollTarget)));
     document.getElementById('paper-file').addEventListener('change', (event) => {
       if (isFileMode()) {
         showFileModeNotice();
@@ -1456,6 +2370,55 @@
       const file = event.target.files && event.target.files[0];
       if (file) uploadSelectedFile(file).catch((error) => {
         document.getElementById('upload-hint').textContent = `上传失败: ${String(error)}`;
+      });
+    });
+    const docxUploadZone = document.querySelector('.upload');
+    if (docxUploadZone) {
+      docxUploadZone.addEventListener('drop', (event) => {
+        if (isFileMode()) {
+          showFileModeNotice();
+          window.location.href = LOCAL_APP_URL;
+          return;
+        }
+        const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+        if (file) uploadSelectedFile(file).catch((error) => {
+          document.getElementById('upload-hint').textContent = `上传失败: ${String(error)}`;
+        });
+      });
+    }
+    document.getElementById('render-pdf-file').addEventListener('change', (event) => {
+      if (isFileMode()) {
+        showFileModeNotice();
+        window.location.href = LOCAL_APP_URL;
+        return;
+      }
+      const file = event.target.files && event.target.files[0];
+      if (file) uploadSelectedPdf(file).catch((error) => {
+        document.getElementById('render-pdf-hint').textContent = `PDF 上传失败: ${userFacingError(error)}`;
+      });
+    });
+    const renderPdfUploadZone = document.getElementById('render-pdf-upload-zone');
+    ['dragenter', 'dragover'].forEach((eventName) => {
+      renderPdfUploadZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        renderPdfUploadZone.classList.add('dragging');
+      });
+    });
+    ['dragleave', 'drop'].forEach((eventName) => {
+      renderPdfUploadZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        renderPdfUploadZone.classList.remove('dragging');
+      });
+    });
+    renderPdfUploadZone.addEventListener('drop', (event) => {
+      if (isFileMode()) {
+        showFileModeNotice();
+        window.location.href = LOCAL_APP_URL;
+        return;
+      }
+      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) uploadSelectedPdf(file).catch((error) => {
+        document.getElementById('render-pdf-hint').textContent = `PDF 上传失败: ${userFacingError(error)}`;
       });
     });
     document.getElementById('paper-path').addEventListener('input', (event) => {
@@ -1470,10 +2433,10 @@
       setReport({
         conclusion: '已填写论文路径，可以开始处理。',
         issues: ['原文不会被覆盖', '修复结果会写入新的 Word 文件'],
-        next: '点击“一键处理到结构复查”。',
+        next: '点击“一键生成修复稿”。',
         output: estimateOutputPath(value, displayName),
         outputLabel: '预计输出',
-        action: { label: '一键处理到结构复查', step: 'runAll' },
+        action: { label: '一键生成修复稿', step: 'runAll' },
       });
       setProgress({ visible: false });
       resetSteps();
@@ -1487,46 +2450,34 @@
         runAll();
         return;
       }
+      if (step === 'renderManual') {
+        guardedRenderWorkflow('default_user');
+        return;
+      }
+      if (step === 'pdfFollowupFix') {
+        guardedRenderWorkflow('agent_candidate');
+        return;
+      }
       guardedRun(step);
     });
-    document.getElementById('preflight-button').addEventListener('click', () => guardedRun('preflight'));
-    document.getElementById('plan-button').addEventListener('click', () => guardedRun('plan'));
-    document.getElementById('apply-button').addEventListener('click', () => guardedRun('apply'));
-    document.getElementById('verify-button').addEventListener('click', () => guardedRun('verify'));
-    document.getElementById('render-button').addEventListener('click', () => guardedRun('render'));
     document.getElementById('render-manual-button').addEventListener('click', () => guardedRenderWorkflow('default_user'));
-    document.getElementById('render-manual-copy-button').addEventListener('click', () => guardedRenderWorkflow('default_user'));
-    document.getElementById('render-word-button').addEventListener('click', () => guardedRenderWorkflow('advanced_word'));
-    document.getElementById('render-agent-button').addEventListener('click', () => guardedRenderWorkflow('agent_candidate'));
-    document.querySelectorAll('[data-workflow-mode]').forEach((card) => {
-      card.addEventListener('click', (event) => {
-        if (event.target.closest('button')) return;
-        if (card.dataset.workflowMode === 'agent_candidate' && !renderHasActionableFindings()) {
-          setReport({
-            conclusion: 'Agent 候选稿是复核后的排障工具',
-            issues: ['请先用默认用户模式或高级模式完成 PDF 版式复核', '只有发现可行动排版问题后，才需要生成候选修复稿'],
-            next: '普通用户优先使用默认用户模式；Word 自动化稳定时再用高级模式。',
-          });
-          return;
-        }
-        selectWorkflowMode(card.dataset.workflowMode);
-      });
-      card.addEventListener('mouseenter', () => {
-        if (card.dataset.workflowMode === 'agent_candidate' && !renderHasActionableFindings()) return;
-        selectWorkflowMode(card.dataset.workflowMode);
-      });
-    });
     document.getElementById('load-job-button').addEventListener('click', () => {
       const jobId = document.getElementById('job-id-input').value.trim();
       if (jobId) loadJob(jobId, false);
+      else document.getElementById('job-id-input').focus();
     });
-    buildScopeGrid();
+    document.getElementById('job-id-input').addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      const jobId = event.currentTarget.value.trim();
+      if (jobId) loadJob(jobId, false);
+    });
     buildSteps();
     updateAgentCandidateAvailability();
+    updateCandidateModeUI();
     if (isFileMode()) {
       showFileModeNotice();
     } else {
-      Promise.all([loadProfiles(), refreshOverview()]).catch((error) => {
+      Promise.all([refreshOverview()]).catch((error) => {
         document.getElementById('health-line').textContent = `服务连接失败`;
         setReport({ conclusion: '服务连接失败', issues: [String(error)], next: `确认本地服务已启动后打开 ${LOCAL_APP_URL}` });
         setSummary(`加载失败\n${String(error)}`);

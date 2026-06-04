@@ -117,6 +117,8 @@ def test_create_app_handles_missing_fastapi_dependency():
         assert "/jobs/batch" not in route_paths
         assert "/jobs/batches/recent" not in route_paths
         assert "/uploads/docx" in route_paths
+        assert "/uploads/pdf" in route_paths
+        assert "/assets/lnu-emblem.jpg" in route_paths
         assert "/uploads" in route_paths
         assert "/uploads/{upload_id}" in route_paths
         assert "/uploads/{upload_id}/cleanup" in route_paths
@@ -166,20 +168,27 @@ def test_request_models_default_to_auto_strict_profile():
     assert verify_request.strict_profile is None
 
 
+def test_apply_request_supports_candidate_mode():
+    request = ApplyRequest(file_path="demo.docx", candidate_mode="compact_candidate")
+
+    assert request.candidate_mode == "compact_candidate"
+
+
 def test_render_verify_request_rejects_artifact_tool_renderer():
     with pytest.raises(Exception):
         RenderVerifyRequest(file_path="demo.docx", renderer="artifact-tool")
 
 
-def test_render_workflow_modes_payload_describes_three_modes():
+def test_render_workflow_modes_payload_describes_pdf_and_candidate_modes():
     payload = app_module.build_render_workflow_modes_payload()
 
     mode_ids = [item["id"] for item in payload["modes"]]
-    assert mode_ids == ["default_user", "advanced_word", "agent_candidate"]
+    assert mode_ids == ["default_user", "agent_candidate"]
     assert payload["recommended_mode"] == "default_user"
     assert payload["modes"][0]["requires_manual_pdf"] is True
-    assert payload["modes"][1]["uses_automation"] is True
-    assert payload["modes"][2]["creates_candidate_docx"] is True
+    assert payload["modes"][0]["uses_automation"] is False
+    assert payload["modes"][1]["creates_candidate_docx"] is True
+    assert payload["modes"][1]["candidate_modes"] == ["fast_candidate", "compact_candidate"]
     assert any("Word/WPS" in issue for issue in payload["render_layer_issues"])
 
 
@@ -251,52 +260,85 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
 
     console_html = console_response.body.decode("utf-8")
     assert "论文格式本地控制台" in console_html
-    assert "单篇论文处理" in console_html
+    assert "辽宁大学毕业论文" in console_html
+    assert "brand-mark" in console_html
+    assert "assets/lnu-emblem.jpg" in console_html
     assert "选择 Word 论文" in console_html
-    assert "一键处理到结构复查" in console_html
-    assert "高级设置" in console_html
-    assert "分步操作" in console_html
-    assert "Word 版式复核" in console_html
-    assert "排版修复 · 页面渲染层" in console_html
-    assert "修复打开 Word/WPS 后才看得到的排版问题" in console_html
-    assert "上方流程主要处理字体、标题、目录、参考文献等结构格式" in console_html
-    assert "开始排版复核" in console_html
-    assert "用这个模式修排版" in console_html
-    assert "data-workflow-mode=\"default_user\"" in console_html
-    assert "data-workflow-mode=\"advanced_word\"" in console_html
+    assert "辽宁大学毕业论文格式" in console_html
+    assert "格式检查与修复" in console_html
+    assert "一键生成修复稿" in console_html
+    assert "上传 PDF 复审" in console_html
+    assert "按这些问题生成下一版 DOCX" in console_html
+    assert "下一版 DOCX 已生成" in console_html
+    assert "任务查询" in console_html
+    assert "高级设置" not in console_html
+    assert "分步操作" not in console_html
+    assert "advanced-details" not in console_html
+    assert "single-profile" not in console_html
+    assert "cn-common" not in console_html
+    assert "可选动作" not in console_html
+    assert "处理选项" not in console_html
+    assert "PDF 复审" in console_html
+    assert "检查导出的 PDF" in console_html
+    assert "开始复审" in console_html
+    assert "data-workflow-mode=\"default_user\"" not in console_html
+    assert "data-workflow-mode=\"advanced_word\"" not in console_html
     assert "selectedWorkflowMode: 'default_user'" in console_html
     assert "function userFacingError" in console_html
-    assert "Word 自动导出 PDF 没有完成" in console_html
-    assert "请先手动打开 Microsoft Word" in console_html
-    assert "如果出现权限申请，请点击允许" in console_html
-    assert "默认用户模式" in console_html
-    assert "高级模式" in console_html
-    assert "Agent 候选稿模式" in console_html
+    assert "renderWorkflowStatusItems" in console_html
+    assert "formatRenderFinding" in console_html
+    assert "renderFindingItems" in console_html
+    assert "verifyIssueItems" in console_html
+    assert "formatRuleSummary" in console_html
+    assert "pollAgentCandidateJob" in console_html
+    assert "下一版 DOCX 已提交后端任务" in console_html
+    assert "后端任务仍在运行，不是页面卡死" in console_html
+    assert "需要版式复核原因" in console_html
+    assert "技术详情" in console_html
+    assert "预计下一版路径" in console_html
+    assert "等待结果整理" in console_html
+    assert "排障模式工作台" not in console_html
+    assert "返回上一步" not in console_html
+    assert "继续主流程" not in console_html
+    assert "进入排障模式" not in console_html
+    assert "candidate_mode: 'fast_candidate'" in console_html
+    assert "const AGENT_CANDIDATE_PROGRESS = { submitted: 30, running: 55, finalizing: 80, finished: 100 };" in console_html
+    assert "PDF 复审不修改 DOCX" in console_html
+    assert "详细报告" in console_html
+    assert "已向后端发送高级模式请求" not in console_html
+    assert "后端没有拿到 Word 导出的 render_verify_word.pdf" not in console_html
+    assert "PDF 复审完成" in console_html
+    assert "PDF 复审" in console_html
+    assert "上传 PDF" in console_html
+    assert "render-pdf-upload-zone" in console_html
+    assert "render-pdf-file" in console_html
+    assert "/uploads/pdf" in console_html
+    assert "高级模式" not in console_html
+    assert "Agent 候选稿模式" not in console_html
     assert "render-manual-button" in console_html
-    assert "render-word-button" in console_html
-    assert "render-agent-button" in console_html
+    assert "render-word-button" not in console_html
+    assert "render-agent-button" not in console_html
     assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" in console_html
     assert "guardedRenderWorkflow('default_user')" in console_html
-    assert "论文格式修改工具" in console_html
     assert "原文不会被覆盖" in console_html
     assert "总体结论" in console_html
     assert "report-action-button" in console_html
     assert "report-progress" in console_html
-    assert "正在执行修复" in console_html
+    assert "正在修复" in console_html
     assert "修复稿已生成" in console_html
-    assert "结构复查已结束，等待版式复核" in console_html
-    assert "这一步已经结束，不是后端卡住" in console_html
+    assert "结构复查完成" in console_html
     assert "source-summary" in console_html
     assert "displayFileName" in console_html
     assert "sourceDisplayName" in console_html
     assert "outputFolderLabel" in console_html
     assert "outputSummary" in console_html
-    assert "复核后排障工具" in console_html
-    assert "先完成 PDF 版式复核后再使用" in console_html
+    assert "复核后排障工具" not in console_html
+    assert "先完成 PDF 版式复核后再使用" not in console_html
     assert "查看路径" in console_html
     assert "桌面/论文格式修复输出" in console_html
-    assert "页面布局再平衡（慢速，排版排障时再开）" in console_html
-    assert "历史与排障" in console_html
+    assert "任务状态" in console_html
+    assert "等待选择任务" not in console_html
+    assert "历史任务" not in console_html
     assert "批量任务" not in console_html
     assert "适合发给学弟学妹使用" not in console_html
     assert health_payload["service"] == "article-api"
@@ -346,6 +388,29 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert summary_payload["runtime"]["recovered_failed_count"] == 0
     assert summary_payload["runtime"]["pending_recovery_count"] == 0
     assert summary_payload["retention"]["defaults"]["autorun_enabled"] is False
+
+
+def test_fake_app_pdf_upload_endpoint_stores_pdf(tmp_path, monkeypatch):
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+
+    class FakeUpload:
+        filename = "20221303306-刘佳轾-排版复核.pdf"
+
+        def __init__(self, payload: bytes):
+            self.file = BytesIO(payload)
+
+    upload_response = routes["/uploads/pdf"].endpoint(
+        FakeUpload(b"%PDF-1.7\nfake-pdf-binary"),
+        runtime_root=str(tmp_path / "runtime"),
+    )
+
+    assert routes["/uploads/pdf"].status_code == 201
+    assert upload_response["file_name"] == "20221303306-刘佳轾-排版复核.pdf"
+    assert upload_response["size_bytes"] == len(b"%PDF-1.7\nfake-pdf-binary")
+    assert upload_response["available"] is True
+    assert Path(upload_response["stored_path"]).exists()
+    assert Path(upload_response["stored_path"]).read_bytes() == b"%PDF-1.7\nfake-pdf-binary"
 
 
 def test_fake_app_preflight_endpoint_detects_wild_doc_signals(monkeypatch, tmp_path):
@@ -525,8 +590,9 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
         output_dir=str(output_dir),
         profile_path="lnu",
         scopes=["toc"],
-        renderer="word-pdf",
-        workflow_mode="advanced_word",
+        renderer="auto",
+        workflow_mode="default_user",
+        rendered_pdf="/tmp/demo.pdf",
     )
 
     assert payload["status"] == "ok"
@@ -546,14 +612,14 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
     assert payload["summary"]["page_text_available_count"] == 2
     assert payload["summary"]["review_item_count"] == 1
     assert payload["summary"]["manual_review_rule_count"] == 1
-    assert payload["render_workflow_mode"]["id"] == "advanced_word"
+    assert payload["render_workflow_mode"]["id"] == "default_user"
     assert payload["selected_scopes"] == ["toc"]
 
 
 def test_build_render_verify_payload_requires_pdf_for_default_user_mode(monkeypatch):
     monkeypatch.setattr(app_module, "render_verify_document", lambda *args, **kwargs: {})
 
-    with pytest.raises(ValueError, match="默认用户模式"):
+    with pytest.raises(ValueError, match="PDF 版式复核"):
         app_module.build_render_verify_payload(
             file_path="/tmp/demo.docx",
             profile_path="lnu",

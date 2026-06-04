@@ -141,6 +141,112 @@ def test_apply_job_keeps_task_status_separate_from_business_status(tmp_path):
     assert result["result"]["verification"]["overall_status"] == "manual_review"
 
 
+def test_apply_candidate_job_defaults_to_fast_mode_without_layout_rebalance(tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_fast_candidate.docx",
+        rule_ids=("H02",),
+    )
+    captured = {}
+
+    def fake_attempt(_operation: str, resolved_request: dict[str, object]) -> dict[str, object]:
+        captured["candidate_mode"] = resolved_request.get("candidate_mode")
+        captured["layout_rebalance"] = resolved_request.get("layout_rebalance")
+        captured["timeout_seconds"] = resolved_request.get("timeout_seconds")
+        return {
+            "ok": True,
+            "result": {
+                "mode": "apply",
+                "document": {"path": str(source_path), "name": source_path.name},
+                "output": {"path": str(Path(source_path).with_name("fast_candidate.docx")), "name": "fast_candidate.docx"},
+                "selected_scopes": ["figures_tables", "headings"],
+                "readiness": "manual-review-required",
+                "guard": {"checked": True, "blocked": False, "force_used": False, "warnings": []},
+                "post_verify_notices": [],
+                "verification": {
+                    "summary": {"failed_rules": 0, "manual_review_rules": 0},
+                    "selected_scopes": ["figures_tables", "headings"],
+                    "overall_status": "manual_review",
+                    "readiness": "manual-review-required",
+                },
+            },
+        }
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(jobs_module, "_execute_job_attempt", fake_attempt)
+    try:
+        job = create_job(
+            "apply",
+            {
+                "file_path": str(source_path),
+                "scopes": ["headings", "figures_tables"],
+                "candidate_mode": "fast_candidate",
+            },
+        )
+        wait_for_job(job["job_id"])
+        result = get_job_result(job["job_id"])
+    finally:
+        monkeypatch.undo()
+
+    assert captured["candidate_mode"] == "fast_candidate"
+    assert captured["layout_rebalance"] is False
+    assert captured["timeout_seconds"] is not None
+    assert result["runtime"]["candidate_mode"] == "fast_candidate"
+    assert result["summary"]["candidate_mode"] == "fast_candidate"
+    assert result["summary"]["timeout_seconds"] == captured["timeout_seconds"]
+
+
+def test_apply_candidate_job_compact_mode_enables_layout_rebalance(tmp_docx, monkeypatch):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_compact_candidate.docx",
+        rule_ids=("H02",),
+    )
+    captured = {}
+
+    def fake_attempt(_operation: str, resolved_request: dict[str, object]) -> dict[str, object]:
+        captured["candidate_mode"] = resolved_request.get("candidate_mode")
+        captured["layout_rebalance"] = resolved_request.get("layout_rebalance")
+        return {
+            "ok": True,
+            "result": {
+                "mode": "apply",
+                "document": {"path": str(source_path), "name": source_path.name},
+                "output": {"path": str(Path(source_path).with_name("compact_candidate.docx")), "name": "compact_candidate.docx"},
+                "selected_scopes": ["figures_tables", "headings"],
+                "readiness": "manual-review-required",
+                "guard": {"checked": True, "blocked": False, "force_used": False, "warnings": []},
+                "post_verify_notices": [],
+                "verification": {
+                    "summary": {"failed_rules": 0, "manual_review_rules": 0},
+                    "selected_scopes": ["figures_tables", "headings"],
+                    "overall_status": "manual_review",
+                    "readiness": "manual-review-required",
+                },
+            },
+        }
+
+    monkeypatch.setattr(jobs_module, "_execute_job_attempt", fake_attempt)
+    job = create_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "scopes": ["headings", "figures_tables"],
+            "candidate_mode": "compact_candidate",
+            "layout_rebalance": True,
+        },
+    )
+    wait_for_job(job["job_id"])
+    result = get_job_result(job["job_id"])
+
+    assert captured["candidate_mode"] == "compact_candidate"
+    assert captured["layout_rebalance"] is True
+    assert result["runtime"]["candidate_mode"] == "compact_candidate"
+    assert result["summary"]["candidate_mode"] == "compact_candidate"
+
+
 def test_normalize_job_completes_and_writes_output(tmp_path):
     clear_jobs()
     source_path = _make_style_conflict_lnu_doc(Path(tmp_path) / "article_job_normalize.docx")
@@ -1141,6 +1247,106 @@ def test_verify_job_exhausts_retry_budget_on_timeout(monkeypatch, tmp_docx):
     assert result["runtime"]["timeout_seconds"] == 0.01
     assert [item["retryable"] for item in result["runtime"]["attempts"]] == [True, True]
 
+
+def test_apply_candidate_job_runtime_tracks_phase_and_heartbeat_while_running(monkeypatch, tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_candidate_phase.docx",
+        rule_ids=("H02",),
+    )
+
+    def slow_attempt(_operation: str, _resolved_request: dict[str, object]) -> dict[str, object]:
+        time.sleep(0.2)
+        return {
+            "ok": True,
+            "result": {
+                "mode": "apply",
+                "document": {"path": str(source_path), "name": source_path.name},
+                "output": {"path": str(Path(source_path).with_name("phase_candidate.docx")), "name": "phase_candidate.docx"},
+                "selected_scopes": ["figures_tables", "headings"],
+                "readiness": "manual-review-required",
+                "guard": {"checked": True, "blocked": False, "force_used": False, "warnings": []},
+                "post_verify_notices": [],
+                "verification": {
+                    "summary": {"failed_rules": 0, "manual_review_rules": 0},
+                    "selected_scopes": ["figures_tables", "headings"],
+                    "overall_status": "manual_review",
+                    "readiness": "manual-review-required",
+                },
+            },
+        }
+
+    monkeypatch.setattr(jobs_module, "_execute_job_attempt", slow_attempt)
+    job = create_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "scopes": ["headings", "figures_tables"],
+            "candidate_mode": "fast_candidate",
+        },
+    )
+    time.sleep(0.05)
+    running = get_job(job["job_id"])
+    finished = wait_for_job(job["job_id"])
+
+    assert running["status"] in {"queued", "running"}
+    assert running["runtime"]["phase"] in {"submitted", "processing", "finalizing"}
+    assert running["runtime"]["heartbeat_count"] >= 2
+    assert running["runtime"]["heartbeat_age_seconds"] is not None
+    assert finished["status"] == "succeeded"
+
+
+def test_apply_candidate_job_result_surfaces_compact_downgrade(tmp_docx, monkeypatch):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_candidate_downgraded.docx",
+        rule_ids=("H02",),
+    )
+
+    def fake_attempt(_operation: str, _resolved_request: dict[str, object]) -> dict[str, object]:
+        return {
+            "ok": True,
+            "result": {
+                "mode": "apply",
+                "document": {"path": str(source_path), "name": source_path.name},
+                "output": {"path": str(Path(source_path).with_name("downgraded_candidate.docx")), "name": "downgraded_candidate.docx"},
+                "selected_scopes": ["figures_tables", "headings"],
+                "readiness": "manual-review-required",
+                "guard": {"checked": True, "blocked": False, "force_used": False, "warnings": []},
+                "post_verify_notices": [],
+                "verification": {
+                    "summary": {"failed_rules": 0, "manual_review_rules": 0},
+                    "selected_scopes": ["figures_tables", "headings"],
+                    "overall_status": "manual_review",
+                    "readiness": "manual-review-required",
+                },
+                "candidate_mode": "fast_candidate",
+                "candidate_request_mode": "compact_candidate",
+                "degraded_from_compact": True,
+                "degrade_reason": "文档对象流复杂，已自动降级为快速候选稿",
+            },
+        }
+
+    monkeypatch.setattr(jobs_module, "_execute_job_attempt", fake_attempt)
+    job = create_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "scopes": ["headings", "figures_tables"],
+            "candidate_mode": "compact_candidate",
+            "layout_rebalance": True,
+        },
+    )
+    wait_for_job(job["job_id"])
+    result = get_job_result(job["job_id"])
+
+    assert result["summary"]["candidate_mode"] == "fast_candidate"
+    assert result["summary"]["candidate_request_mode"] == "compact_candidate"
+    assert result["summary"]["degraded_from_compact"] is True
+    assert "自动降级" in result["summary"]["degrade_reason"]
+    assert result["runtime"]["degraded_from_compact"] is True
 
 def test_unexpected_orchestration_exception_is_persisted_as_failed_job(monkeypatch, tmp_docx):
     clear_jobs()

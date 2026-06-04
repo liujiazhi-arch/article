@@ -16,6 +16,7 @@ import audit_thesis
 RUNTIME_DIR_NAME = ".article_runtime"
 RUNTIME_ROOT_ENV_VAR = "ARTICLE_API_RUNTIME_ROOT"
 UPLOADED_DOCX_NAME_RE = re.compile(r"^(?P<upload_id>[0-9a-f]{32})_(?P<file_name>.+\.docx)$", re.IGNORECASE)
+UPLOADED_PDF_NAME_RE = re.compile(r"^(?P<upload_id>[0-9a-f]{32})_(?P<file_name>.+\.pdf)$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,15 @@ class StagedDocument:
 
 @dataclass(frozen=True)
 class UploadedDocument:
+    upload_id: str
+    stored_path: str
+    file_name: str
+    workspace_dir: str
+    size_bytes: int
+
+
+@dataclass(frozen=True)
+class UploadedFile:
     upload_id: str
     stored_path: str
     file_name: str
@@ -103,8 +113,37 @@ def _safe_upload_name(file_name: str) -> str:
     return cleaned or "upload.docx"
 
 
+def _safe_upload_name_with_extension(file_name: str, *, extension: str) -> str:
+    raw_name = str(file_name or f"upload{extension}").replace("\\", "/")
+    cleaned = Path(raw_name).name
+    cleaned = re.sub(r"[\x00-\x1f:]+", "_", cleaned).strip(" ._")
+    if not cleaned.lower().endswith(extension):
+        raise ValueError(f"Only {extension} uploads are supported")
+    return cleaned or f"upload{extension}"
+
+
 def _read_upload_bytes(upload: Any) -> tuple[str, bytes]:
     file_name = _safe_upload_name(getattr(upload, "filename", "upload.docx"))
+    if hasattr(upload, "file"):
+        file_obj = upload.file
+        if hasattr(file_obj, "seek"):
+            file_obj.seek(0)
+        payload = file_obj.read()
+    elif hasattr(upload, "read"):
+        payload = upload.read()
+    elif isinstance(upload, (bytes, bytearray)):
+        payload = bytes(upload)
+    else:
+        raise ValueError("Unsupported upload payload")
+    if isinstance(payload, str):
+        payload = payload.encode("utf-8")
+    if not isinstance(payload, (bytes, bytearray)):
+        raise ValueError("Upload payload must resolve to bytes")
+    return file_name, bytes(payload)
+
+
+def _read_upload_bytes_with_extension(upload: Any, *, extension: str) -> tuple[str, bytes]:
+    file_name = _safe_upload_name_with_extension(getattr(upload, "filename", f"upload{extension}"), extension=extension)
     if hasattr(upload, "file"):
         file_obj = upload.file
         if hasattr(file_obj, "seek"):
@@ -135,6 +174,26 @@ def store_uploaded_docx(upload: Any, *, runtime_root: str | Path | None = None) 
     with stored_path.open("wb") as handle:
         shutil.copyfileobj(io.BytesIO(payload), handle)
     return UploadedDocument(
+        upload_id=upload_id,
+        stored_path=str(stored_path),
+        file_name=file_name,
+        workspace_dir=str(uploads_dir),
+        size_bytes=len(payload),
+    )
+
+
+def store_uploaded_pdf(upload: Any, *, runtime_root: str | Path | None = None) -> UploadedFile:
+    file_name, payload = _read_upload_bytes_with_extension(upload, extension=".pdf")
+    if not payload:
+        raise ValueError("Uploaded .pdf file is empty")
+    root = resolve_runtime_root(runtime_root)
+    uploads_dir = root / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    upload_id = uuid4().hex
+    stored_path = uploads_dir / f"{upload_id}_{file_name}"
+    with stored_path.open("wb") as handle:
+        shutil.copyfileobj(io.BytesIO(payload), handle)
+    return UploadedFile(
         upload_id=upload_id,
         stored_path=str(stored_path),
         file_name=file_name,

@@ -7,6 +7,46 @@ import pytest
 import thesis_tool.render_verify as render_verify_module
 
 
+def test_word_pdf_export_script_targets_opened_file_not_active_document(monkeypatch, tmp_path):
+    source_path = tmp_path / "render_verify_word_source.docx"
+    source_path.write_bytes(b"docx")
+    output_pdf = tmp_path / "render_verify_word.pdf"
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["script"] = command[2]
+        output_pdf.write_bytes(b"%PDF")
+        return SimpleNamespace(stdout="", stderr="")
+
+    monkeypatch.setattr(render_verify_module.sys, "platform", "darwin")
+    monkeypatch.setattr(render_verify_module.shutil, "which", lambda name: "/usr/bin/osascript" if name == "osascript" else None)
+    monkeypatch.setattr(render_verify_module.subprocess, "run", fake_run)
+
+    render_verify_module._export_docx_to_pdf_with_word(str(source_path), str(output_pdf))
+
+    assert "active document" not in captured["script"]
+    assert "document 1" not in captured["script"]
+    assert "close every document" in captured["script"]
+    assert "did not expose the opened DOCX" in captured["script"]
+    assert "save as docRef" in captured["script"]
+
+
+def test_word_pdf_export_timeout_explains_word_automation_block(monkeypatch, tmp_path):
+    source_path = tmp_path / "render_verify_word_timeout.docx"
+    source_path.write_bytes(b"docx")
+    output_pdf = tmp_path / "render_verify_word.pdf"
+
+    def fake_run(command, **kwargs):
+        raise render_verify_module.subprocess.TimeoutExpired(command, timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(render_verify_module.sys, "platform", "darwin")
+    monkeypatch.setattr(render_verify_module.shutil, "which", lambda name: "/usr/bin/osascript" if name == "osascript" else None)
+    monkeypatch.setattr(render_verify_module.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="Word 自动化没有完成"):
+        render_verify_module._export_docx_to_pdf_with_word(str(source_path), str(output_pdf))
+
+
 def test_build_render_verify_report_writes_json_and_collects_pages(monkeypatch, tmp_path):
     source_path = tmp_path / "render_verify_source.docx"
     doc = Document()
@@ -248,6 +288,32 @@ def test_external_rendered_pdf_uses_neutral_manual_pdf_evidence_source(monkeypat
     assert metadata["engine"] == "manual-pdf"
 
 
+def test_build_render_review_items_explains_likely_causes():
+    diagnostics = {
+        "toc": {"status": "generated_toc"},
+        "heading_renumber_guard": {"status": "clear"},
+    }
+    verification = {
+        "manual_review_rule_ids": [],
+        "unsupported_rule_ids": [],
+        "render_findings": [
+            {"id": "large_blank_region", "page": 3, "message": "页底存在大块连续空白。"},
+            {"id": "object_overflow", "page": 5, "message": "图表整体被挤到后页。"},
+            {"id": "heading_isolated", "page": 7, "message": "标题落在页尾，正文被挤到下一页。"},
+        ],
+    }
+
+    items = render_verify_module._build_render_review_items(diagnostics, verification)
+    text = "\n".join(items)
+
+    assert "大块空白" in text
+    assert "对象塞不进当前页" in text
+    assert "图表挤页" in text
+    assert "首次引用位置过晚" in text
+    assert "标题孤页" in text
+    assert "标题后正文不足" in text
+
+
 def test_run_render_engine_auto_does_not_fallback_to_artifact(monkeypatch, tmp_path):
     def fake_word_pdf_render(input_docx: str, output_dir: str) -> dict:
         raise RuntimeError("Word PDF 渲染不可用: mock")
@@ -401,3 +467,37 @@ def test_render_render_verify_report_includes_review_summary():
     assert "野生文档信号：" in rendered
     assert "table_heading_candidates [warning]" in rendered
     assert "- 逐页检查公式横线。" in rendered
+
+
+def test_render_render_verify_report_preserves_cause_oriented_review_items():
+    report = {
+        "document": {"name": "demo.docx"},
+        "profile": {"display": "lnu"},
+        "render_engine": "word-pdf",
+        "evidence_source": "word-pdf",
+        "evidence_trust": "authoritative",
+        "layout_decision_eligible": True,
+        "overall_status": "verified",
+        "readiness": "render-check-required",
+        "preflight_status": "warning",
+        "render_evidence_status": "render-review-required",
+        "output_dir": "/tmp/render-proof",
+        "page_count": 1,
+        "report_path": "/tmp/render-proof/render_verify_report.json",
+        "selected_scopes": ["figures_tables"],
+        "wild_doc": {"detected": False, "signals": []},
+        "layout_score": {"score": 80, "penalty": 20},
+        "render_text_summary": {"source": "pdf", "available": True, "page_text_available_count": 1, "page_text_extraction_warning_count": 0, "warnings": []},
+        "render_findings": [
+            {"id": "large_blank_region", "severity": "warning", "page": 1, "message": "页底存在大块连续空白。"}
+        ],
+        "review_items": [
+            "大块空白常见于对象塞不进当前页、段前/段后距、分页符或对象锚点位置不当。",
+            "如果不进入候选稿排障，建议回 Word/WPS 检查图片环绕、分页符和段落间距设置。",
+        ],
+    }
+
+    rendered = render_verify_module.render_render_verify_report(report)
+
+    assert "对象塞不进当前页" in rendered
+    assert "检查图片环绕、分页符和段落间距设置" in rendered

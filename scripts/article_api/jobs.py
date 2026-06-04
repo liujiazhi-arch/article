@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timezone
+import inspect
 import os
 from pathlib import Path
 import shutil
@@ -17,7 +18,7 @@ from article_engine.service import _default_output_path
 from article_api import storage
 from article_api import job_artifacts, job_execution
 from article_api import job_payloads
-from article_api.uploads import build_job_workspace, infer_uploaded_docx_name, stage_job_input_docx
+from article_api.uploads import build_job_workspace, stage_job_input_docx
 
 JobRecord = job_payloads.JobRecord
 
@@ -244,21 +245,32 @@ def _transient_internal_error_payload(message: str) -> dict[str, Any]:
     return job_execution.transient_internal_error_payload(message)
 
 
-def _run_handler_subprocess(operation: str, handler_request: dict[str, Any], *, timeout_seconds: float | None) -> dict[str, Any]:
+def _run_handler_subprocess(
+    operation: str,
+    handler_request: dict[str, Any],
+    *,
+    timeout_seconds: float | None,
+    on_heartbeat=None,
+    on_phase=None,
+) -> dict[str, Any]:
     return job_execution.run_handler_subprocess(
         operation,
         handler_request,
         timeout_seconds=timeout_seconds,
+        on_heartbeat=on_heartbeat,
+        on_phase=on_phase,
         project_root=_PROJECT_ROOT,
         scripts_root=_SCRIPTS_ROOT,
     )
 
 
-def _execute_job_attempt(operation: str, resolved_request: dict[str, Any]) -> dict[str, Any]:
+def _execute_job_attempt(operation: str, resolved_request: dict[str, Any], *, on_heartbeat=None, on_phase=None) -> dict[str, Any]:
     return job_execution.execute_job_attempt(
         operation,
         resolved_request,
         run_subprocess=_run_handler_subprocess,
+        on_heartbeat=on_heartbeat,
+        on_phase=on_phase,
     )
 
 
@@ -325,8 +337,67 @@ def _heartbeat_runtime(runtime: dict[str, Any] | None, *, lease_state: str | Non
         return
     runtime["last_heartbeat_at"] = _utcnow()
     runtime["heartbeat_count"] = int(runtime.get("heartbeat_count") or 0) + 1
+    runtime["heartbeat_age_seconds"] = 0.0
     if lease_state is not None:
         runtime["lease_state"] = lease_state
+
+
+def _set_runtime_phase(runtime: dict[str, Any] | None, phase: str) -> None:
+    if runtime is None:
+        return
+    runtime["phase"] = phase
+
+
+def _persist_attempt_runtime_heartbeat(
+    record: JobRecord,
+    *,
+    attempt_lock: Lock,
+) -> None:
+    with attempt_lock:
+        if record.status != "running" or record.runtime is None:
+            return
+        _heartbeat_runtime(record.runtime)
+        if record.runtime.get("phase") not in {"finalizing", "completed"}:
+            _set_runtime_phase(record.runtime, "processing")
+        record.updated_at = _utcnow()
+        storage.upsert_job(_serialize_job(record, include_result=True))
+
+
+def _persist_attempt_runtime_phase(
+    record: JobRecord,
+    attempt_lock: Lock,
+    phase: str,
+) -> None:
+    with attempt_lock:
+        if record.status != "running" or record.runtime is None:
+            return
+        _set_runtime_phase(record.runtime, phase)
+        _heartbeat_runtime(record.runtime)
+        record.updated_at = _utcnow()
+        storage.upsert_job(_serialize_job(record, include_result=True))
+
+
+def _execute_job_attempt_with_callbacks(
+    operation: str,
+    resolved_request: dict[str, Any],
+    *,
+    on_heartbeat=None,
+    on_phase=None,
+) -> dict[str, Any]:
+    try:
+        parameters = inspect.signature(_execute_job_attempt).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    accepts_kwargs = any(param.kind is inspect.Parameter.VAR_KEYWORD for param in parameters.values())
+    accepts_callbacks = accepts_kwargs or "on_heartbeat" in parameters or "on_phase" in parameters
+    if accepts_callbacks:
+        return _execute_job_attempt(
+            operation,
+            resolved_request,
+            on_heartbeat=on_heartbeat,
+            on_phase=on_phase,
+        )
+    return _execute_job_attempt(operation, resolved_request)
 
 
 def _resolve_default_output_path(file_path: str, scopes, *, source_display_name: str | None) -> str:
@@ -655,31 +726,52 @@ def _run_job(job_id: str) -> None:
     )
     record.updated_at = record.started_at
     _heartbeat_runtime(record.runtime, lease_state="active")
+    _set_runtime_phase(record.runtime, "submitted")
     _append_runtime_event(record.runtime, event="worker_started", operation=record.operation, job_status=record.status)
+    _heartbeat_runtime(record.runtime)
     storage.upsert_job(_serialize_job(record, include_result=True))
     max_attempts = int(record.resolved_request.get("max_attempts") or 1)
     retry_delay_seconds = float(record.resolved_request.get("retry_delay_seconds") or 0.0)
     current_attempt: int | None = None
+    attempt_lock = Lock()
     try:
         for attempt in range(1, max_attempts + 1):
             current_attempt = attempt
-            _heartbeat_runtime(record.runtime)
-            _append_runtime_event(
-                record.runtime,
-                event="attempt_started",
-                operation=record.operation,
-                job_status=record.status,
-                attempt=attempt,
-            )
-            record.updated_at = _utcnow()
-            storage.upsert_job(_serialize_job(record, include_result=True))
-            attempt_payload = _execute_job_attempt(record.operation, record.resolved_request)
+            with attempt_lock:
+                _heartbeat_runtime(record.runtime)
+                _set_runtime_phase(record.runtime, "processing")
+                _append_runtime_event(
+                    record.runtime,
+                    event="attempt_started",
+                    operation=record.operation,
+                    job_status=record.status,
+                    attempt=attempt,
+                )
+                record.updated_at = _utcnow()
+                storage.upsert_job(_serialize_job(record, include_result=True))
+            try:
+                attempt_payload = _execute_job_attempt_with_callbacks(
+                    record.operation,
+                    record.resolved_request,
+                    on_heartbeat=lambda: _persist_attempt_runtime_heartbeat(record, attempt_lock),
+                    on_phase=lambda phase: _persist_attempt_runtime_phase(record, attempt_lock, phase),
+                )
+            finally:
+                pass
             record.resolved_request["attempt_count"] = attempt
             if attempt_payload.get("ok"):
-                record.result = _normalize_result_payload(
-                    attempt_payload["result"],
-                    record.resolved_request,
-                )
+                with attempt_lock:
+                    _set_runtime_phase(record.runtime, "finalizing")
+                    _heartbeat_runtime(record.runtime)
+                    record.result = _normalize_result_payload(
+                        attempt_payload["result"],
+                        record.resolved_request,
+                    )
+                    if record.runtime is not None and isinstance(record.result, dict):
+                        record.runtime["candidate_mode"] = record.result.get("candidate_mode") or record.runtime.get("candidate_mode")
+                        record.runtime["candidate_request_mode"] = record.result.get("candidate_request_mode") or record.runtime.get("candidate_request_mode")
+                        record.runtime["degraded_from_compact"] = bool(record.result.get("degraded_from_compact"))
+                        record.runtime["degrade_reason"] = record.result.get("degrade_reason")
                 record.status = "succeeded"
                 _append_attempt(record.runtime, attempt=attempt, status="succeeded")
                 _append_runtime_event(
@@ -690,6 +782,9 @@ def _run_job(job_id: str) -> None:
                     attempt=attempt,
                 )
                 record.summary = _result_summary(record.operation, record.result, record.resolved_request)
+                if record.summary is not None and record.runtime is not None:
+                    record.summary["phase"] = record.runtime.get("phase")
+                    record.summary["heartbeat_age_seconds"] = record.runtime.get("heartbeat_age_seconds")
                 record.artifacts = _build_artifacts(
                     record.operation,
                     record.resolved_request,
@@ -727,6 +822,9 @@ def _run_job(job_id: str) -> None:
 
             record.status = "failed"
             record.error = error
+            with attempt_lock:
+                _set_runtime_phase(record.runtime, "finalizing")
+                _heartbeat_runtime(record.runtime)
             _append_runtime_event(
                 record.runtime,
                 event="job_failed",
@@ -736,6 +834,9 @@ def _run_job(job_id: str) -> None:
                 error=error,
             )
             record.summary = _failure_summary(record.operation, record.resolved_request, record.error)
+            if record.summary is not None and record.runtime is not None:
+                record.summary["phase"] = record.runtime.get("phase")
+                record.summary["heartbeat_age_seconds"] = record.runtime.get("heartbeat_age_seconds")
             record.artifacts = _build_artifacts(
                 record.operation,
                 record.resolved_request,
@@ -749,6 +850,11 @@ def _run_job(job_id: str) -> None:
     finally:
         if record.runtime is not None:
             record.runtime["lease_state"] = "released"
+            if record.status in _FINISHED_STATUSES:
+                record.runtime["phase"] = "completed"
+                if record.summary is not None:
+                    record.summary["phase"] = "completed"
+                    record.summary["heartbeat_age_seconds"] = record.runtime.get("heartbeat_age_seconds")
             if record.status == "succeeded":
                 _append_runtime_event(
                     record.runtime,
@@ -862,6 +968,16 @@ def get_job(job_id: str) -> dict[str, Any]:
     payload = storage.get_job(job_id, include_result=False)
     if payload is None:
         raise LookupError(f"Job not found: {job_id}")
+    if payload["status"] in _FINISHED_STATUSES:
+        return payload
+    runtime = payload.get("runtime") or {}
+    heartbeat_at = runtime.get("last_heartbeat_at")
+    if heartbeat_at:
+        heartbeat_dt = _parse_timestamp(heartbeat_at)
+        now_dt = _parse_timestamp(_utcnow())
+        if heartbeat_dt is not None and now_dt is not None:
+            runtime["heartbeat_age_seconds"] = max((now_dt - heartbeat_dt).total_seconds(), 0.0)
+            payload["runtime"] = runtime
     return payload
 
 

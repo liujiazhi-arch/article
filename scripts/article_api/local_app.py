@@ -158,7 +158,7 @@ def _build_parser() -> argparse.ArgumentParser:
     render_verify_parser.add_argument("--renderer", choices=["auto", "word-pdf"], default="auto")
     render_verify_parser.add_argument("--rendered-pdf")
     render_verify_parser.add_argument("--page-images-dir")
-    render_verify_parser.add_argument("--workflow-mode", choices=["default_user", "advanced_word", "agent_candidate"])
+    render_verify_parser.add_argument("--workflow-mode", choices=["default_user", "agent_candidate"])
     render_verify_parser.set_defaults(handler=_handle_render_verify)
 
     render_workflow_parser = subparsers.add_parser("render-workflow-modes")

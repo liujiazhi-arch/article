@@ -289,14 +289,14 @@ def test_run_render_verify_returns_payload(monkeypatch):
         renderer="word-pdf",
         rendered_pdf="/tmp/export.pdf",
         page_images_dir=None,
-        workflow_mode="advanced_word",
+        workflow_mode="default_user",
     )
 
     assert payload["operation"] == "render-verify"
     assert payload["page_count"] == 1
     assert payload["selected_scopes"] == ["toc"]
     assert payload["rendered_pdf"] == "/tmp/export.pdf"
-    assert payload["workflow_mode"] == "advanced_word"
+    assert payload["workflow_mode"] == "default_user"
 
 
 def test_main_profiles_outputs_json(capsys):
@@ -315,7 +315,7 @@ def test_main_render_workflow_modes_outputs_json(capsys):
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["recommended_mode"] == "default_user"
-    assert [item["id"] for item in payload["modes"]] == ["default_user", "advanced_word", "agent_candidate"]
+    assert [item["id"] for item in payload["modes"]] == ["default_user", "agent_candidate"]
 
 
 def test_main_preflight_outputs_json(capsys, tmp_path):

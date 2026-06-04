@@ -11,6 +11,10 @@ from article_api.uploads import infer_uploaded_docx_name
 from fix_thesis import default_normalize_output_path
 from thesis_tool.scopes import normalize_scope_names
 
+FAST_CANDIDATE_MODE = "fast_candidate"
+COMPACT_CANDIDATE_MODE = "compact_candidate"
+DEFAULT_CANDIDATE_TIMEOUT_SECONDS = 180.0
+
 
 def clone_dict(payload: dict[str, Any]) -> dict[str, Any]:
     return deepcopy(payload)
@@ -142,9 +146,14 @@ def resolve_request(
         resolved.setdefault("toc", False)
         resolved.setdefault("renumber_headings", False)
         resolved.setdefault("layout_rebalance", False)
+        resolved.setdefault("candidate_mode", None)
         resolved.setdefault("strict_profile", None)
         resolved.setdefault("dry_run", False)
         resolved.setdefault("force", False)
+        if resolved.get("candidate_mode") == FAST_CANDIDATE_MODE:
+            resolved["layout_rebalance"] = False
+        elif resolved.get("candidate_mode") == COMPACT_CANDIDATE_MODE:
+            resolved["layout_rebalance"] = bool(resolved.get("layout_rebalance"))
         if resolved["output_path"] is None:
             resolved["output_path"] = resolve_default_output_path(
                 resolved["file_path"],
@@ -183,6 +192,8 @@ def resolve_request(
         timeout_value,
         field_name="timeout_seconds",
     )
+    if operation == "apply" and resolved.get("candidate_mode") and resolved["timeout_seconds"] is None:
+        resolved["timeout_seconds"] = DEFAULT_CANDIDATE_TIMEOUT_SECONDS
     resolved.setdefault("retry_of_job_id", None)
     return resolved
 
@@ -212,6 +223,11 @@ def build_result_summary(operation: str, result: dict[str, Any], resolved_reques
             summary["readiness"] = result.get("readiness") or result.get("verification", {}).get("readiness")
             summary["post_verify_notice_count"] = len(result.get("post_verify_notices") or [])
             summary["guard_blocked"] = bool(result.get("guard", {}).get("blocked"))
+        summary["candidate_mode"] = result.get("candidate_mode") or resolved_request.get("candidate_mode")
+        summary["candidate_request_mode"] = result.get("candidate_request_mode") or resolved_request.get("candidate_mode")
+        summary["degraded_from_compact"] = bool(result.get("degraded_from_compact"))
+        summary["degrade_reason"] = result.get("degrade_reason")
+        summary["timeout_seconds"] = resolved_request.get("timeout_seconds")
     elif operation == "normalize":
         summary["output_path"] = result.get("output", {}).get("path")
         summary["business_status"] = result.get("after", {}).get("preflight_status")
@@ -238,6 +254,11 @@ def build_failure_summary(operation: str, resolved_request: dict[str, Any], erro
             guard = error.get("guard") or {}
             summary["guard_blocked"] = bool(guard.get("blocked"))
             summary["guard_warning_count"] = len(guard.get("warnings") or [])
+            summary["candidate_mode"] = resolved_request.get("candidate_mode")
+            summary["candidate_request_mode"] = resolved_request.get("candidate_mode")
+            summary["degraded_from_compact"] = False
+            summary["degrade_reason"] = None
+            summary["timeout_seconds"] = resolved_request.get("timeout_seconds")
     summary["attempt_count"] = int(resolved_request.get("attempt_count") or 1)
     summary["max_attempts"] = int(resolved_request.get("max_attempts") or 1)
     return summary
@@ -305,6 +326,12 @@ def build_runtime_metadata(
         "output_path": output_path,
         "output_dir": resolved_request.get("output_dir"),
         "summary_file": resolved_request.get("summary_file"),
+        "candidate_mode": resolved_request.get("candidate_mode"),
+        "candidate_request_mode": resolved_request.get("candidate_mode"),
+        "degraded_from_compact": False,
+        "degrade_reason": None,
+        "phase": "submitted",
+        "heartbeat_age_seconds": None,
         "retry_of_job_id": resolved_request.get("retry_of_job_id"),
         "max_attempts": int(resolved_request.get("max_attempts") or 1),
         "retry_delay_seconds": float(resolved_request.get("retry_delay_seconds") or 0.0),

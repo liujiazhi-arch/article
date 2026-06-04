@@ -50,4 +50,25 @@ def test_pyproject_includes_local_console_asset():
     pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
     data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
 
-    assert data["tool"]["setuptools"]["package-data"]["article_api"] == ["local_console.html"]
+    assert data["tool"]["setuptools"]["package-data"]["article_api"] == [
+        "local_console.html",
+        "assets/lnu-emblem.jpg",
+    ]
+
+
+def test_local_console_includes_apple_style_motion_hooks():
+    html_path = Path(__file__).resolve().parents[1] / "scripts" / "article_api" / "local_console.html"
+    html = html_path.read_text(encoding="utf-8")
+
+    required_fragments = [
+        "prefers-reduced-motion: reduce",
+        "IntersectionObserver",
+        "initAppleMotion",
+        "motion-reveal",
+        "topbar compact",
+        "report-updated",
+        "upload-active",
+        "step-pulse",
+    ]
+    for fragment in required_fragments:
+        assert fragment in html

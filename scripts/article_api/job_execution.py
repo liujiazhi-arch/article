@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
 
 
@@ -60,6 +61,8 @@ def run_handler_subprocess(
     request: dict[str, Any],
     *,
     timeout_seconds: float | None,
+    on_heartbeat=None,
+    on_phase=None,
     project_root: Path = PROJECT_ROOT,
     scripts_root: Path = SCRIPTS_ROOT,
 ) -> dict[str, Any]:
@@ -68,15 +71,32 @@ def run_handler_subprocess(
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
             json.dump({"operation": operation, "request": request}, handle, ensure_ascii=False, sort_keys=True)
             request_path = handle.name
-        completed = subprocess.run(
+        process = subprocess.Popen(
             [sys.executable, "-m", "article_api.job_runner", request_path],
             cwd=str(project_root),
             env=subprocess_env(scripts_root=scripts_root),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_seconds,
-            check=False,
         )
+        if on_phase is not None:
+            on_phase("processing")
+        start = time.monotonic()
+        last_heartbeat = start
+        while True:
+            return_code = process.poll()
+            now = time.monotonic()
+            if return_code is not None:
+                break
+            if timeout_seconds is not None and (now - start) >= float(timeout_seconds):
+                process.kill()
+                process.wait()
+                raise subprocess.TimeoutExpired(process.args, timeout=timeout_seconds)
+            if on_heartbeat is not None and (now - last_heartbeat) >= 1.0:
+                on_heartbeat()
+                last_heartbeat = now
+            time.sleep(0.1)
+        stdout, stderr = process.communicate()
     finally:
         if request_path:
             try:
@@ -84,9 +104,9 @@ def run_handler_subprocess(
             except FileNotFoundError:
                 pass
 
-    stdout = completed.stdout.strip()
+    stdout = (stdout or "").strip()
     if not stdout:
-        stderr = completed.stderr.strip()
+        stderr = (stderr or "").strip()
         raise RuntimeError(f"Job runner returned no payload for {operation}: {stderr or 'empty stdout'}")
     payload = json.loads(stdout)
     if not isinstance(payload, dict):
@@ -99,12 +119,16 @@ def execute_job_attempt(
     resolved_request: dict[str, Any],
     *,
     run_subprocess=run_handler_subprocess,
+    on_heartbeat=None,
+    on_phase=None,
 ) -> dict[str, Any]:
     try:
         payload = run_subprocess(
             operation,
             handler_request(resolved_request),
             timeout_seconds=resolved_request.get("timeout_seconds"),
+            on_heartbeat=on_heartbeat,
+            on_phase=on_phase,
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": timeout_error_payload(resolved_request.get("timeout_seconds"))}

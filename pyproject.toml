@@ -59,7 +59,7 @@ include = [
 ]
 
 [tool.setuptools.package-data]
-article_api = ["local_console.html"]
+article_api = ["local_console.html", "assets/lnu-emblem.jpg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

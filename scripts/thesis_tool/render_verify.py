@@ -90,26 +90,59 @@ on run argv
   set inputPath to POSIX file (item 1 of argv)
   set outputPath to POSIX file (item 2 of argv)
   set expectedPath to item 1 of argv
+  set targetName to item 3 of argv
   tell application "Microsoft Word"
+    try
+      close every document saving no
+    end try
     open inputPath
-    set activePath to POSIX path of (full name of active document as alias)
-    if activePath is not expectedPath then
-      error "Microsoft Word opened a different active document: " & activePath
+    set docRef to missing value
+    set observedDocuments to {}
+    repeat with attempt from 1 to 30
+      set observedDocuments to {}
+      repeat with candidate in documents
+        set candidateName to ""
+        set candidatePath to ""
+        try
+          set candidateName to name of candidate as text
+        end try
+        try
+          set candidatePath to POSIX path of (full name of candidate as alias)
+        end try
+        if candidateName is not "" or candidatePath is not "" then
+          set end of observedDocuments to candidateName & "|" & candidatePath
+        end if
+        if candidatePath is expectedPath or candidateName is targetName then
+          set docRef to candidate
+          exit repeat
+        end if
+      end repeat
+      if docRef is not missing value then exit repeat
+      delay 1
+    end repeat
+    if docRef is missing value then
+      error "Microsoft Word did not expose the opened DOCX; observed=" & observedDocuments
     end if
-    save as active document file name outputPath file format format PDF
+    save as docRef file name outputPath file format format PDF
+    close docRef saving no
   end tell
 end run
 """
     try:
+        input_path = Path(input_docx).expanduser().resolve()
+        output_path = Path(output_pdf).expanduser().resolve()
         subprocess.run(
-            ["osascript", "-e", script, str(Path(input_docx).expanduser().resolve()), str(Path(output_pdf).expanduser().resolve())],
+            ["osascript", "-e", script, str(input_path), str(output_path), input_path.name],
             check=True,
             capture_output=True,
             text=True,
             timeout=120,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Microsoft Word 导出 PDF 超时。") from exc
+        raise RuntimeError(
+            "Microsoft Word 自动化没有完成，未能导出 PDF。通常是 Word 没有暴露已打开的 DOCX，"
+            "或正在等待权限、恢复文档、允许访问文件、保存确认等弹窗。请先处理 Word 弹窗；仍失败时改用手动导出 PDF。"
+        ) from exc
     except subprocess.CalledProcessError as exc:
         details = (exc.stderr or exc.stdout or "").strip()
         message = "Microsoft Word 导出 PDF 失败。"
@@ -272,10 +305,23 @@ def _extract_pdf_page_texts(pdf_path: str | None, *, page_count: int) -> tuple[d
 
 def _build_render_review_items(diagnostics: dict, verification: dict) -> list[str]:
     items = [
-        "逐页检查是否出现异常大块空白、孤页或空白段。",
-        "逐页检查图表是否与题注分离，是否被挤到单独页面。",
-        "逐页检查公式区域是否出现粗横线、编号偏移或解释项错位。",
+        "本次结果重点用于解释 PDF 版式问题为什么出现，以及应该继续主流程还是进入排障模式。",
+        "本次只完成 PDF 版式复核，尚未修改 Word 文档。",
     ]
+
+    render_findings = verification.get("render_findings") or []
+    finding_ids = {str(item.get("id") or item.get("type") or "") for item in render_findings if isinstance(item, dict)}
+    if "large_blank_region" in finding_ids or "blank_page" in finding_ids:
+        items.append("大块空白常见于对象塞不进当前页、段前/段后距过大、分页符残留，或对象锚点位置不当。")
+    if "object_overflow" in finding_ids or "object_near_page_edge" in finding_ids:
+        items.append("图表挤页常见于首次引用位置过晚、对象块过大，或图题注整体绑定到后页。")
+    if "heading_isolated" in finding_ids or "heading_near_page_bottom" in finding_ids:
+        items.append("标题孤页常见于标题前后分页、标题后正文不足，或前序对象块把正文挤到下一页。")
+
+    items.extend([
+        "如果不进入候选稿排障，建议回 Word/WPS 检查图片环绕、分页符、段前/段后距和对象锚点设置。",
+        "如果 PDF finding 已经明确影响紧凑性，再进入候选稿排障更合适；否则优先回主流程修正文档结构或版式设置。",
+    ])
 
     toc_status = str((diagnostics.get("toc") or {}).get("status") or "")
     if toc_status in {"field_only", "generated_toc"}:
@@ -506,7 +552,13 @@ def build_render_verify_report(
         },
         "manual_review_rule_ids": list(verification.get("manual_review_rule_ids") or []),
         "unsupported_rule_ids": list(verification.get("unsupported_rule_ids") or []),
-        "review_items": _build_render_review_items(diagnostics, verification),
+        "review_items": _build_render_review_items(
+            diagnostics,
+            {
+                **verification,
+                "render_findings": render_findings,
+            },
+        ),
         "report_path": str(resolved_output_dir / "render_verify_report.json"),
     }
     Path(report["report_path"]).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

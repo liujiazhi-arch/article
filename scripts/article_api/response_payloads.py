@@ -14,29 +14,16 @@ API_VERSION = "v0"
 RENDER_WORKFLOW_MODES: tuple[dict[str, Any], ...] = (
     {
         "id": "default_user",
-        "title": "默认用户模式",
-        "subtitle": "用户用 Word/WPS 导出 PDF，工具只分析真实 PDF。",
+        "title": "PDF 版式复核",
+        "subtitle": "用户用 Word/WPS 导出 PDF，工具分析真实 PDF 页面。",
         "stability": "high",
-        "button_label": "用已导出的 PDF 复核",
+        "button_label": "导入 PDF 并复核",
         "requires_manual_pdf": True,
         "uses_automation": False,
         "creates_candidate_docx": False,
         "backend_action": "render-verify with rendered_pdf or page_images_dir",
-        "why": "Word/WPS 自动化容易被恢复弹窗、权限和超时打断；手动 PDF 最适合普通用户。",
+        "why": "Word/WPS 自动化容易被恢复弹窗、权限和超时打断；手动导出的 PDF 才是稳定版式证据。",
         "best_for": "普通用户、最终提交前复核、多人使用场景。",
-    },
-    {
-        "id": "advanced_word",
-        "title": "高级模式",
-        "subtitle": "尝试连接 Microsoft Word 自动导出 PDF。",
-        "stability": "medium",
-        "button_label": "尝试 Word 自动复核",
-        "requires_manual_pdf": False,
-        "uses_automation": True,
-        "creates_candidate_docx": False,
-        "backend_action": "render-verify with renderer=word-pdf",
-        "why": "适合本机 Word 状态稳定时快速复核；失败时应改用默认用户模式。",
-        "best_for": "开发者、本机调试、已确认 Word 不会弹恢复框的环境。",
     },
     {
         "id": "agent_candidate",
@@ -44,11 +31,12 @@ RENDER_WORKFLOW_MODES: tuple[dict[str, Any], ...] = (
         "subtitle": "复核后排障工具，只在 PDF 版式复核发现可行动问题后使用。",
         "stability": "assisted",
         "button_label": "生成候选修复稿",
+        "candidate_modes": ["fast_candidate", "compact_candidate"],
         "requires_manual_pdf": False,
         "uses_automation": False,
         "creates_candidate_docx": True,
-        "backend_action": "apply candidate with headings + figures_tables + layout_rebalance",
-        "why": "它不是常规修复模式；渲染层问题需要先看 Word/WPS PDF 证据，候选稿不能直接覆盖原文，也不能跳过再次 PDF 复核。",
+        "backend_action": "apply candidate with headings + figures_tables; fast mode by default, compact mode opt-in",
+        "why": "它不是常规修复模式；渲染层问题需要先看 PDF 证据，候选稿不能直接覆盖原文，也不能跳过再次 PDF 复核。",
         "best_for": "PDF 复核已经确认的复杂图表挤页、标题孤页、大块空白等排版排障。",
     },
 )
@@ -256,7 +244,7 @@ def build_render_workflow_modes_payload() -> dict[str, Any]:
         "recommended_mode": "default_user",
         "render_layer_issues": [
             "Word/WPS 才是最终版式证据，但它们不是稳定后端服务。",
-            "自动连接 Word 可能遇到权限、恢复弹窗、会员弹窗或导出 PDF 超时。",
+            "自动连接 Word/WPS 已从产品入口移除；用户导出的 PDF 是当前稳定证据。",
             "候选稿修复必须回到 DOCX，且需要再次导出 PDF 对比分数，不能直接改 PDF。",
         ],
         "modes": [dict(item) for item in RENDER_WORKFLOW_MODES],
@@ -272,15 +260,13 @@ def resolve_render_workflow_mode(
 ) -> dict[str, Any]:
     mode_id = workflow_mode
     if mode_id is None:
-        mode_id = "default_user" if rendered_pdf or page_images_dir else "advanced_word"
+        mode_id = "default_user"
     mode = next((dict(item) for item in RENDER_WORKFLOW_MODES if item["id"] == mode_id), None)
     if mode is None:
         valid = ", ".join(item["id"] for item in RENDER_WORKFLOW_MODES)
         raise ValueError(f"未知渲染工作流模式: {workflow_mode}。可选: {valid}")
     if mode_id == "default_user" and not (rendered_pdf or page_images_dir):
-        raise ValueError("默认用户模式需要先用 Word/WPS 导出 PDF，或提供页图目录。")
-    if mode_id == "advanced_word" and renderer not in {"auto", "word-pdf"}:
-        raise ValueError("高级模式只能使用 Word PDF 渲染。")
+        raise ValueError("PDF 版式复核需要先用 Word/WPS 导出 PDF，或提供页图目录。")
     if mode_id == "agent_candidate":
-        raise ValueError("Agent 候选稿模式不直接执行 render-verify；请先生成候选 DOCX，再用默认用户模式复核 PDF。")
+        raise ValueError("Agent 候选稿模式不直接执行 render-verify；请先生成候选 DOCX，再用 PDF 版式复核。")
     return mode

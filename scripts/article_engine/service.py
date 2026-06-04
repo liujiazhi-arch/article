@@ -417,6 +417,7 @@ def apply_fix(
     toc: bool = False,
     renumber_headings: bool = False,
     layout_rebalance: bool = False,
+    candidate_mode: str | None = None,
     strict_profile: bool | None = None,
     dry_run: bool = False,
     force: bool = False,
@@ -424,6 +425,31 @@ def apply_fix(
     resolved_output_path = output_path or _default_output_path(file_path, scopes)
     Path(resolved_output_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
     selected_scopes = normalize_scope_names(scopes)
+    effective_candidate_mode = candidate_mode
+    degraded_from_compact = False
+    degrade_reason: str | None = None
+
+    if candidate_mode == "compact_candidate":
+        preview = build_scoped_fix_preview(
+            file_path,
+            output_path=resolved_output_path,
+            profile_path=profile_path,
+            scopes=scopes,
+            toc=toc,
+            renumber_headings=renumber_headings,
+            layout_rebalance=True,
+            strict_profile=strict_profile,
+        )
+        paragraph_count = int(preview.get("paragraph_count") or 0)
+        table_count = int(preview.get("table_count") or 0)
+        heading_style_candidates = int(preview.get("heading_style_candidates") or 0)
+        if paragraph_count >= 450 or table_count >= 20 or heading_style_candidates >= 25:
+            layout_rebalance = False
+            effective_candidate_mode = "fast_candidate"
+            degraded_from_compact = True
+            degrade_reason = "文档对象流复杂，已自动降级为快速候选稿，未启用慢速重排。"
+    elif candidate_mode == "fast_candidate":
+        layout_rebalance = False
 
     if dry_run:
         preview = build_scoped_fix_preview(
@@ -455,6 +481,10 @@ def apply_fix(
             "toc_enabled": bool(preview.get("toc_enabled")),
             "renumber_headings": bool(preview.get("renumber_headings")),
             "layout_rebalance": bool(preview.get("layout_rebalance")),
+            "candidate_mode": effective_candidate_mode,
+            "candidate_request_mode": candidate_mode,
+            "degraded_from_compact": degraded_from_compact,
+            "degrade_reason": degrade_reason,
             "paragraph_count": preview.get("paragraph_count"),
             "table_count": preview.get("table_count"),
             "heading_style_candidates": preview.get("heading_style_candidates"),
@@ -517,6 +547,11 @@ def apply_fix(
         },
         "selected_scopes": verification_payload["selected_scopes"],
         "readiness": classify_apply_readiness(verification_payload),
+        "candidate_mode": effective_candidate_mode,
+        "candidate_request_mode": candidate_mode,
+        "degraded_from_compact": degraded_from_compact,
+        "degrade_reason": degrade_reason,
+        "layout_rebalance": bool(layout_rebalance),
         "guard": _serialize_apply_guard(
             diagnostics,
             checked=not force,

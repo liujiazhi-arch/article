@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,15 @@ def finalize_runtime_metadata(runtime: dict[str, Any]) -> dict[str, Any]:
     finalized["workspace_exists_at_completion"] = bool(workspace_root and os.path.exists(workspace_root))
     finalized["staged_input_exists_at_completion"] = bool(staged_input_path and os.path.exists(staged_input_path))
     finalized["output_exists_at_completion"] = bool(output_path and os.path.exists(output_path))
+    heartbeat_at = finalized.get("last_heartbeat_at")
+    if heartbeat_at:
+        try:
+            heartbeat_dt = datetime.fromisoformat(str(heartbeat_at).replace("Z", "+00:00"))
+            finalized["heartbeat_age_seconds"] = max((datetime.now(timezone.utc) - heartbeat_dt).total_seconds(), 0.0)
+        except ValueError:
+            finalized["heartbeat_age_seconds"] = None
+    else:
+        finalized["heartbeat_age_seconds"] = None
     return finalized
 
 

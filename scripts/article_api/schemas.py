@@ -46,7 +46,7 @@ class RenderVerifyRequest(BaseModel):
     renderer: str = Field(default="auto", pattern="^(auto|word-pdf)$")
     rendered_pdf: str | None = None
     page_images_dir: str | None = None
-    workflow_mode: str | None = Field(default=None, pattern="^(default_user|advanced_word|agent_candidate)$")
+    workflow_mode: str | None = Field(default=None, pattern="^(default_user|agent_candidate)$")
 
 
 class VerifyRequest(BaseModel):
@@ -71,6 +71,7 @@ class ApplyRequest(BaseModel):
     toc: bool = False
     renumber_headings: bool = False
     layout_rebalance: bool = False
+    candidate_mode: str | None = Field(default=None, pattern="^(fast_candidate|compact_candidate)$")
     dry_run: bool = False
     force: bool = False
     stage_input: bool = False
@@ -99,6 +100,7 @@ class UploadApplyRequest(BaseModel):
     toc: bool = False
     renumber_headings: bool = False
     layout_rebalance: bool = False
+    candidate_mode: str | None = Field(default=None, pattern="^(fast_candidate|compact_candidate)$")
     dry_run: bool = False
     force: bool = False
     stage_input: bool = False

@@ -68,7 +68,7 @@ from article_api.jobs import (
     retry_job,
     sweep_job_retention,
 )
-from article_api.uploads import resolve_runtime_root, store_uploaded_docx
+from article_api.uploads import resolve_runtime_root, store_uploaded_docx, store_uploaded_pdf
 try:
     from fastapi import FastAPI, File, HTTPException, UploadFile
     from fastapi.responses import FileResponse, HTMLResponse
@@ -395,6 +395,13 @@ def create_app():
     def local_console():
         return _html_response(_local_console_html())
 
+    @app.get("/assets/lnu-emblem.jpg")
+    def lnu_emblem():
+        emblem_path = Path(__file__).with_name("assets") / "lnu-emblem.jpg"
+        if not emblem_path.exists():
+            raise HTTPException(status_code=404, detail="Liaoning University emblem asset is unavailable.")
+        return FileResponse(str(emblem_path), media_type="image/jpeg")
+
     @app.get("/health")
     def health() -> dict[str, Any]:
         return _health_payload()
@@ -555,6 +562,24 @@ def create_app():
                 if stored_path and os.path.exists(stored_path):
                     os.unlink(stored_path)
                 raise
+            return _upload_view(payload)
+        except Exception as exc:
+            _raise_job_http_error(exc)
+
+    @app.post("/uploads/pdf", status_code=201)
+    def upload_pdf(file: UploadFile = File(...), runtime_root: str | None = None) -> dict[str, Any]:
+        try:
+            _maybe_autorun_retention()
+            upload = store_uploaded_pdf(file, runtime_root=runtime_root)
+            payload = {
+                "upload_id": upload.upload_id,
+                "file_name": upload.file_name,
+                "stored_path": upload.stored_path,
+                "workspace_dir": upload.workspace_dir,
+                "runtime_root": runtime_root,
+                "size_bytes": upload.size_bytes,
+                "created_at": _utcnow(),
+            }
             return _upload_view(payload)
         except Exception as exc:
             _raise_job_http_error(exc)

@@ -69,6 +69,16 @@ def _upload_docx(client: TestClient, source_path: Path, runtime_root: Path) -> d
     return upload_response.json()
 
 
+def _upload_pdf(client: TestClient, runtime_root: Path) -> dict[str, object]:
+    upload_response = client.post(
+        "/uploads/pdf",
+        params={"runtime_root": str(runtime_root)},
+        files={"file": ("20221303306-刘佳轾-排版复核.pdf", b"%PDF-1.7\nfake-pdf-binary", "application/pdf")},
+    )
+    assert upload_response.status_code == 201
+    return upload_response.json()
+
+
 def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_docx, tmp_path):
     source_path = tmp_docx(make_compliant_doc, filename="article_http_smoke.docx")
     doc = Document(source_path)
@@ -84,6 +94,7 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     profiles_response = client.get("/profiles")
     runtime_response = client.get("/ops/runtime")
     storage_response = client.get("/ops/storage")
+    emblem_response = client.get("/assets/lnu-emblem.jpg")
     assert console_response.status_code == 200
     assert health_response.status_code == 200
     assert ready_response.status_code == 200
@@ -91,50 +102,81 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert profiles_response.status_code == 200
     assert runtime_response.status_code == 200
     assert storage_response.status_code == 200
+    assert emblem_response.status_code == 200
+    assert emblem_response.headers["content-type"].startswith("image/jpeg")
     assert "论文格式本地控制台" in console_response.text
-    assert "单篇论文处理" in console_response.text
+    assert "辽宁大学毕业论文" in console_response.text
+    assert "brand-mark" in console_response.text
+    assert "assets/lnu-emblem.jpg" in console_response.text
     assert "选择 Word 论文" in console_response.text
-    assert "一键处理到结构复查" in console_response.text
-    assert "高级设置" in console_response.text
-    assert "分步操作" in console_response.text
-    assert "Word 版式复核" in console_response.text
-    assert "排版修复 · 页面渲染层" in console_response.text
-    assert "修复打开 Word/WPS 后才看得到的排版问题" in console_response.text
-    assert "上方流程主要处理字体、标题、目录、参考文献等结构格式" in console_response.text
-    assert "开始排版复核" in console_response.text
-    assert "用这个模式修排版" in console_response.text
-    assert "data-workflow-mode=\"default_user\"" in console_response.text
-    assert "data-workflow-mode=\"advanced_word\"" in console_response.text
+    assert "辽宁大学毕业论文格式" in console_response.text
+    assert "格式检查与修复" in console_response.text
+    assert "一键生成修复稿" in console_response.text
+    assert "上传 PDF 复审" in console_response.text
+    assert "按这些问题生成下一版 DOCX" in console_response.text
+    assert "任务查询" in console_response.text
+    assert "高级设置" not in console_response.text
+    assert "分步操作" not in console_response.text
+    assert "advanced-details" not in console_response.text
+    assert "single-profile" not in console_response.text
+    assert "cn-common" not in console_response.text
+    assert "可选动作" not in console_response.text
+    assert "处理选项" not in console_response.text
+    assert "PDF 复审" in console_response.text
+    assert "检查导出的 PDF" in console_response.text
+    assert "开始复审" in console_response.text
+    assert "data-workflow-mode=\"default_user\"" not in console_response.text
+    assert "data-workflow-mode=\"advanced_word\"" not in console_response.text
     assert "selectedWorkflowMode: 'default_user'" in console_response.text
     assert "function userFacingError" in console_response.text
-    assert "Word 自动导出 PDF 没有完成" in console_response.text
-    assert "请先手动打开 Microsoft Word" in console_response.text
-    assert "如果出现权限申请，请点击允许" in console_response.text
-    assert "默认用户模式" in console_response.text
-    assert "高级模式" in console_response.text
-    assert "Agent 候选稿模式" in console_response.text
+    assert "renderWorkflowStatusItems" in console_response.text
+    assert "formatRenderFinding" in console_response.text
+    assert "renderFindingItems" in console_response.text
+    assert "verifyIssueItems" in console_response.text
+    assert "formatRuleSummary" in console_response.text
+    assert "pollAgentCandidateJob" in console_response.text
+    assert "下一版 DOCX 已提交后端任务" in console_response.text
+    assert "后端任务仍在运行，不是页面卡死" in console_response.text
+    assert "需要版式复核原因" in console_response.text
+    assert "技术详情" in console_response.text
+    assert "预计下一版路径" in console_response.text
+    assert "等待结果整理" in console_response.text
+    assert "const AGENT_CANDIDATE_PROGRESS = { submitted: 30, running: 55, finalizing: 80, finished: 100 };" in console_response.text
+    assert "PDF 复审不修改 DOCX" in console_response.text
+    assert "详细报告" in console_response.text
+    assert "已向后端发送高级模式请求" not in console_response.text
+    assert "后端没有拿到 Word 导出的 render_verify_word.pdf" not in console_response.text
+    assert "PDF 复审完成" in console_response.text
+    assert "PDF 复审" in console_response.text
+    assert "上传 PDF" in console_response.text
+    assert "render-pdf-upload-zone" in console_response.text
+    assert "render-pdf-file" in console_response.text
+    assert "/uploads/pdf" in console_response.text
+    assert "高级模式" not in console_response.text
+    assert "Agent 候选稿模式" not in console_response.text
+    assert "排障模式工作台" not in console_response.text
+    assert "进入排障模式" not in console_response.text
     assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" in console_response.text
-    assert "guardedRenderWorkflow('advanced_word')" in console_response.text
-    assert "论文格式修改工具" in console_response.text
+    assert "guardedRenderWorkflow('advanced_word')" not in console_response.text
     assert "原文不会被覆盖" in console_response.text
     assert "总体结论" in console_response.text
     assert "report-action-button" in console_response.text
     assert "report-progress" in console_response.text
-    assert "正在执行修复" in console_response.text
+    assert "正在修复" in console_response.text
     assert "修复稿已生成" in console_response.text
-    assert "结构复查已结束，等待版式复核" in console_response.text
-    assert "这一步已经结束，不是后端卡住" in console_response.text
+    assert "结构复查完成" in console_response.text
     assert "source-summary" in console_response.text
     assert "displayFileName" in console_response.text
     assert "sourceDisplayName" in console_response.text
     assert "outputFolderLabel" in console_response.text
     assert "outputSummary" in console_response.text
-    assert "复核后排障工具" in console_response.text
-    assert "先完成 PDF 版式复核后再使用" in console_response.text
+    assert "复核后排障工具" not in console_response.text
+    assert "先完成 PDF 版式复核后再使用" not in console_response.text
     assert "查看路径" in console_response.text
     assert "桌面/论文格式修复输出" in console_response.text
-    assert "页面布局再平衡（慢速，排版排障时再开）" in console_response.text
-    assert "历史与排障" in console_response.text
+    assert "任务状态" in console_response.text
+    assert "等待选择任务" not in console_response.text
+    assert "历史任务" not in console_response.text
     assert "批量任务" not in console_response.text
     assert "适合发给学弟学妹使用" not in console_response.text
     assert health_response.json()["service"] == "article-api"
@@ -230,6 +272,8 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
             "file_path": str(source_path),
             "profile": "lnu",
             "scopes": ["toc"],
+            "rendered_pdf": str(tmp_path / "manual-word-export.pdf"),
+            "workflow_mode": "default_user",
         },
     )
     assert render_verify_response.status_code == 200
@@ -240,7 +284,11 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert render_verify_payload["selected_scopes"] == ["toc"]
 
     upload_payload = _upload_docx(client, source_path, runtime_root)
+    pdf_upload_payload = _upload_pdf(client, runtime_root)
     assert upload_payload["file_name"] == "article_http_smoke.docx"
+    assert pdf_upload_payload["file_name"] == "20221303306-刘佳轾-排版复核.pdf"
+    assert pdf_upload_payload["available"] is True
+    assert Path(pdf_upload_payload["stored_path"]).exists()
 
     uploads_response = client.get("/uploads")
     upload_view_response = client.get(f"/uploads/{upload_payload['upload_id']}")
