@@ -77,6 +77,31 @@ def _para_with_run(text: str, sz: int | None = None, bold: bool = False) -> ET.E
     return p
 
 
+def _set_paragraph_alignment(p: ET.Element, value: str) -> ET.Element:
+    p_pr = p.find(_w("pPr"))
+    if p_pr is None:
+        p_pr = ET.SubElement(p, _w("pPr"))
+    jc = p_pr.find(_w("jc"))
+    if jc is None:
+        jc = ET.SubElement(p_pr, _w("jc"))
+    jc.set(_w("val"), value)
+    return p
+
+
+def _set_run_fonts(p: ET.Element, *, east_asia: str = "宋体", ascii_font: str = "Times New Roman") -> ET.Element:
+    for run in p.findall(_w("r")):
+        r_pr = run.find(_w("rPr"))
+        if r_pr is None:
+            r_pr = ET.SubElement(run, _w("rPr"))
+        r_fonts = r_pr.find(_w("rFonts"))
+        if r_fonts is None:
+            r_fonts = ET.SubElement(r_pr, _w("rFonts"))
+        r_fonts.set(_w("eastAsia"), east_asia)
+        r_fonts.set(_w("ascii"), ascii_font)
+        r_fonts.set(_w("hAnsi"), ascii_font)
+    return p
+
+
 def _para_摘要(sz: int | None, after: int | None = None) -> ET.Element:
     """Return a paragraph whose visible text is '摘要' with given sz and spacing after."""
     p = ET.Element(_w("p"))
@@ -428,6 +453,21 @@ def test_f07_rejects_terminal_period_on_table_caption():
     assert any("表题" in issue or "题注" in issue for issue in issues)
 
 
+def test_lnu_f05_allows_caption_without_prior_text_reference():
+    body = _make_paragraph("本节给出基因组组装统计。")
+    caption = _make_paragraph("表2.1  组装统计")
+    contexts = [
+        _ctx(1, body, "本节给出基因组组装统计。", "body"),
+        _ctx(2, caption, "表2.1  组装统计", "caption"),
+    ]
+
+    passed, issues, summary = audit_thesis.check_lnu_f05(_doc_with_paragraphs(body, caption), contexts, {}, {})
+
+    assert passed
+    assert issues == []
+    assert "不强制" in summary
+
+
 def test_lnu_object_pagination_rejects_unprotected_figure_and_short_table_blocks():
     heading = _make_paragraph("第2章 图表说明")
     heading_p_pr = ET.SubElement(heading, _w("pPr"))
@@ -741,14 +781,22 @@ def test_toc03_generated_toc_passes(lnu_cfg):
     assert passed, issues
 
 
-def test_toc03_manual_toc_fails(lnu_cfg):
+def test_toc03_manual_toc_passes(lnu_cfg):
     title = _make_paragraph("目  录")
     manual_entry = _make_paragraph("第1章 绪论........1")
     doc = _doc_with_paragraphs(title, manual_entry)
 
     passed, issues, _ = audit_thesis.check_lnu_toc03(doc, [], {}, lnu_cfg)
+    assert passed, issues
+
+
+def test_toc03_missing_toc_fails(lnu_cfg):
+    body = _make_paragraph("第1章 绪论")
+    doc = _doc_with_paragraphs(body)
+
+    passed, issues, _ = audit_thesis.check_lnu_toc03(doc, [], {}, lnu_cfg)
     assert not passed
-    assert any("自动生成" in msg for msg in issues)
+    assert any("未检测到目录" in msg for msg in issues)
 
 
 def test_lnu_title01_flags_single_form_titles():
@@ -864,6 +912,49 @@ def test_lnu_f02_rejects_single_space_after_table_number(lnu_cfg):
     assert issues
 
 
+def test_lnu_f06_rejects_caption_note_with_body_sized_left_aligned_runs(lnu_cfg):
+    note = _para_with_run("Fig 2.4  Gel strength and chewiness.", sz=24)
+    p_pr = ET.SubElement(note, _w("pPr"))
+    spacing = ET.SubElement(p_pr, _w("spacing"))
+    spacing.set(_w("line"), "360")
+    spacing.set(_w("lineRule"), "auto")
+    jc = ET.SubElement(p_pr, _w("jc"))
+    jc.set(_w("val"), "both")
+    ctx = _ctx(1, note, "Fig 2.4  Gel strength and chewiness.", "body")
+    ctx["module"] = "body_caption_note"
+
+    passed, issues, _ = audit_thesis.check_lnu_f06(_doc_with_paragraphs(note), [ctx], {}, lnu_cfg)
+
+    assert not passed
+    assert any("居中" in issue or "字体/字号" in issue for issue in issues)
+
+
+def test_lnu_f06_requires_english_caption_to_be_centered_five_point_single_line(lnu_cfg):
+    caption_en = _set_run_fonts(_para_with_run("Fig. 2.1  Gel strength.", sz=21))
+    _set_spacing(caption_en, line=240)
+    _set_paragraph_alignment(caption_en, "left")
+    ctx = _ctx(1, caption_en, "Fig. 2.1  Gel strength.", "body")
+    ctx["module"] = "body_caption_en"
+
+    passed, issues, _ = audit_thesis.check_lnu_f06(_doc_with_paragraphs(caption_en), [ctx], {}, lnu_cfg)
+
+    assert not passed
+    assert any("英文图题/表题" in issue and "应居中" in issue for issue in issues)
+
+
+def test_lnu_f06_requires_explanatory_caption_note_to_be_left_aligned_five_point_single_line(lnu_cfg):
+    note = _set_run_fonts(_para_with_run("注：图2.1(A) 为对照组。", sz=21))
+    _set_spacing(note, line=240)
+    _set_paragraph_alignment(note, "center")
+    ctx = _ctx(1, note, "注：图2.1(A) 为对照组。", "body")
+    ctx["module"] = "body_caption_note"
+
+    passed, issues, _ = audit_thesis.check_lnu_f06(_doc_with_paragraphs(note), [ctx], {}, lnu_cfg)
+
+    assert not passed
+    assert any("图注/表注" in issue and "应顶格左对齐" in issue for issue in issues)
+
+
 def test_lnu_ref01_rejects_fullwidth_reference_punctuation():
     title = _make_paragraph("参考文献")
     ref = _make_paragraph("[1] 郭光灿。量子光学[M]。北京：高等教育出版社，2005。")
@@ -941,6 +1032,37 @@ def test_lnu_ref03_rejects_nonzero_paragraph_spacing():
     assert any("段后应为0" in msg for msg in issues)
 
 
+def test_lnu_ref03_rejects_reference_layout_without_justification_or_hyphen_suppression():
+    title = _make_paragraph("参考文献")
+    ref = _make_paragraph("[1] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.")
+    p_pr = ET.SubElement(ref, _w("pPr"))
+    spacing = ET.SubElement(p_pr, _w("spacing"))
+    spacing.set(_w("line"), "360")
+    spacing.set(_w("before"), "0")
+    spacing.set(_w("after"), "0")
+    jc = ET.SubElement(p_pr, _w("jc"))
+    jc.set(_w("val"), "left")
+    r = ref.find("w:r", NSMAP)
+    r_pr = ET.SubElement(r, _w("rPr"))
+    sz = ET.SubElement(r_pr, _w("sz"))
+    sz.set(_w("val"), "21")
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref, "[1] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.", "reference", "backmatter"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_ref03(
+        _doc_with_paragraphs(title, ref),
+        contexts,
+        {},
+        {"ref_font_size": 21, "ref_line_spacing": 360},
+    )
+
+    assert not passed
+    assert any("两端对齐" in msg for msg in issues)
+    assert any("自动断字" in msg for msg in issues)
+
+
 def test_lnu_ref03_ignores_empty_paragraphs_inside_reference_section():
     title = _make_paragraph("参考文献")
     ref = _make_paragraph("[1] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.")
@@ -953,6 +1075,9 @@ def test_lnu_ref03_ignores_empty_paragraphs_inside_reference_section():
     ref_spacing.set(_w("line"), "360")
     ref_spacing.set(_w("before"), "0")
     ref_spacing.set(_w("after"), "0")
+    ref_jc = ET.SubElement(ref_ppr, _w("jc"))
+    ref_jc.set(_w("val"), "both")
+    ET.SubElement(ref_ppr, _w("suppressAutoHyphens"))
 
     empty = _make_paragraph("")
     empty_run = empty.find("w:r", NSMAP)

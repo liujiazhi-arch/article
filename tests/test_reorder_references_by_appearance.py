@@ -55,3 +55,16 @@ def test_reorder_references_stops_before_appendix_variant():
         "附录A",
         "[3] Appendix note.",
     ]
+
+
+def test_reorder_references_keeps_two_adjacent_citations_comma_separated():
+    doc = Document()
+    doc.add_paragraph("正文中同时引用[1,2]，连续三篇引用[1,2,3]。")
+    doc.add_paragraph("参考文献")
+    doc.add_paragraph("[1] First reference.")
+    doc.add_paragraph("[2] Second reference.")
+    doc.add_paragraph("[3] Third reference.")
+
+    reorder_references_in_document(doc, trailing_space=False)
+
+    assert doc.paragraphs[0].text == "正文中同时引用[1,2]，连续三篇引用[1-3]。"

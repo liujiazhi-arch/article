@@ -91,7 +91,6 @@ SCOPE_DEFINITIONS = (
             "LNU_F01",
             "LNU_F02",
             "LNU_F03",
-            "LNU_F05",
             "LNU_F06",
             "LNU_F07",
             "LNU_FMT02",

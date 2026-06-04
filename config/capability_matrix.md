@@ -99,8 +99,7 @@
 | LNU_F01 | 图题点号编号格式（图X.X 后两个半角空格） | Auto | docx-structure | ✓ | ✓ |
 | LNU_F02 | 表题点号编号格式（表X.X 后两个半角空格） | Auto | docx-structure | ✓ | ✓ |
 | LNU_F03 | 图前图后空行（辽大） | Auto | docx-structure | ✓ | ✓ |
-| LNU_F05 | 图表需先文中引用 | Semi | docx-structure | ✗ | ✓ |
-| LNU_F06 | 图题图注版式（辽大） | Auto | docx-structure | ✓ | ✓ |
+| LNU_F06 | 图题、英文题名与说明性图注版式（辽大） | Auto | docx-structure | ✓ | ✓ |
 | LNU_F07 | 图表块同页/跨页保护（辽大） | Auto | docx-structure | ✓ | ✓ |
 | LNU_FMT01 | 软回车换行 | Auto | docx-structure | ✓ | ✓ |
 | LNU_FMT02 | 图片嵌入型/表格无环绕 | Auto | docx-structure | ✓ | ✓ |
@@ -110,7 +109,7 @@
 | LNU_TB04 | 表块留白与表题贴表 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF01 | 参考文献英文半角标点 | Semi | docx-structure | ✓ | ✓ |
 | LNU_REF02 | 参考文献编号空格格式 | Auto | docx-structure | ✓ | ✓ |
-| LNU_REF03 | 参考文献字号五号，1.5倍行距 | Auto | docx-structure | ✓ | ✓ |
+| LNU_REF03 | 参考文献字号、行距、两端对齐与禁用断字 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF04 | 参考文献文献类型标识 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF05 | 参考文献序号连续性 | Auto | docx-structure | ✓ | ✓ |
 | LNU_ABS01 | 中文摘要标题格式 | Auto | docx-structure | ✓ | ✓ |
@@ -127,5 +126,5 @@
 | LNU_TITLE01 | 摘要/目录/序言/致谢双空格标题 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TOC01 | 目录标题与条目样式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TOC02 | 目录条目段后5磅 | Auto | docx-structure | ✓ | ✓ |
-| LNU_TOC03 | 目录必须自动生成 | Auto | docx-structure | ✓ | ✓ |
+| LNU_TOC03 | 目录区段存在并可核对页码 | Auto | docx-structure | ✓ | ✓ |
 | LNU_UNIT01 | 数字与单位间空格 | Auto | docx-structure | ✓ | ✓ |

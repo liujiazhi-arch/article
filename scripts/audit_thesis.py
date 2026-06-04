@@ -191,7 +191,7 @@ LNU_RULE_DEFINITIONS = (
     ("LNU_F01", "图题点号编号格式（辽大）", "important"),
     ("LNU_F02", "表题点号编号格式（辽大）", "important"),
     ("LNU_F03", "图前图后空行（辽大）", "minor"),
-    ("LNU_F06", "图题图注版式（辽大）", "minor"),
+    ("LNU_F06", "图题、英文题名与说明性图注版式（辽大）", "minor"),
     ("LNU_F07", "图表同页分页保护（辽大）", "important"),
     ("LNU_REF01", "参考文献英文半角标点（辽大）", "important"),
     ("LNU_REF02", "参考文献编号空格格式（辽大）", "important"),
@@ -201,8 +201,7 @@ LNU_RULE_DEFINITIONS = (
     ("LNU_TB01", "表格外框1.5pt内线0.5pt", "important"),
     ("LNU_TOC01", "目录标题与条目样式（辽大）", "minor"),
     ("LNU_TOC02", "目录条目行距多倍1.15倍，段后5磅（辽大）", "minor"),
-    ("LNU_TOC03", "目录必须自动生成（辽大）", "important"),
-    ("LNU_F05", "图表需先文中引用", "important"),
+    ("LNU_TOC03", "目录区段存在并可核对页码（辽大）", "important"),
     ("LNU_TB02", "表格内容宋体五号（辽大）", "minor"),
     ("LNU_TB04", "表块留白与表题贴表（辽大）", "minor"),
     ("LNU_ABS01", "摘要标题格式（辽大）", "important"),
@@ -233,6 +232,8 @@ SEVERITY_SCORES = {
 }
 
 FRONTMATTER_SECTIONS = {"abstract_cn", "abstract_en", "toc"}
+CAPTION_EN_MODULES = {"body_caption_en", "appendix_caption_en"}
+CAPTION_NOTE_MODULES = {"body_caption_note", "appendix_caption_note"}
 CJK_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
 DIGIT_CHAR_RE = re.compile(r"\d")
@@ -312,7 +313,7 @@ def is_main_body_context(ctx):
         return False
     if is_keyword_paragraph_text(ctx.get("text", "")):
         return False
-    if ctx.get("module") in {"body_caption_note", "appendix_caption_note"}:
+    if ctx.get("module") in CAPTION_EN_MODULES | CAPTION_NOTE_MODULES:
         return False
     return ctx.get("kind") == "body" and ctx.get("section") == "body" and not ctx.get("in_table", False)
 
@@ -1376,6 +1377,77 @@ def check_c02(document_root, contexts, style_map):
     return True, [], "全部上标引用"
 
 
+_CITATION_TOKEN_RE = re.compile(r"\[\d{1,3}(?:[,，、\-]\d{1,3})*\]")
+
+
+def _citation_numbers_from_token(text):
+    match = re.fullmatch(r"\[(.+)\]", text or "")
+    if match is None:
+        return []
+    numbers = []
+    for part in re.split(r"[,，、]", match.group(1)):
+        part = part.strip()
+        if not part:
+            continue
+        range_match = re.fullmatch(r"(\d{1,3})-(\d{1,3})", part)
+        if range_match is not None:
+            start, end = int(range_match.group(1)), int(range_match.group(2))
+            step = 1 if start <= end else -1
+            numbers.extend(range(start, end + step, step))
+            continue
+        if re.fullmatch(r"\d{1,3}", part):
+            numbers.append(int(part))
+    return numbers
+
+
+def _format_citation_numbers(numbers):
+    unique_numbers = sorted(set(numbers))
+    parts = []
+    index = 0
+    while index < len(unique_numbers):
+        start = unique_numbers[index]
+        end = start
+        while index + 1 < len(unique_numbers) and unique_numbers[index + 1] == end + 1:
+            index += 1
+            end = unique_numbers[index]
+        if end - start >= 2:
+            parts.append(f"{start}-{end}")
+        elif end == start:
+            parts.append(str(start))
+        else:
+            parts.extend([str(start), str(end)])
+        index += 1
+    return f"[{','.join(parts)}]"
+
+
+def _has_misgrouped_superscript_citations(p_elem):
+    runs = [run_elem for run_elem in p_elem.findall("w:r", NSMAP)]
+    index = 0
+    while index < len(runs):
+        run_elem = runs[index]
+        run_text = get_run_text(run_elem)
+        if not is_superscript(run_elem) or not _CITATION_TOKEN_RE.fullmatch(run_text or ""):
+            index += 1
+            continue
+
+        numbers = _citation_numbers_from_token(run_text)
+        group_end = index
+        while group_end + 1 < len(runs):
+            next_run = runs[group_end + 1]
+            next_text = get_run_text(next_run)
+            if not is_superscript(next_run) or not _CITATION_TOKEN_RE.fullmatch(next_text or ""):
+                break
+            numbers.extend(_citation_numbers_from_token(next_text))
+            group_end += 1
+
+        if group_end > index:
+            return True
+        if _format_citation_numbers(numbers) != run_text:
+            return True
+        index += 1
+    return False
+
+
 def check_c03(document_root, contexts, style_map):
     bad_positions = []
     samples = []
@@ -1390,16 +1462,21 @@ def check_c03(document_root, contexts, style_map):
             merged_parts.append(run_text)
 
         merged_text = "".join(merged_parts)
-        if re.search(r"[。！？]\s*(?:⟦\d{1,3}⟧|\[\d{1,3}\])", merged_text):
+        misplaced = re.search(r"[。！？]\s*(?:⟦\d{1,3}⟧|\[\d{1,3}\])", merged_text)
+        misgrouped = _has_misgrouped_superscript_citations(ctx["elem"])
+        if misplaced or misgrouped:
             bad_positions.append(ctx["index"])
             if len(samples) < 3:
                 preview = re.sub(r"⟦(\d{1,3})⟧", r"[\1]", merged_text)
-                samples.append(f"第{ctx['index']}段'{excerpt(preview)}'中引用位于句末标点之后")
+                if misplaced:
+                    samples.append(f"第{ctx['index']}段'{excerpt(preview)}'中引用位于句末标点之后")
+                else:
+                    samples.append(f"第{ctx['index']}段'{excerpt(preview)}'中连续引用未合并或未按范围规范")
 
     if bad_positions:
         return (
             False,
-            [f"{len(set(bad_positions))} 处上标引用出现在句末标点（。）之后，应移至标点之前。"] + samples,
+            [f"{len(set(bad_positions))} 处上标引用位置或编号组合格式不规范，应位于标点前，并按 [1,2] / [1-3] 规范合并。"] + samples,
             summarize_positions(bad_positions),
         )
     return True, [], "全部上标引用"
@@ -2388,100 +2465,69 @@ def check_lnu_f03(document_root, contexts, style_map, cfg):
 
 
 def check_lnu_f05(document_root, contexts, style_map, cfg):
-    """LNU_F05: 图表在出现前应先在正文中被引用。"""
-    caption_pattern = re.compile(r"^(图|表)\s*(\d+(?:[\.．-]\d+)+)")
-
-    def _normalized_candidates(prefix: str, number: str) -> set[str]:
-        normalized_number = re.sub(r"[．-]", ".", number)
-        return {
-            f"{prefix}{normalized_number}",
-            f"{prefix}{normalized_number.replace('.', '-')}",
-        }
-
-    prior_body_contexts = []
-    issues = []
-    affected_positions = []
-
-    for ctx in contexts:
-        if is_main_body_context(ctx):
-            prior_body_contexts.append(ctx)
-
-        if ctx.get("kind") != "caption":
-            continue
-
-        caption_text = (ctx.get("text") or "").strip()
-        match = caption_pattern.match(caption_text)
-        if not match:
-            continue
-
-        prefix, number = match.groups()
-        candidates = _normalized_candidates(prefix, number)
-        referenced = False
-        for prev_ctx in prior_body_contexts:
-            normalized_text = re.sub(r"[\s\u3000]+", "", prev_ctx.get("text") or "")
-            if any(token in normalized_text for token in candidates):
-                referenced = True
-                break
-
-        if referenced:
-            continue
-
-        canonical = f"{prefix}{re.sub(r'[．-]', '.', number)}"
-        issues.append(
-            f"第{ctx['index']}段{prefix}题'{excerpt(caption_text)}'前缺少正文引用，建议在前文加入“如{canonical}所示”或“见{canonical}”。"
-        )
-        affected_positions.append(ctx["index"])
-
-    if issues:
-        header = f"{len(issues)} 个图表题注在出现前未在正文中被引用。"
-        return False, [header] + issues[:5], summarize_positions(affected_positions)
-    return True, [], "全部图表题注均已先文中引用"
+    """Compatibility no-op: LNU no longer forces prose references before captions."""
+    return True, [], "图表题注前不强制补写“如图/如表所示”类正文引用"
 
 
 def check_lnu_f06(document_root, contexts, style_map, cfg):
-    """LNU_F06: 图题 1.5 倍行距；图注五号、单倍行距。"""
-    expected_caption_line = cfg.get("figure_caption_line") or cfg.get("body_line") or 360
+    """LNU_F06: 图题/表题、英文题名、说明性图注/表注版式。"""
+    expected_caption_line = cfg.get("figure_caption_line") or 240
     expected_note_line = cfg.get("figure_note_line") or 240
-    expected_note_size = cfg.get("caption_size") or 21
+    expected_size = cfg.get("caption_size") or 21
 
     issues = []
     affected_positions = []
+
+    def _check_caption_like_paragraph(ctx, label, expected_line, expected_alignment):
+        problems = []
+        p_elem = ctx["elem"]
+        if p_elem.find("w:pPr/w:numPr", NSMAP) is not None:
+            problems.append("存在项目符号/编号")
+        alignment = get_paragraph_alignment(p_elem, style_map)
+        if expected_alignment == "center" and alignment != "center":
+            problems.append("应居中")
+        elif expected_alignment == "left":
+            first_line = get_paragraph_first_line(p_elem)
+            if alignment not in {"left", None}:
+                problems.append("应顶格左对齐")
+            if first_line not in {None, "0"}:
+                problems.append(f"首行缩进应为0，实际={first_line}")
+        spacing = p_elem.find("w:pPr/w:spacing", NSMAP)
+        line_val = parse_int(get_w_attr(spacing, "line"))
+        if line_val != expected_line:
+            problems.append(f"行距应为{expected_line}，实际={line_val}")
+        for run_elem in get_non_empty_runs(p_elem):
+            east_asia = get_effective_run_font(run_elem, style_map, p_elem, attr_name="eastAsia")
+            ascii_font = get_effective_run_font(run_elem, style_map, p_elem, attr_name="ascii")
+            size = get_effective_run_size(run_elem, style_map, p_elem)
+            if east_asia not in ("宋体", "SimSun") or ascii_font != "Times New Roman" or size != expected_size:
+                problems.append(
+                    f"字体/字号应为宋体+Times New Roman、五号，实际 eastAsia={east_asia} ascii={ascii_font} size={size}"
+                )
+                break
+        if problems:
+            issues.append(f"第{ctx['index']}段{label}版式异常：{'，'.join(problems)}。")
+            affected_positions.append(ctx["index"])
 
     for ctx in contexts:
         if ctx.get("module") not in {"body_caption", "appendix_caption"}:
             continue
-        spacing = ctx["elem"].find("w:pPr/w:spacing", NSMAP)
-        line_val = parse_int(get_w_attr(spacing, "line"))
-        if line_val != expected_caption_line:
-            issues.append(f"第{ctx['index']}段图题行距应为1.5倍（{expected_caption_line}），实际={line_val}。")
-            affected_positions.append(ctx["index"])
+        _check_caption_like_paragraph(ctx, "图题/表题", expected_caption_line, "center")
 
     for ctx in contexts:
-        if ctx.get("module") not in {"body_caption_note", "appendix_caption_note"}:
+        if ctx.get("module") not in CAPTION_EN_MODULES:
             continue
-        spacing = ctx["elem"].find("w:pPr/w:spacing", NSMAP)
-        line_val = parse_int(get_w_attr(spacing, "line"))
-        if line_val != expected_note_line:
-            issues.append(f"第{ctx['index']}段图注行距应为单倍（{expected_note_line}），实际={line_val}。")
-            affected_positions.append(ctx["index"])
-            continue
+        _check_caption_like_paragraph(ctx, "英文图题/表题", expected_note_line, "center")
 
-        for run_elem in get_non_empty_runs(ctx["elem"]):
-            r_fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
-            east_asia = get_w_attr(r_fonts, "eastAsia")
-            ascii_font = get_w_attr(r_fonts, "ascii")
-            size = get_run_size(run_elem)
-            if east_asia not in ("宋体", "SimSun") or ascii_font != "Times New Roman" or size != expected_note_size:
-                issues.append(
-                    f"第{ctx['index']}段图注字体/字号应为宋体+Times New Roman、五号，实际 eastAsia={east_asia} ascii={ascii_font} size={size}。"
-                )
-                affected_positions.append(ctx["index"])
-                break
+    for ctx in contexts:
+        if ctx.get("module") not in CAPTION_NOTE_MODULES:
+            continue
+        _check_caption_like_paragraph(ctx, "图注/表注", expected_note_line, "left")
 
     if issues:
-        header = f"{len(affected_positions)} 个图题或图注版式不符合辽大要求。"
+        header = f"{len(affected_positions)} 个图题、英文题名或图注版式不符合辽大要求。"
         return False, [header] + issues[:6], summarize_positions(affected_positions)
-    return True, [], "全部图题与图注版式正常"
+    return True, [], "全部图题、英文题名与图注版式正常"
 
 
 def check_lnu_ref01(document_root, contexts, style_map, cfg):
@@ -2841,7 +2887,12 @@ def check_lnu_object_pagination(document_root, contexts, style_map, cfg):
         if block.get("section") not in {"body", "appendix"}:
             continue
         caption_index = block["caption"].index
-        block_paragraphs = [block["image"], block["caption"].elem, *[note.elem for note in block["notes"]]]
+        block_paragraphs = [
+            block["image"],
+            block["caption"].elem,
+            *[caption.elem for caption in block.get("english_captions", [])],
+            *[note.elem for note in block["notes"]],
+        ]
         for idx, p_elem in enumerate(block_paragraphs):
             should_keep_next = idx < len(block_paragraphs) - 1
             if should_keep_next and not _paragraph_onoff_enabled(p_elem, "keepNext"):
@@ -2857,7 +2908,8 @@ def check_lnu_object_pagination(document_root, contexts, style_map, cfg):
         if block.get("section") not in {"body", "appendix"}:
             continue
         caption_index = block["caption"].index
-        if not _paragraph_onoff_enabled(block["caption"].elem, "keepNext"):
+        caption_chain = [block["caption"].elem, *[caption.elem for caption in block.get("english_captions", [])]]
+        if any(not _paragraph_onoff_enabled(p_elem, "keepNext") for p_elem in caption_chain):
             issues.append(f"第{caption_index}段表题缺少同页保护，表题与表格可能跨页断开。")
             affected_positions.append(caption_index)
             continue
@@ -2999,6 +3051,13 @@ def check_lnu_ref03(document_root, contexts, style_map, cfg):
             issues.append(f"参考文献段前应为0，实际={before_val}")
         if after_val not in (None, 0):
             issues.append(f"参考文献段后应为0，实际={after_val}")
+        jc = p.find("w:pPr/w:jc", NSMAP)
+        if get_w_attr(jc, "val") != "both":
+            issues.append("参考文献条目应设置为两端对齐。")
+        suppress_auto_hyphens = p.find("w:pPr/w:suppressAutoHyphens", NSMAP)
+        suppress_val = get_w_attr(suppress_auto_hyphens, "val")
+        if suppress_auto_hyphens is None or suppress_val in {"0", "false", "False", "off"}:
+            issues.append("参考文献条目应禁用自动断字。")
         for run in p.findall(".//w:r", NSMAP):
             if not get_run_text(run).strip():
                 continue
@@ -3315,31 +3374,28 @@ def check_lnu_toc01(document_root, contexts, style_map, cfg):
 
 
 def check_lnu_toc03(document_root, contexts, style_map, cfg):
-    """LNU_TOC03: 目录必须为 Word 自动生成域，不应手敲。"""
-    toc_title_found = False
-    toc_generated = False
+    """LNU_TOC03: 目录应存在；可为可见普通目录或 Word TOC 域。"""
+    toc_found = False
 
     for p_elem in document_root.findall(".//w:p", NSMAP):
         text = get_paragraph_text(p_elem).strip()
-        if is_toc_title(text):
-            toc_title_found = True
+        if is_toc_title(text) or _looks_like_toc_entry(text):
+            toc_found = True
+            break
 
         p_style = p_elem.find("w:pPr/w:pStyle", NSMAP)
         style_val = (get_w_attr(p_style, "val") or "").strip()
-        if is_toc_generated_style_id(style_val):
-            toc_generated = True
+        if is_toc_generated_style_id(style_val) or _is_toc_entry_style(style_val, style_map):
+            toc_found = True
             break
 
         if has_toc_field_instr(p_elem, NSMAP):
-            toc_generated = True
-        if toc_generated:
+            toc_found = True
             break
 
-    if not toc_title_found and not toc_generated:
-        return True, [], "文档无目录区段"
-    if toc_generated:
-        return True, [], "目录包含 TOC 自动生成域"
-    return False, ["检测到目录标题，但未发现 TOC 域或 TOC 样式，目录应自动生成，不要手敲。"], "目录区段"
+    if toc_found:
+        return True, [], "已检测到目录区段"
+    return False, ["未检测到目录区段；请按论文标题结构生成或补全目录，并人工核对页码。"], "目录区段"
 
 
 def check_body_font(document_root, contexts, style_map, cfg):
@@ -3375,7 +3431,7 @@ def check_f05(document_root, contexts, style_map):
     captions = [
         ctx
         for ctx in contexts
-        if ctx["kind"] == "caption" or ctx.get("module") in {"body_caption_note", "appendix_caption_note"}
+        if ctx["kind"] == "caption" or ctx.get("module") in CAPTION_EN_MODULES | CAPTION_NOTE_MODULES
     ]
     if not captions:
         return True, [], "文档无图表题注"
@@ -3780,7 +3836,6 @@ LNU_RULE_CHECKERS = {
     "LNU_TOC01": check_lnu_toc01,
     "LNU_TOC02": check_lnu_toc02,
     "LNU_TOC03": check_lnu_toc03,
-    "LNU_F05": lambda doc, ctxs, sm, cfg: check_lnu_f05(doc, ctxs, sm, cfg),
     "LNU_TB02": lambda doc, ctxs, sm, cfg: check_lnu_tb02(doc, ctxs, sm, cfg),
     "LNU_TB04": lambda doc, ctxs, sm, cfg: check_lnu_tb04(doc, ctxs, sm, cfg),
     "LNU_F07": lambda doc, ctxs, sm, cfg: check_lnu_object_pagination(doc, ctxs, sm, cfg),

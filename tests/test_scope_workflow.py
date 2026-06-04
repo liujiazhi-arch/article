@@ -172,22 +172,17 @@ def test_scope_verify_can_focus_on_selected_scope(tmp_docx, tmp_path):
     assert "正文标题（headings）" in rendered
 
 
-def test_scope_verify_exposes_manual_review_rule_summary_for_lnu_f05(tmp_path):
+def test_scope_verify_does_not_expose_removed_lnu_f05_manual_review(tmp_path):
     source_path = _build_lnu_f05_fail_doc(Path(tmp_path) / "scope_verify_lnu_f05_fail.docx")
     verification = build_scope_verify(str(source_path), profile_path="lnu", scopes=["figures"])
 
-    assert verification["overall_status"] in {"manual_review", "needs_fix"}
-    assert verification["readiness"] == "manual-review-required"
-    assert "LNU_F05" in verification["manual_review_rule_ids"]
+    assert verification["readiness"] != "manual-review-required"
+    assert "LNU_F05" not in verification["manual_review_rule_ids"]
     assert verification["unsupported_rule_ids"] == []
-    lnu_f05_item = next(item for item in verification["manual_review_rules"] if item["id"] == "LNU_F05")
-    assert lnu_f05_item["check_level"] == "Semi"
 
     rendered = render_scope_verify(verification)
-    assert "可提交状态: manual-review-required" in rendered
-    assert "仍需人工复核：" in rendered
-    assert "LNU_F05" in rendered
-    assert "评分较高不等于可直接提交" in rendered
+    assert "可提交状态: manual-review-required" not in rendered
+    assert "LNU_F05" not in rendered
 
 
 def test_scope_verify_treats_lnu_f03_as_autofixable_not_manual_review(tmp_path):

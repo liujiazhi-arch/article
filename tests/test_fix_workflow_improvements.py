@@ -623,16 +623,14 @@ def test_figures_scope_moves_post_figure_analysis_before_figure_block(tmp_path):
 
     assert drawing_before == "360"
     assert drawing_after in {None, "0"}
-    assert caption_line == "360"
+    assert caption_line == "240"
     assert note_line == "240"
     assert note_after == "360"
 
     results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
     lnu_f03 = next(item for item in results if item["id"] == "LNU_F03")
-    lnu_f05 = next(item for item in results if item["id"] == "LNU_F05")
     lnu_f06 = next(item for item in results if item["id"] == "LNU_F06")
     assert lnu_f03["passed"], lnu_f03["issues"]
-    assert lnu_f05["passed"], lnu_f05["issues"]
     assert lnu_f06["passed"], lnu_f06["issues"]
 
 
@@ -893,7 +891,7 @@ def test_layout_rebalance_can_move_table_block_to_reference_anchor(tmp_path):
     assert idx_ref < idx_table_caption < idx_figure_caption
 
 
-def test_layout_rebalance_still_inserts_lead_when_only_later_section_mentions_table(tmp_path):
+def test_layout_rebalance_does_not_insert_lead_when_only_later_section_mentions_table(tmp_path):
     source_path = Path(tmp_path) / "layout_rebalance_later_reference_source.docx"
     doc = Document()
     doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
@@ -921,15 +919,41 @@ def test_layout_rebalance_still_inserts_lead_when_only_later_section_mentions_ta
 
     fixed_doc = Document(fixed_path)
     paragraph_texts = [paragraph.text.strip() for paragraph in fixed_doc.paragraphs if paragraph.text.strip()]
-    idx_lead = paragraph_texts.index("相关结果如表2.1所示。")
     idx_caption = next(i for i, text in enumerate(paragraph_texts) if _normalize_spaces(text) == "表2.1 基因组组装统计")
     idx_heading = paragraph_texts.index("2.2 讨论")
 
-    assert idx_lead < idx_caption < idx_heading
+    assert "相关结果如表2.1所示。" not in paragraph_texts
+    assert idx_caption < idx_heading
 
-    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
-    lnu_f05 = next(item for item in results if item["id"] == "LNU_F05")
-    assert lnu_f05["passed"], lnu_f05["issues"]
+
+def test_figures_scope_removes_existing_synthetic_caption_reference_lead(tmp_path):
+    source_path = Path(tmp_path) / "synthetic_caption_reference_lead_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    doc.add_paragraph("2.1 基因组组装结果").style = doc.styles["Heading 2"]
+    doc.add_paragraph("相关结果如表2.1所示。")
+    table_caption = doc.add_paragraph("表2.1 基因组组装统计")
+    table_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "层次"
+    table.cell(0, 1).text = "N50"
+    table.cell(1, 0).text = "Contig"
+    table.cell(1, 1).text = "522958"
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "synthetic_caption_reference_lead_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    paragraph_texts = [paragraph.text.strip() for paragraph in fixed_doc.paragraphs if paragraph.text.strip()]
+
+    assert "相关结果如表2.1所示。" not in paragraph_texts
+    assert any(_normalize_spaces(text) == "表2.1 基因组组装统计" for text in paragraph_texts)
 
 
 def test_figures_scope_clears_borders_on_equation_layout_tables(tmp_path):
@@ -1136,6 +1160,57 @@ def test_body_scope_splits_inline_citation_in_protected_math_paragraph(tmp_path)
     assert c04["passed"], c04["issues"]
 
 
+def test_scoped_fix_normalizes_inline_citation_groups_and_reference_layout(tmp_path):
+    source_path = Path(tmp_path) / "citation_reference_layout_source.docx"
+    doc = Document()
+    doc.add_paragraph("第1章 绪论").style = doc.styles["Heading 1"]
+    doc.add_paragraph("综述显示。[1][2]连续研究[1,2,3]表明。")
+    doc.add_paragraph("参考文献").style = doc.styles["Heading 1"]
+    doc.add_paragraph("[1] Some reference text.")
+    doc.add_paragraph("[2] Another reference text.")
+    doc.add_paragraph("[3] Third reference text.")
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "citation_reference_layout_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["body_paragraphs", "references"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    body_paragraph = next(p for p in fixed_doc.paragraphs if p.text.startswith("综述显示"))
+    assert body_paragraph.text == "综述显示[1,2]。连续研究[1-3]表明。"
+    citation_runs = [run for run in body_paragraph.runs if run.text.startswith("[")]
+    assert [run.text for run in citation_runs] == ["[1,2]", "[1-3]"]
+    assert all(run.font.superscript is True for run in citation_runs)
+
+    with zipfile.ZipFile(fixed_path, "r") as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    ref_paragraph = next(
+        p_elem
+        for p_elem in root.findall(".//w:body/w:p", ns)
+        if "".join(t.text or "" for t in p_elem.findall(".//w:t", ns)).startswith("[1] ")
+    )
+    p_pr = ref_paragraph.find("w:pPr", ns)
+    assert p_pr is not None
+    jc = p_pr.find("w:jc", ns)
+    spacing = p_pr.find("w:spacing", ns)
+    assert jc is not None and jc.get(qn("w:val")) == "both"
+    assert spacing is not None and spacing.get(qn("w:line")) == "360"
+    assert p_pr.find("w:suppressAutoHyphens", ns) is not None
+    first_run = ref_paragraph.find("w:r", ns)
+    assert first_run is not None
+    assert first_run.find("w:rPr/w:vertAlign", ns) is None
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    by_id = {item["id"]: item for item in results}
+    for rule_id in ("C03", "C04", "R04", "LNU_REF03"):
+        assert by_id[rule_id]["passed"], by_id[rule_id]["issues"]
+
+
 def test_figures_scope_adds_spacing_between_caption_note_prefix_and_number(tmp_path):
     source_path = Path(tmp_path) / "caption_note_num_spacing_source.docx"
     doc = Document()
@@ -1193,7 +1268,7 @@ def test_figures_scope_treats_spaced_colon_table_note_as_caption_note(tmp_path):
     fixed_doc = Document(fixed_path)
     fixed_note = next(p for p in fixed_doc.paragraphs if p.text.startswith("注"))
     note_before, _note_after, _ = _spacing_attrs(fixed_note)
-    assert fixed_note.text.startswith("注1)")
+    assert fixed_note.text.startswith("注：")
     assert note_before == "0"
 
     results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
@@ -1201,6 +1276,48 @@ def test_figures_scope_treats_spaced_colon_table_note_as_caption_note(tmp_path):
     lnu_tb04 = next(item for item in results if item["id"] == "LNU_TB04")
     assert s03["passed"], s03["issues"]
     assert lnu_tb04["passed"], lnu_tb04["issues"]
+
+
+def test_figures_scope_formats_english_caption_and_explanatory_note_separately(tmp_path):
+    source_path = Path(tmp_path) / "english_caption_note_source.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    figure = doc.add_paragraph()
+    _add_mock_drawing(figure)
+    caption = doc.add_paragraph("图2.1 明胶凝胶强度")
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    english_caption = doc.add_paragraph("Fig. 2.1A  Gel strength of gelatin samples.")
+    english_caption.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    note = doc.add_paragraph("注：图2.1B 为实验组。")
+    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph("下文继续分析。")
+    doc.save(source_path)
+
+    fixed_path = Path(tmp_path) / "english_caption_note_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    fixed_english_caption = _paragraph_by_prefix(fixed_doc, "Fig.")
+    fixed_note = _paragraph_by_prefix(fixed_doc, "注：")
+    _, _, en_line = _spacing_attrs(fixed_english_caption)
+    note_before, _, note_line = _spacing_attrs(fixed_note)
+
+    assert fixed_english_caption.text.startswith("Fig. 2.1(A)")
+    assert fixed_english_caption.alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert en_line == "240"
+    assert fixed_note.text.startswith("注：图2.1(B)")
+    assert fixed_note.alignment == WD_ALIGN_PARAGRAPH.LEFT
+    assert note_before == "0"
+    assert note_line == "240"
+
+    results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    lnu_f06 = next(item for item in results if item["id"] == "LNU_F06")
+    assert lnu_f06["passed"], lnu_f06["issues"]
 
 
 def test_heading_and_table_scopes_keep_heading_spacing_after_table_block(tmp_path):
@@ -1352,10 +1469,12 @@ def test_heading_and_figure_scopes_share_gap_budget_without_over_spacing(tmp_pat
     ]
     idx_drawing = next(idx for idx, text, has_drawing in paragraph_info if has_drawing)
     idx_note = next(idx for idx, text, has_drawing in paragraph_info if text.startswith("注"))
+    previous_heading = next(paragraph for paragraph in fixed_doc.paragraphs if paragraph.text.startswith("2.1.1 "))
+    _, previous_after, _ = _spacing_attrs(previous_heading)
     drawing_before, _, _ = _spacing_attrs(fixed_doc.paragraphs[idx_drawing])
     _, note_after, _ = _spacing_attrs(fixed_doc.paragraphs[idx_note])
 
-    assert drawing_before == "360"
+    assert int(previous_after or 0) + int(drawing_before or 0) == 360
     next_heading = next(paragraph for paragraph in fixed_doc.paragraphs if paragraph.text.startswith("2.2 "))
     next_before, _, _ = _spacing_attrs(next_heading)
     assert int(note_after or 0) + int(next_before or 0) == 360
@@ -1402,6 +1521,35 @@ def test_fix_docx_writes_reopenable_docx(tmp_docx, tmp_path):
         assert zip_handle.testzip() is None
     reopened = Document(fixed_path)
     assert len(reopened.paragraphs) > 0
+
+
+def test_toc_scope_inserts_visible_toc_without_word_field(tmp_path):
+    source_path = Path(tmp_path) / "visible_toc_source.docx"
+    fixed_path = Path(tmp_path) / "visible_toc_fixed.docx"
+    doc = Document()
+    doc.add_paragraph("封面信息")
+    doc.add_paragraph("第1章 绪论")
+    doc.add_paragraph("1.1 研究背景")
+    doc.add_paragraph("这是正文。")
+    doc.save(source_path)
+
+    fix_thesis.fix_docx(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["toc"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    texts = [paragraph.text.strip() for paragraph in fixed_doc.paragraphs]
+    with zipfile.ZipFile(fixed_path, "r") as zf:
+        document_xml = zf.read("word/document.xml").decode("utf-8")
+
+    assert "目  录" in texts
+    assert texts.index("目  录") < texts.index("第1章 绪论")
+    assert any(text.startswith("第1章 绪论") and "待核对" in text for text in texts)
+    assert any(text.startswith("1.1") and "研究背景" in text and "待核对" in text for text in texts)
+    assert 'TOC \\o "1-3"' not in document_xml
 
 
 def test_fix_docx_keeps_page_break_before_reference_heading_in_default_flow(tmp_docx, tmp_path):

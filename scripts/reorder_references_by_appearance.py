@@ -73,9 +73,19 @@ def _compress_citation_numbers(numbers: list[int]) -> str:
         if current == prev + 1:
             prev = current
             continue
-        parts.append(f"{start}-{prev}" if start != prev else str(start))
+        if prev - start >= 2:
+            parts.append(f"{start}-{prev}")
+        elif prev == start:
+            parts.append(str(start))
+        else:
+            parts.extend([str(start), str(prev)])
         start = prev = current
-    parts.append(f"{start}-{prev}" if start != prev else str(start))
+    if prev - start >= 2:
+        parts.append(f"{start}-{prev}")
+    elif prev == start:
+        parts.append(str(start))
+    else:
+        parts.extend([str(start), str(prev)])
     return "[" + ",".join(parts) + "]"
 
 

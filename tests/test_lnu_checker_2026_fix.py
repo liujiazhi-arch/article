@@ -18,6 +18,7 @@ from fix_thesis import (
     fix_abstract_body,
     fix_abstract_heading,
     fix_caption_number_sep,
+    fix_caption_paragraph,
     fix_footer_page_number,
     fix_heading_spacing,
     fix_soft_line_breaks,
@@ -101,7 +102,7 @@ def _checker_2026_cfg(**overrides) -> dict:
             "caption_number_sep": ".",
             "kw_en_separator": "; ",
             "mixed_spacing_policy": "compact",
-            "pg01_format": "hyphen_wrap",
+            "pg01_format": "plain",
             "ref_terminal_punct": ".",
             "ref_number_trailing_space": True,
         }
@@ -180,12 +181,75 @@ def test_fix_caption_helpers_apply_checker_2026_number_format_and_trim_terminal_
     assert get_paragraph_text(caption) == "图2.1  菌株系统发育树"
 
 
+def test_fix_caption_paragraph_clears_list_marker_and_unifies_caption_style():
+    paragraph = _make_paragraph("Fig 2.4  Gel strength and chewiness.", sz=24)
+    p_pr = paragraph.find("w:pPr", NSMAP)
+    if p_pr is None:
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+    ET.SubElement(p_pr, _w("numPr"))
+    ind = ET.SubElement(p_pr, _w("ind"))
+    ind.set(_w("firstLine"), "480")
+    jc = ET.SubElement(p_pr, _w("jc"))
+    jc.set(_w("val"), "both")
+    run = paragraph.find("w:r", NSMAP)
+    assert run is not None
+    r_pr = run.find("w:rPr", NSMAP)
+    assert r_pr is not None
+    ET.SubElement(r_pr, _w("b"))
+
+    fix_caption_paragraph(paragraph, cfg=_checker_2026_cfg())
+
+    assert paragraph.find("w:pPr/w:numPr", NSMAP) is None
+    fixed_jc = paragraph.find("w:pPr/w:jc", NSMAP)
+    fixed_ind = paragraph.find("w:pPr/w:ind", NSMAP)
+    fixed_spacing = paragraph.find("w:pPr/w:spacing", NSMAP)
+    assert fixed_jc is not None and fixed_jc.get(_w("val")) == "center"
+    assert fixed_ind is not None and fixed_ind.get(_w("firstLine")) == "0"
+    assert fixed_spacing is not None and fixed_spacing.get(_w("line")) == "240"
+    for run_elem in paragraph.findall("w:r", NSMAP):
+        assert run_elem.find("w:rPr/w:b", NSMAP) is None
+        assert run_elem.find("w:rPr/w:bCs", NSMAP) is None
+        assert run_elem.find("w:rPr/w:sz", NSMAP).get(_w("val")) == "21"
+
+
 def test_fix_caption_note_paragraph_normalizes_lnu_note_prefix_to_numbered_form():
     paragraph = _make_paragraph("注 ：正式实验各组样品初始投料质量均为 1.00 g。", sz=21)
 
     fix_thesis.fix_caption_note_paragraph(paragraph, cfg=_checker_2026_cfg())
 
-    assert get_paragraph_text(paragraph) == "注1) 正式实验各组样品初始投料质量均为 1.00 g。"
+    assert get_paragraph_text(paragraph) == "注：正式实验各组样品初始投料质量均为 1.00 g。"
+
+
+def test_fix_caption_note_paragraph_left_aligns_explanatory_note_and_parenthesizes_subfigure_letters():
+    paragraph = _make_paragraph("注：图2.1A 为对照组，Fig. 2.1B 为实验组。", sz=24)
+
+    fix_thesis.fix_caption_note_paragraph(paragraph, cfg=_checker_2026_cfg())
+
+    p_pr = paragraph.find("w:pPr", NSMAP)
+    spacing = p_pr.find("w:spacing", NSMAP)
+    jc = p_pr.find("w:jc", NSMAP)
+    ind = p_pr.find("w:ind", NSMAP)
+
+    assert get_paragraph_text(paragraph) == "注：图2.1(A) 为对照组，Fig. 2.1(B) 为实验组。"
+    assert jc is not None and jc.get(_w("val")) == "left"
+    assert ind is not None and ind.get(_w("firstLine")) == "0"
+    assert spacing is not None and spacing.get(_w("line")) == "240"
+
+
+def test_fix_english_caption_paragraph_centers_five_point_single_line_and_parenthesizes_subfigure_letters():
+    paragraph = _make_paragraph("Fig. 2.1A  Gel strength.", sz=24)
+
+    fix_thesis.fix_english_caption_paragraph(paragraph, cfg=_checker_2026_cfg())
+
+    p_pr = paragraph.find("w:pPr", NSMAP)
+    spacing = p_pr.find("w:spacing", NSMAP)
+    jc = p_pr.find("w:jc", NSMAP)
+
+    assert get_paragraph_text(paragraph) == "Fig. 2.1(A)  Gel strength."
+    assert jc is not None and jc.get(_w("val")) == "center"
+    assert spacing is not None and spacing.get(_w("line")) == "240"
+    for run_elem in paragraph.findall("w:r", NSMAP):
+        assert run_elem.find("w:rPr/w:sz", NSMAP).get(_w("val")) == "21"
 
 
 def test_fix_caption_note_paragraph_preserves_existing_multi_note_numbering():
@@ -220,6 +284,50 @@ def test_fix_reference_paragraph_checker_2026_number_spacing_contract():
 
     normalized = get_paragraph_text(paragraph)
     assert normalized == "[1] Some reference text."
+
+
+def test_split_inline_citations_normalizes_groups_and_keeps_them_superscript():
+    paragraph = _make_paragraph("综述显示。[1][2]连续研究[1,2,3]表明。", sz=24)
+
+    fix_thesis.split_inline_citations(paragraph)
+    fix_thesis.move_superscript_citations_before_terminal_punct(paragraph)
+    fix_thesis.fix_superscript_fonts(paragraph)
+
+    assert get_paragraph_text(paragraph) == "综述显示[1,2]。连续研究[1-3]表明。"
+    citation_runs = [
+        run_elem
+        for run_elem in paragraph.findall("w:r", NSMAP)
+        if get_paragraph_text(run_elem).startswith("[")
+    ]
+    assert [get_paragraph_text(run_elem) for run_elem in citation_runs] == ["[1,2]", "[1-3]"]
+    assert all(fix_thesis.is_superscript(run_elem) for run_elem in citation_runs)
+
+
+def test_fix_reference_paragraph_matches_latest_reference_layout_contract():
+    paragraph = _make_paragraph("[1] Some reference text.", sz=21)
+    first_run = paragraph.find("w:r", NSMAP)
+    assert first_run is not None
+    first_rpr = first_run.find("w:rPr", NSMAP)
+    assert first_rpr is not None
+    vert_align = ET.SubElement(first_rpr, _w("vertAlign"))
+    vert_align.set(_w("val"), "superscript")
+    cfg = _checker_2026_cfg(ref_use_tab=False)
+
+    fix_reference_paragraph(paragraph, cfg=cfg)
+
+    p_pr = paragraph.find("w:pPr", NSMAP)
+    assert p_pr is not None
+    ind = p_pr.find("w:ind", NSMAP)
+    jc = p_pr.find("w:jc", NSMAP)
+    spacing = p_pr.find("w:spacing", NSMAP)
+    assert ind is not None
+    assert ind.get(_w("left")) == "420"
+    assert ind.get(_w("hanging")) == "420"
+    assert jc is not None and jc.get(_w("val")) == "both"
+    assert spacing is not None and spacing.get(_w("line")) == "360"
+    assert p_pr.find("w:suppressAutoHyphens", NSMAP) is not None
+    assert not fix_thesis.is_superscript(first_run)
+    assert get_paragraph_text(paragraph) == "[1] Some reference text."
 
 
 def test_fix_sp_cjk_latin_checker_2026_compact_policy_does_not_add_mixed_spacing():
@@ -363,7 +471,7 @@ def test_fix_lnu_ack01_inserts_missing_acknowledgement_section_for_checker_2026(
     assert "致  谢" in texts
 
 
-def test_fix_footer_page_number_builds_songti_hyphen_wrapped_footer(tmp_path):
+def test_fix_footer_page_number_builds_songti_plain_footer(tmp_path):
     workdir = tmp_path
     (workdir / "word" / "_rels").mkdir(parents=True)
     (workdir / "word").mkdir(exist_ok=True)
@@ -399,7 +507,8 @@ def test_fix_footer_page_number_builds_songti_hyphen_wrapped_footer(tmp_path):
     jc = footer_paragraph.find("w:pPr/w:jc", NSMAP)
     assert jc is not None and jc.get(_w("val")) == "center"
     texts = [text_elem.text or "" for text_elem in footer_paragraph.findall(".//w:t", NSMAP)]
-    assert texts.count("-") == 2
+    assert "-" not in texts
+    assert "—" not in texts
     assert any("PAGE" in (instr.text or "").upper() for instr in footer_paragraph.findall(".//w:instrText", NSMAP))
     run_fonts = footer_paragraph.findall(".//w:rPr/w:rFonts", NSMAP)
     assert run_fonts and all(font.get(_w("eastAsia")) == "宋体" for font in run_fonts)
@@ -470,11 +579,82 @@ def test_fix_footer_page_number_uses_cover_frontmatter_body_sections(tmp_path):
     body_texts = [text_elem.text or "" for text_elem in body_footer.findall(".//w:t", NSMAP)]
     assert front_texts.count("-") == 0
     assert body_texts.count("-") == 2
+    assert "—" not in front_texts
+    assert "—" not in body_texts
     assert any("PAGE" in (instr.text or "").upper() for instr in front_footer.findall(".//w:instrText", NSMAP))
     assert any("PAGE" in (instr.text or "").upper() for instr in body_footer.findall(".//w:instrText", NSMAP))
 
 
-def test_fix_footer_page_number_normalizes_existing_mixed_dash_wrapper(tmp_path):
+def test_fix_footer_page_number_creates_cover_section_when_frontmatter_has_no_cover_break(tmp_path):
+    workdir = tmp_path
+    (workdir / "word" / "_rels").mkdir(parents=True)
+    (workdir / "word").mkdir(exist_ok=True)
+    (workdir / "[Content_Types].xml").write_text(
+        (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '</Types>'
+        ),
+        encoding="utf-8",
+    )
+    (workdir / "word" / "_rels" / "document.xml.rels").write_text(
+        (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+        ),
+        encoding="utf-8",
+    )
+
+    cover = _make_paragraph("封面信息")
+    abstract_title = _make_paragraph("摘  要")
+    abstract_body = _make_paragraph("中文摘要。")
+    frontmatter_break = _make_paragraph("")
+    front_pr = ET.SubElement(frontmatter_break, _w("pPr"))
+    front_sect_pr = ET.SubElement(front_pr, _w("sectPr"))
+    document = _make_doc_root(cover, abstract_title, abstract_body, frontmatter_break, _make_paragraph("序言"))
+    body = document.find("w:body", NSMAP)
+    assert body is not None
+    body_sect_pr = ET.SubElement(body, _w("sectPr"))
+
+    updated_parts = fix_footer_page_number(str(workdir), document, cfg=_checker_2026_cfg())
+
+    cover_sect_pr = cover.find("w:pPr/w:sectPr", NSMAP)
+    assert cover_sect_pr is not None
+    assert cover_sect_pr.find("w:footerReference", NSMAP) is None
+    front_footer_ref = front_sect_pr.find("w:footerReference", NSMAP)
+    body_footer_ref = body_sect_pr.find("w:footerReference", NSMAP)
+    assert front_footer_ref is not None
+    assert body_footer_ref is not None
+
+    front_pg_num = front_sect_pr.find("w:pgNumType", NSMAP)
+    body_pg_num = body_sect_pr.find("w:pgNumType", NSMAP)
+    assert front_pg_num is not None
+    assert front_pg_num.get(_w("fmt")) == "upperRoman"
+    assert front_pg_num.get(_w("start")) == "1"
+    assert body_pg_num is not None
+    assert body_pg_num.get(_w("fmt")) == "decimal"
+    assert body_pg_num.get(_w("start")) == "1"
+
+    rels_root = ET.fromstring(updated_parts["word/_rels/document.xml.rels"])
+    targets_by_id = {
+        rel.get("Id"): rel.get("Target")
+        for rel in rels_root.findall("{http://schemas.openxmlformats.org/package/2006/relationships}Relationship")
+    }
+    front_target = targets_by_id[front_footer_ref.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")]
+    body_target = targets_by_id[body_footer_ref.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")]
+    front_footer = ET.fromstring(updated_parts[f"word/{front_target}"])
+    body_footer = ET.fromstring(updated_parts[f"word/{body_target}"])
+    front_texts = [text_elem.text or "" for text_elem in front_footer.findall(".//w:t", NSMAP)]
+    body_texts = [text_elem.text or "" for text_elem in body_footer.findall(".//w:t", NSMAP)]
+    assert front_texts.count("-") == 0
+    assert body_texts.count("-") == 2
+    assert "word/_rels/document.xml.rels" in updated_parts
+    assert "[Content_Types].xml" in updated_parts
+
+
+def test_fix_footer_page_number_removes_existing_mixed_dash_wrapper_for_plain_policy(tmp_path):
     workdir = tmp_path
     (workdir / "word" / "_rels").mkdir(parents=True)
     (workdir / "word").mkdir(exist_ok=True)
@@ -524,7 +704,7 @@ def test_fix_footer_page_number_normalizes_existing_mixed_dash_wrapper(tmp_path)
 
     footer_root = ET.fromstring(updated_parts["word/footer1.xml"])
     texts = [text_elem.text or "" for text_elem in footer_root.findall(".//w:t", NSMAP)]
-    assert texts.count("-") == 2
+    assert "-" not in texts
     assert "—" not in texts
 
 

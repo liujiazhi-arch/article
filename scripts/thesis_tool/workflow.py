@@ -453,7 +453,7 @@ def _build_diagnostic_actions(toc: dict, preface_status: str, style_text_conflic
 
     toc_status = toc.get("status")
     if toc_status in {"manual_toc", "duplicate_toc", "no_toc"}:
-        actions.append("优先处理目录：建议执行 toc scope，必要时带 --toc 重建自动目录。")
+        actions.append("优先处理目录：建议执行 toc scope 补全或规范可见目录，完成后人工核对页码。")
     elif toc_status == "field_only":
         actions.append("目录结构已存在但未渲染：在 Word/WPS 中 Ctrl+A 后按 F9 刷新页码显示。")
 

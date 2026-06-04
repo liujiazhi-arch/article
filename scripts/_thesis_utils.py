@@ -190,7 +190,14 @@ def _is_keywords_paragraph(text: str, section_name: str) -> bool:
 
 def _is_caption_note_text(text: str) -> bool:
     stripped = (text or "").strip()
-    return bool(re.match(r"^注(?:[\s\u3000]*[:：]|[\s\u3000]*\d+[)）])", stripped))
+    return bool(
+        re.match(r"^注(?:[\s\u3000]*[:：]|[\s\u3000]*\d+[)）])", stripped)
+    )
+
+
+def _is_english_caption_text(text: str) -> bool:
+    stripped = (text or "").strip()
+    return bool(re.match(r"^(?:Fig\.?|Figure|Table)\s*\d+(?:[.\-]\d+)*(?:\s*[A-Z])?\b", stripped, re.IGNORECASE))
 
 
 def _is_section_title(text: str, titles: frozenset[str]) -> bool:
@@ -228,7 +235,9 @@ def _classify_paragraph_module(
     if container_section == "toc":
         if is_toc_title(text):
             return "toc_title"
-        if _looks_like_toc_entry(text):
+        p_style = p_elem.find("w:pPr/w:pStyle", NSMAP)
+        style_id = p_style.get(f"{{{W_NS}}}val") if p_style is not None else None
+        if _looks_like_toc_entry(text) or str(style_id or "").strip() in {"TOC1", "TOC2", "TOC3"}:
             return "toc_entry"
         return "toc_body"
 
@@ -308,7 +317,11 @@ def _read_on_off(elem):
 
 def get_paragraph_text(p_elem):
     parts = []
-    for run_elem in p_elem.findall(".//w:r", NSMAP):
+    if p_elem.tag == f"{{{W_NS}}}r":
+        run_elements = [p_elem]
+    else:
+        run_elements = p_elem.findall(".//w:r", NSMAP)
+    for run_elem in run_elements:
         for elem in run_elem:
             if elem.tag == f"{{{W_NS}}}t" and elem.text:
                 parts.append(elem.text)
@@ -802,6 +815,7 @@ def _relabel_caption_note_nodes(paragraphs: list[ParagraphNode]) -> list[Paragra
             continue
 
         note_module = "body_caption_note" if node.module == "body_caption" else "appendix_caption_note"
+        english_caption_module = "body_caption_en" if node.module == "body_caption" else "appendix_caption_en"
         section_name = node.section
         is_table_caption = (node.text or "").strip().startswith("表")
         lookahead = index + 1
@@ -816,6 +830,10 @@ def _relabel_caption_note_nodes(paragraphs: list[ParagraphNode]) -> list[Paragra
                 break
             if candidate.module not in {"body_paragraph", "body_other", "appendix_paragraph", "appendix_other"}:
                 break
+            if _is_english_caption_text(candidate.text):
+                relabeled[lookahead] = replace(candidate, module=english_caption_module)
+                lookahead += 1
+                continue
             if not _is_caption_note_text(candidate.text):
                 break
             relabeled[lookahead] = replace(candidate, module=note_module)
@@ -938,8 +956,16 @@ def collect_figure_blocks(document_root: ET.Element, style_map: dict | None = No
             i += 1
             continue
 
-        notes: list[ParagraphNode] = []
+        english_captions: list[ParagraphNode] = []
         k = j + 1
+        while k < len(body_paragraphs):
+            english_node = node_by_id.get(id(body_paragraphs[k]))
+            if english_node is None or english_node.module not in {"body_caption_en", "appendix_caption_en"}:
+                break
+            english_captions.append(english_node)
+            k += 1
+
+        notes: list[ParagraphNode] = []
         while k < len(body_paragraphs):
             note_node = node_by_id.get(id(body_paragraphs[k]))
             if note_node is None or note_node.module not in {"body_caption_note", "appendix_caption_note"}:
@@ -947,6 +973,7 @@ def collect_figure_blocks(document_root: ET.Element, style_map: dict | None = No
             notes.append(note_node)
             k += 1
 
+        last_elem = notes[-1].elem if notes else (english_captions[-1].elem if english_captions else caption_node.elem)
         blocks.append(
             {
                 "body_paragraphs": body_paragraphs,
@@ -954,9 +981,10 @@ def collect_figure_blocks(document_root: ET.Element, style_map: dict | None = No
                 "image_index": i,
                 "caption": caption_node,
                 "caption_index": j,
+                "english_captions": english_captions,
                 "notes": notes,
-                "end_index": k - 1 if notes else j,
-                "last_elem": notes[-1].elem if notes else caption_node.elem,
+                "end_index": k - 1,
+                "last_elem": last_elem,
                 "section": caption_node.section,
             }
         )
@@ -1002,6 +1030,13 @@ def collect_table_blocks(document_root: ET.Element, style_map: dict | None = Non
         while j < len(body_children) and is_blank_paragraph(body_children[j]):
             blank_between += 1
             j += 1
+        english_captions: list[ParagraphNode] = []
+        while j < len(body_children) and body_children[j].tag == body_paragraph_tag:
+            english_node = node_by_id.get(id(body_children[j]))
+            if english_node is None or english_node.module not in {"body_caption_en", "appendix_caption_en"}:
+                break
+            english_captions.append(english_node)
+            j += 1
         if j >= len(body_children) or body_children[j].tag != body_table_tag:
             i += 1
             continue
@@ -1024,6 +1059,7 @@ def collect_table_blocks(document_root: ET.Element, style_map: dict | None = Non
                 "body_children": body_children,
                 "caption": caption_node,
                 "caption_index": i,
+                "english_captions": english_captions,
                 "table": table_elem,
                 "table_index": j,
                 "notes": notes,

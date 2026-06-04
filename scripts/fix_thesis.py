@@ -124,9 +124,13 @@ DEFAULT_HEADING_STYLE_IDS = {
 _TEXT_CLEANUP_SKIP_MODULES = {
     "body_caption",
     "appendix_caption",
+    "body_caption_en",
+    "appendix_caption_en",
     "body_caption_note",
     "appendix_caption_note",
 }
+CAPTION_EN_MODULES = {"body_caption_en", "appendix_caption_en"}
+CAPTION_NOTE_MODULES = {"body_caption_note", "appendix_caption_note"}
 _HALF_WIDTH_PUNCT_MAPPING = {
     ",": "，",
     ";": "；",
@@ -234,8 +238,6 @@ def build_fix_runtime(
     if toc:
         cfg["toc_auto"] = True
     requested_scopes = normalize_scopes(scopes)
-    if requested_scopes is not None and "toc" in requested_scopes:
-        cfg["toc_auto"] = True
     return FixRuntime(
         cfg=cfg,
         profile_id=profile_bundle.profile_id,
@@ -397,7 +399,7 @@ def _node_targets_active_scope(node, scope_flags: ScopeFlags) -> bool:
         return scope_flags.acknowledgement or scope_flags.body
     if module == "appendix_paragraph":
         return scope_flags.appendix
-    if module in {"body_caption", "appendix_caption", "body_caption_note", "appendix_caption_note"}:
+    if module in {"body_caption", "appendix_caption"} | CAPTION_EN_MODULES | CAPTION_NOTE_MODULES:
         return scope_flags.figures
     if module == "body_paragraph":
         return scope_flags.body
@@ -558,7 +560,12 @@ def render_fix_preview(preview: dict) -> str:
         lines.append(f"修复范围: {', '.join(preview['selected_scopes'])}")
     else:
         lines.append("修复范围: 全部 scope")
-    lines.append(f"目录重建: {'是' if preview['toc_enabled'] else '否'}")
+    if preview["toc_enabled"]:
+        lines.append("目录处理: 自动域目录重建")
+    elif preview.get("selected_scopes") and "toc" in preview["selected_scopes"]:
+        lines.append("目录处理: 可见目录补全/规范")
+    else:
+        lines.append("目录处理: 否")
     lines.append(f"标题重编号: {'是' if preview['renumber_headings'] else '否'}")
     lines.append(f"图表跨页重排: {'是' if preview.get('layout_rebalance') else '否'}")
     lines.append(f"段落总数: {preview['paragraph_count']}")
@@ -646,6 +653,15 @@ def set_run_italic(run_elem, italic):
         if elem is None:
             elem = ET.SubElement(r_pr, f"{{{W_NS}}}{tag.split(':', 1)[1]}")
         set_attr(elem, "val", "1" if italic else "0")
+
+
+def _remove_run_props(run_elem, names):
+    r_pr = run_elem.find("w:rPr", NSMAP)
+    if r_pr is None:
+        return
+    for name in names:
+        for elem in list(r_pr.findall(f"w:{name}", NSMAP)):
+            r_pr.remove(elem)
 
 
 def set_run_font(run_elem, east_asia, ascii_font=None, size=None, bold=None, italic=None):
@@ -1591,6 +1607,49 @@ def _is_generic_caption_lead_text(text: str, prefix: str, number: str) -> bool:
     return compact in patterns
 
 
+def remove_synthetic_caption_reference_leads(document_root, style_map=None):
+    """删除旧版工具生成的独立“相关结果如图/表X.X所示。”模板句。"""
+    body = document_root.find("w:body", NSMAP)
+    if body is None:
+        return 0
+
+    paragraph_tag = f"{{{W_NS}}}p"
+    body_children = list(body)
+    changed = 0
+    index = 0
+    while index < len(body_children):
+        child = body_children[index]
+        if child.tag != paragraph_tag:
+            index += 1
+            continue
+        text = get_paragraph_text(child).strip()
+        match = re.match(r"^相关结果如(图|表)(\d+(?:[.\-]\d+)*)所示[。.]?$", text)
+        if match is None:
+            index += 1
+            continue
+        prefix, number = match.groups()
+        next_idx = index + 1
+        while next_idx < len(body_children):
+            next_child = body_children[next_idx]
+            if next_child.tag != paragraph_tag:
+                break
+            next_text = get_paragraph_text(next_child).strip()
+            if next_text:
+                break
+            next_idx += 1
+        if next_idx >= len(body_children):
+            index += 1
+            continue
+        next_text = get_paragraph_text(body_children[next_idx]).strip()
+        if re.match(rf"^{prefix}\s*{re.escape(number)}\b", next_text):
+            body.remove(child)
+            del body_children[index]
+            changed += 1
+            continue
+        index += 1
+    return changed
+
+
 def rebalance_figure_blocks_for_layout(document_root, style_map=None, cfg=None, runtime=None):
     """按同小节内已有图号引用，前移图块以减少跨页大空白。
 
@@ -1819,7 +1878,7 @@ def promote_post_caption_reference_blocks(document_root, cfg=None, style_map=Non
             block_end_idx = caption_idx
             while block_end_idx + 1 < len(body_paragraphs):
                 next_node = node_by_elem_id.get(id(body_paragraphs[block_end_idx + 1]))
-                if next_node is None or next_node.module != "body_caption_note":
+                if next_node is None or next_node.module not in CAPTION_EN_MODULES | CAPTION_NOTE_MODULES:
                     break
                 block_end_idx += 1
 
@@ -1865,59 +1924,8 @@ def promote_post_caption_reference_blocks(document_root, cfg=None, style_map=Non
 
 
 def insert_missing_caption_reference_leads(document_root, cfg=None, style_map=None, runtime=None):
-    body = document_root.find("w:body", NSMAP)
-    if body is None:
-        return 0
-
-    model = build_document_model(document_root, style_map or {})
-    node_by_id = {id(node.elem): node for node in model.paragraphs}
-    cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
-
-    rebuilt_children = []
-    prior_text = []
-    changed = 0
-
-    for child in list(body):
-        if child.tag != f"{{{W_NS}}}p":
-            rebuilt_children.append(child)
-            continue
-
-        node = node_by_id.get(id(child))
-        text = get_paragraph_text(child).strip()
-        if node is not None and node.module == "body_caption":
-            match = re.match(r"^(图|表)\s*(\d+(?:[.\-]\d+)+)", text)
-            if match is not None:
-                prefix, number = match.groups()
-                candidates = _caption_reference_candidates(prefix, number)
-                has_prior_reference = any(_contains_caption_reference(existing, candidates) for existing in prior_text)
-
-                if not has_prior_reference:
-                    lead_para = ET.Element(f"{{{W_NS}}}p")
-                    lead_run = ET.SubElement(lead_para, f"{{{W_NS}}}r")
-                    lead_text = ET.SubElement(lead_run, f"{{{W_NS}}}t")
-                    lead_text.text = f"相关结果如{prefix}{number}所示。"
-                    fix_body_paragraph(lead_para, cfg=cfg, runtime=runtime, style_map=style_map)
-                    insert_at = len(rebuilt_children)
-                    while insert_at > 0:
-                        previous_child = rebuilt_children[insert_at - 1]
-                        if previous_child.tag != f"{{{W_NS}}}p":
-                            break
-                        previous_text = get_paragraph_text(previous_child).strip()
-                        if previous_child.find(".//w:drawing", NSMAP) is not None or not previous_text:
-                            insert_at -= 1
-                            continue
-                        break
-                    rebuilt_children.insert(insert_at, lead_para)
-                    prior_text.append(f"相关结果如{prefix}{number}所示。")
-                    changed += 1
-
-        rebuilt_children.append(child)
-        if text:
-            prior_text.append(text)
-
-    if changed:
-        body[:] = rebuilt_children
-    return changed
+    """Compatibility no-op: do not invent prose references before figure/table captions."""
+    return 0
 
 
 def renumber_lnu_captions(document_root, style_map=None):
@@ -2807,6 +2815,157 @@ def remove_existing_toc_artifacts(document_root):
     return removed
 
 
+def _toc_title_for_runtime(cfg, runtime=None) -> str:
+    toc_title = str((cfg or {}).get("toc_title", "目录") or "目录")
+    if is_lnu_profile(runtime) and toc_title == "目录":
+        return "目  录"
+    return toc_title
+
+
+def _add_plain_run(parent, text, *, east_asia="宋体", ascii_font="Times New Roman", size=24, bold=False):
+    run_elem = ET.SubElement(parent, f"{{{W_NS}}}r")
+    r_pr = ET.SubElement(run_elem, f"{{{W_NS}}}rPr")
+    r_fonts = ET.SubElement(r_pr, f"{{{W_NS}}}rFonts")
+    set_attr(r_fonts, "eastAsia", east_asia)
+    set_attr(r_fonts, "ascii", ascii_font)
+    set_attr(r_fonts, "hAnsi", ascii_font)
+    sz = ET.SubElement(r_pr, f"{{{W_NS}}}sz")
+    set_attr(sz, "val", str(size))
+    sz_cs = ET.SubElement(r_pr, f"{{{W_NS}}}szCs")
+    set_attr(sz_cs, "val", str(size))
+    if bold:
+        b_elem = ET.SubElement(r_pr, f"{{{W_NS}}}b")
+        set_attr(b_elem, "val", "1")
+    text_elem = ET.SubElement(run_elem, f"{{{W_NS}}}t")
+    text_elem.text = text
+    if str(text or "").startswith(" ") or str(text or "").endswith(" "):
+        text_elem.set(f"{{{XML_SPACE_NS}}}space", "preserve")
+    return run_elem
+
+
+def _make_visible_toc_title_para(cfg, runtime=None):
+    p_elem = ET.Element(f"{{{W_NS}}}p")
+    p_pr = ET.SubElement(p_elem, f"{{{W_NS}}}pPr")
+    p_style = ET.SubElement(p_pr, f"{{{W_NS}}}pStyle")
+    set_attr(p_style, "val", "TOCHeading")
+    page_break_before = ET.SubElement(p_pr, f"{{{W_NS}}}pageBreakBefore")
+    set_attr(page_break_before, "val", "1")
+    jc = ET.SubElement(p_pr, f"{{{W_NS}}}jc")
+    set_attr(jc, "val", "center")
+    spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
+    set_attr(spacing, "before", "0")
+    set_attr(spacing, "after", "0")
+    set_attr(spacing, "line", "360")
+    set_attr(spacing, "lineRule", "auto")
+    _add_plain_run(
+        p_elem,
+        _toc_title_for_runtime(cfg, runtime=runtime),
+        east_asia=str((cfg or {}).get("toc_title_font", "黑体") or "黑体"),
+        size=int((cfg or {}).get("toc_title_size", 32) or 32),
+        bold=True,
+    )
+    return p_elem
+
+
+def _make_visible_toc_entry_para(text, level, cfg):
+    active_cfg = cfg or {}
+    level = max(1, min(int(level or 1), 3))
+    p_elem = ET.Element(f"{{{W_NS}}}p")
+    p_pr = ET.SubElement(p_elem, f"{{{W_NS}}}pPr")
+    p_style = ET.SubElement(p_pr, f"{{{W_NS}}}pStyle")
+    set_attr(p_style, "val", f"TOC{level}")
+
+    tabs = ET.SubElement(p_pr, f"{{{W_NS}}}tabs")
+    tab = ET.SubElement(tabs, f"{{{W_NS}}}tab")
+    set_attr(tab, "val", "right")
+    set_attr(tab, "leader", "dot")
+    set_attr(tab, "pos", str(int(active_cfg.get("toc_tab_pos", 9000) or 9000)))
+
+    if level > 1:
+        ind = ET.SubElement(p_pr, f"{{{W_NS}}}ind")
+        set_attr(ind, "left", str((level - 1) * 480))
+
+    spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
+    set_attr(spacing, "before", "0")
+    after_pt = float(active_cfg.get(f"toc_level{level}_after_pt", active_cfg.get("toc_level1_after_pt", 5)) or 5)
+    set_attr(spacing, "after", str(int(after_pt * 20)))
+    set_attr(spacing, "line", str(int(active_cfg.get("toc_entry_line", 276) or 276)))
+    set_attr(spacing, "lineRule", "auto")
+
+    if level == 1:
+        entry_font = str(active_cfg.get("toc_level1_font", active_cfg.get("toc_entry_font", "宋体")) or "宋体")
+        entry_size = int(active_cfg.get("toc_level1_size", active_cfg.get("toc_entry_size", 24)) or 24)
+    else:
+        entry_font = str(active_cfg.get("toc_entry_font", "宋体") or "宋体")
+        entry_size = int(active_cfg.get("toc_entry_size", 24) or 24)
+    _add_plain_run(p_elem, text, east_asia=entry_font, size=entry_size)
+    _add_plain_run(p_elem, "\t待核对", east_asia=entry_font, size=entry_size)
+    return p_elem
+
+
+def _make_visible_toc_page_break_para():
+    p_elem = ET.Element(f"{{{W_NS}}}p")
+    p_pr = ET.SubElement(p_elem, f"{{{W_NS}}}pPr")
+    p_style = ET.SubElement(p_pr, f"{{{W_NS}}}pStyle")
+    set_attr(p_style, "val", "TOCPageBreak")
+    spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
+    set_attr(spacing, "before", "0")
+    set_attr(spacing, "after", "0")
+    run_elem = ET.SubElement(p_elem, f"{{{W_NS}}}r")
+    br_elem = ET.SubElement(run_elem, f"{{{W_NS}}}br")
+    set_attr(br_elem, "type", "page")
+    return p_elem
+
+
+def _collect_visible_toc_headings(document_root, style_map=None, cfg=None):
+    max_level = max(1, min(int((cfg or {}).get("toc_max_level", 3) or 3), 3))
+    model = build_document_model(document_root, style_map or {})
+    headings = []
+    for node in model.paragraphs:
+        if node.section != "body":
+            continue
+        text = (node.text or "").strip()
+        if not text:
+            continue
+        level = None
+        if node.kind in {"h1", "h2", "h3"}:
+            level = int(node.kind[1])
+        if level is None:
+            level = match_heading_by_text(text)
+        if level is None or level > max_level:
+            continue
+        headings.append((node.elem, text, level))
+    return headings
+
+
+def ensure_visible_toc(document_root, cfg=None, style_map=None, runtime=None):
+    body = document_root.find("w:body", NSMAP)
+    if body is None:
+        return 0
+
+    model = build_document_model(document_root, style_map or {})
+    if any(node.container_section == "toc" for node in model.paragraphs):
+        return 0
+
+    headings = _collect_visible_toc_headings(document_root, style_map=style_map, cfg=cfg)
+    if not headings:
+        return 0
+
+    first_heading_elem = headings[0][0]
+    children = list(body)
+    try:
+        insert_index = children.index(first_heading_elem)
+    except ValueError:
+        return 0
+
+    new_paragraphs = [_make_visible_toc_title_para(cfg or {}, runtime=runtime)]
+    new_paragraphs.extend(_make_visible_toc_entry_para(text, level, cfg or {}) for _, text, level in headings)
+    new_paragraphs.append(_make_visible_toc_page_break_para())
+    for offset, paragraph in enumerate(new_paragraphs):
+        body.insert(insert_index + offset, paragraph)
+    return 1
+
+
 def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair_keywords=True):
     """
     在文档顶部插入辽大格式目录。
@@ -2867,9 +3026,7 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         return {}
 
     max_level = max(1, min(int(cfg.get("toc_max_level", 3) or 3), 3))
-    toc_title = str(cfg.get("toc_title", "目录") or "目录")
-    if is_lnu_profile(runtime) and toc_title == "目录":
-        toc_title = "目  录"
+    toc_title = _toc_title_for_runtime(cfg, runtime=runtime)
 
     def add_run(parent, text=None, east_asia="宋体", ascii_font="Times New Roman", size="24", bold=False):
         run_elem = ET.SubElement(parent, f"{{{W_NS}}}r")
@@ -3225,41 +3382,79 @@ def fix_caption_paragraph(p_elem, cfg=None, runtime=None):
     cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
     ensure_alignment_and_indent(p_elem, "center")
     p_pr = ensure_ppr(p_elem)
+    for elem in list(p_pr.findall("w:numPr", NSMAP)):
+        p_pr.remove(elem)
     ensure_spacing(p_pr, before=0, after=0)
     spacing = get_or_create(p_pr, "w:spacing")
-    set_attr(spacing, "line", str(cfg.get("figure_caption_line", 360)))
+    set_attr(spacing, "line", str(cfg.get("figure_caption_line", 240)))
     set_attr(spacing, "lineRule", "auto")
     for run_elem in p_elem.findall(".//w:r", NSMAP):
         ensure_size(run_elem, str(cfg.get("caption_size", 21)))
+        remove_bold(run_elem)
+        _remove_run_props(run_elem, ("bCs",))
         r_fonts = ensure_rfonts(run_elem)
         set_attr(r_fonts, "eastAsia", "宋体")
         set_attr(r_fonts, "ascii", "Times New Roman")
         set_attr(r_fonts, "hAnsi", "Times New Roman")
 
 
-def fix_caption_note_paragraph(p_elem, cfg=None, runtime=None):
+def _normalize_subfigure_letter_references(text: str) -> str:
+    def replace_cn(match):
+        return f"{match.group(1)}({match.group(2)})"
+
+    def replace_en(match):
+        return f"{match.group(1)}({match.group(2)})"
+
+    normalized = re.sub(r"((?:图|表)\s*\d+(?:[.\-]\d+)+)\s*([A-Z])\b", replace_cn, text or "")
+    normalized = re.sub(r"((?:Fig\.?|Figure|Table)\s*\d+(?:[.\-]\d+)+)\s*([A-Z])\b", replace_en, normalized, flags=re.IGNORECASE)
+    return normalized
+
+
+def _normalize_note_prefix(text: str) -> str:
+    return re.sub(r"^\s*注[\s\u3000]*[:：][\s\u3000]*", "注：", text or "", count=1)
+
+
+def _fix_caption_like_runs(p_elem, cfg):
+    for run_elem in p_elem.findall(".//w:r", NSMAP):
+        ensure_size(run_elem, str(cfg.get("caption_size", 21)))
+        remove_bold(run_elem)
+        _remove_run_props(run_elem, ("bCs",))
+        r_fonts = ensure_rfonts(run_elem)
+        set_attr(r_fonts, "eastAsia", "宋体")
+        set_attr(r_fonts, "ascii", "Times New Roman")
+        set_attr(r_fonts, "hAnsi", "Times New Roman")
+
+
+def fix_english_caption_paragraph(p_elem, cfg=None, runtime=None):
     cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
     ensure_alignment_and_indent(p_elem, "center")
     p_pr = ensure_ppr(p_elem)
+    for elem in list(p_pr.findall("w:numPr", NSMAP)):
+        p_pr.remove(elem)
     ensure_spacing(p_pr, before=0, after=0)
     spacing = get_or_create(p_pr, "w:spacing")
     set_attr(spacing, "line", str(cfg.get("figure_note_line", 240)))
     set_attr(spacing, "lineRule", "auto")
-    for run_elem in p_elem.findall(".//w:r", NSMAP):
-        ensure_size(run_elem, str(cfg.get("caption_size", 21)))
-        r_fonts = ensure_rfonts(run_elem)
-        set_attr(r_fonts, "eastAsia", "宋体")
-        set_attr(r_fonts, "ascii", "Times New Roman")
-        set_attr(r_fonts, "hAnsi", "Times New Roman")
+    _fix_caption_like_runs(p_elem, cfg)
     original_text = get_paragraph_text(p_elem).strip()
-    normalized_text = original_text
-    if re.match(r"^\s*注[\s\u3000]*[:：][\s\u3000]*(?!\d+\)|（[A-Za-z]|\([A-Za-z])", original_text):
-        normalized_text = re.sub(
-            r"^\s*注[\s\u3000]*[:：][\s\u3000]*",
-            "注1) ",
-            original_text,
-            count=1,
-        )
+    normalized_text = _normalize_subfigure_letter_references(original_text)
+    if normalized_text != original_text:
+        rewrite_paragraph_text_preserve_runs(p_elem, normalized_text)
+
+
+def fix_caption_note_paragraph(p_elem, cfg=None, runtime=None):
+    cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
+    ensure_alignment_and_indent(p_elem, "left", no_indent=True)
+    p_pr = ensure_ppr(p_elem)
+    for elem in list(p_pr.findall("w:numPr", NSMAP)):
+        p_pr.remove(elem)
+    ensure_spacing(p_pr, before=0, after=0)
+    spacing = get_or_create(p_pr, "w:spacing")
+    set_attr(spacing, "line", str(cfg.get("figure_note_line", 240)))
+    set_attr(spacing, "lineRule", "auto")
+    _fix_caption_like_runs(p_elem, cfg)
+    original_text = get_paragraph_text(p_elem).strip()
+    normalized_text = _normalize_subfigure_letter_references(_normalize_note_prefix(original_text))
     if normalized_text != original_text:
         rewrite_paragraph_text_preserve_runs(p_elem, normalized_text)
 
@@ -3358,7 +3553,7 @@ def normalize_lnu_figure_block_layout(document_root, style_map=None, cfg=None, r
             scan_idx = caption_idx + 1
             while scan_idx < len(body_paragraphs):
                 next_node = node_by_elem_id.get(id(body_paragraphs[scan_idx]))
-                if next_node is None or next_node.module not in {"body_caption_note", "appendix_caption_note"}:
+                if next_node is None or next_node.module not in CAPTION_EN_MODULES | CAPTION_NOTE_MODULES:
                     break
                 note_indices.append(scan_idx)
                 end_idx = scan_idx
@@ -3638,7 +3833,12 @@ def protect_object_blocks_from_pagination(document_root, style_map=None, cfg=Non
     for block in collect_figure_blocks(document_root, style_map or {}):
         if block.get("section") not in {"body", "appendix"}:
             continue
-        block_paragraphs = [block["image"], block["caption"].elem, *[note.elem for note in block["notes"]]]
+        block_paragraphs = [
+            block["image"],
+            block["caption"].elem,
+            *[caption.elem for caption in block.get("english_captions", [])],
+            *[note.elem for note in block["notes"]],
+        ]
         for idx, p_elem in enumerate(block_paragraphs):
             changed += _set_paragraph_pagination_flags(
                 p_elem,
@@ -3650,12 +3850,14 @@ def protect_object_blocks_from_pagination(document_root, style_map=None, cfg=Non
     for block in collect_table_blocks(document_root, style_map or {}):
         if block.get("section") not in {"body", "appendix"}:
             continue
-        changed += _set_paragraph_pagination_flags(
-            block["caption"].elem,
-            keep_next=True,
-            keep_lines=True,
-            page_break_before=False,
-        )
+        caption_chain = [block["caption"].elem, *[caption.elem for caption in block.get("english_captions", [])]]
+        for p_elem in caption_chain:
+            changed += _set_paragraph_pagination_flags(
+                p_elem,
+                keep_next=True,
+                keep_lines=True,
+                page_break_before=False,
+            )
         row_elems = block["table"].findall("w:tr", NSMAP)
         short_table = len(row_elems) < continuation_min_rows
         for row_idx, tr_elem in enumerate(row_elems):
@@ -4166,10 +4368,7 @@ def fix_ellipsis(document_root, style_map=None, allowed_ids=None, protected_ids=
 
 def fix_half_width_punct_in_cjk(document_root, style_map=None, allowed_ids=None, protected_ids=None):
     """PU01/LNU_ABS04: 将中文语境下的英文半角标点替换为全角标点，但跳过参考文献和题注段落。"""
-    body = document_root.find("w:body", NSMAP)
-    if body is None:
-        return
-    for p_elem in body.findall("w:p", NSMAP):
+    for p_elem in document_root.findall(".//w:p", NSMAP):
         if allowed_ids is not None and id(p_elem) not in allowed_ids:
             continue
         if protected_ids is not None and id(p_elem) in protected_ids:
@@ -4238,27 +4437,132 @@ def split_inline_citations(p_elem):
             parent.insert(idx + offset, nr)
 
 
-def move_superscript_citations_before_terminal_punct(p_elem):
-    children = list(p_elem)
-    for idx, run_elem in enumerate(children):
-        if run_elem.tag != f"{{{W_NS}}}r":
+_CITATION_RUN_RE = re.compile(r"\[\d{1,3}(?:[,，、\-]\d{1,3})*\]")
+
+
+def _citation_run_numbers(text):
+    match = re.fullmatch(r"\[(.+)\]", text or "")
+    if match is None:
+        return []
+    numbers = []
+    for part in re.split(r"[,，、]", match.group(1)):
+        part = part.strip()
+        if not part:
             continue
-        if not is_superscript(run_elem):
+        range_match = re.fullmatch(r"(\d{1,3})-(\d{1,3})", part)
+        if range_match is not None:
+            start, end = int(range_match.group(1)), int(range_match.group(2))
+            if start <= end:
+                numbers.extend(range(start, end + 1))
+            else:
+                numbers.extend(range(start, end - 1, -1))
+            continue
+        if re.fullmatch(r"\d{1,3}", part):
+            numbers.append(int(part))
+    return numbers
+
+
+def _format_citation_numbers(numbers):
+    unique_numbers = sorted(set(numbers))
+    parts = []
+    index = 0
+    while index < len(unique_numbers):
+        start = unique_numbers[index]
+        end = start
+        while index + 1 < len(unique_numbers) and unique_numbers[index + 1] == end + 1:
+            index += 1
+            end = unique_numbers[index]
+        if end - start >= 2:
+            parts.append(f"{start}-{end}")
+        elif end == start:
+            parts.append(str(start))
+        else:
+            parts.extend([str(start), str(end)])
+        index += 1
+    return f"[{','.join(parts)}]"
+
+
+def _set_run_text(run_elem, text):
+    text_elems = run_elem.findall(".//w:t", NSMAP)
+    if not text_elems:
+        text_elem = ET.SubElement(run_elem, f"{{{W_NS}}}t")
+        text_elem.text = text
+        return
+    text_elems[0].text = text
+    for extra_text in text_elems[1:]:
+        extra_text.text = ""
+
+
+def _merge_adjacent_superscript_citation_runs(p_elem):
+    changed = False
+    children = list(p_elem)
+    index = 0
+    while index < len(children):
+        run_elem = children[index]
+        if run_elem.tag != f"{{{W_NS}}}r" or not is_superscript(run_elem):
+            index += 1
             continue
         run_text = get_run_text(run_elem)
-        if not re.fullmatch(r"\[\d{1,3}(?:[,，、\-]\d{1,3})*\]", run_text or ""):
+        if not _CITATION_RUN_RE.fullmatch(run_text or ""):
+            index += 1
+            continue
+
+        numbers = _citation_run_numbers(run_text)
+        group_end = index
+        while group_end + 1 < len(children):
+            next_run = children[group_end + 1]
+            next_text = get_run_text(next_run)
+            if (
+                next_run.tag != f"{{{W_NS}}}r"
+                or not is_superscript(next_run)
+                or not _CITATION_RUN_RE.fullmatch(next_text or "")
+            ):
+                break
+            numbers.extend(_citation_run_numbers(next_text))
+            group_end += 1
+
+        normalized = _format_citation_numbers(numbers)
+        if normalized != run_text:
+            _set_run_text(run_elem, normalized)
+            changed = True
+        for remove_index in range(group_end, index, -1):
+            p_elem.remove(children[remove_index])
+            changed = True
+        children = list(p_elem)
+        index += 1
+    return changed
+
+
+def move_superscript_citations_before_terminal_punct(p_elem):
+    children = list(p_elem)
+    idx = 0
+    while idx < len(children):
+        run_elem = children[idx]
+        if run_elem.tag != f"{{{W_NS}}}r":
+            idx += 1
+            continue
+        if not is_superscript(run_elem):
+            idx += 1
+            continue
+        run_text = get_run_text(run_elem)
+        if not _CITATION_RUN_RE.fullmatch(run_text or ""):
+            idx += 1
             continue
         prev_idx = idx - 1
         if prev_idx < 0:
+            idx += 1
             continue
         prev_run = children[prev_idx]
         if prev_run.tag != f"{{{W_NS}}}r":
+            idx += 1
             continue
         prev_text_elems = [t for t in prev_run.findall(f".//{{{W_NS}}}t") if t.text]
         if not prev_text_elems:
+            idx += 1
             continue
         prev_text = prev_text_elems[-1].text or ""
         if not prev_text or prev_text[-1] not in "。！？!?":
+            idx += 1
             continue
 
         punct = prev_text[-1]
@@ -4272,7 +4576,7 @@ def move_superscript_citations_before_terminal_punct(p_elem):
             if not is_superscript(next_run):
                 break
             next_text = get_run_text(next_run)
-            if not re.fullmatch(r"\[\d{1,3}(?:[,，、\-]\d{1,3})*\]", next_text or ""):
+            if not _CITATION_RUN_RE.fullmatch(next_text or ""):
                 break
             insert_at += 1
 
@@ -4284,6 +4588,8 @@ def move_superscript_citations_before_terminal_punct(p_elem):
         t_elem.text = punct
         p_elem.insert(insert_at, punct_run)
         children = list(p_elem)
+        idx = insert_at + 1
+    _merge_adjacent_superscript_citation_runs(p_elem)
 
 
 def ensure_reference_number_spacing(p_elem):
@@ -4460,9 +4766,12 @@ def fix_reference_paragraph(p_elem, cfg=None, runtime=None):
     set_attr(spacing, "lineRule", "auto")
     ref_size = str(cfg.get("ref_font_size", 24))
     for run_elem in p_elem.findall(".//w:r", NSMAP):
+        _remove_run_props(run_elem, ("vertAlign",))
         ensure_size(run_elem, ref_size)
     jc = get_or_create(p_pr, "w:jc")
-    set_attr(jc, "val", "left")
+    set_attr(jc, "val", "both")
+    suppress_auto_hyphens = get_or_create(p_pr, "w:suppressAutoHyphens")
+    set_attr(suppress_auto_hyphens, "val", "1")
 
     if cfg.get("ref_use_tab", True):
         tabs = insert_tabs_before_spacing(p_pr)
@@ -5124,8 +5433,6 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
             return run_elem
 
         def ensure_em_dash_wrapper(paragraph):
-            if not (cfg and cfg.get("pg01_format") in {"em_dash", "hyphen_wrap"}):
-                return False
             left_wrap, right_wrap = _page_wrap_chars(cfg)
 
             direct_runs = [child for child in list(paragraph) if child.tag == f"{{{W_NS}}}r"]
@@ -5148,6 +5455,8 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
                 direct_runs = [child for child in list(paragraph) if child.tag == f"{{{W_NS}}}r"]
                 changed = True
             if not direct_runs:
+                return changed
+            if left_wrap is None:
                 return changed
 
             begin_run = None
@@ -5239,14 +5548,60 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
         body = document_root.find("w:body", NSMAP)
         if body is None:
             return None
-        inline_sects = [
-            p.find("w:pPr/w:sectPr", NSMAP)
-            for p in body.findall("w:p", NSMAP)
-        ]
-        inline_sects = [sect_pr for sect_pr in inline_sects if sect_pr is not None]
+        paragraphs = body.findall("w:p", NSMAP)
         body_sect_pr = body.find("w:sectPr", NSMAP)
-        if len(inline_sects) < 2 or body_sect_pr is None:
+        if body_sect_pr is None:
             return None
+
+        def collect_inline_sections():
+            sections = []
+            for idx, paragraph in enumerate(paragraphs):
+                sect_pr = paragraph.find("w:pPr/w:sectPr", NSMAP)
+                if sect_pr is not None:
+                    sections.append((idx, paragraph, sect_pr))
+            return sections
+
+        def remove_footer_references(sect_pr):
+            for footer_reference in list(sect_pr.findall("w:footerReference", NSMAP)):
+                sect_pr.remove(footer_reference)
+
+        def remove_page_number_type(sect_pr):
+            pg_num_type = sect_pr.find("w:pgNumType", NSMAP)
+            if pg_num_type is not None:
+                sect_pr.remove(pg_num_type)
+
+        def ensure_cover_section_break(inline_sections):
+            if active_cfg.get("cover_page_number", True) is not False:
+                return False
+            if len(inline_sections) != 1:
+                return False
+
+            frontmatter_end_idx, _frontmatter_end_para, frontmatter_end_sect_pr = inline_sections[0]
+            first_frontmatter_idx = None
+            for idx, paragraph in enumerate(paragraphs[: frontmatter_end_idx + 1]):
+                if _is_frontmatter_title_text(get_paragraph_text(paragraph).strip()):
+                    first_frontmatter_idx = idx
+                    break
+            if first_frontmatter_idx is None or first_frontmatter_idx <= 0:
+                return False
+
+            cover_break_para = paragraphs[first_frontmatter_idx - 1]
+            cover_break_p_pr = ensure_ppr(cover_break_para)
+            if cover_break_p_pr.find("w:sectPr", NSMAP) is not None:
+                return False
+
+            cover_sect_pr = copy.deepcopy(frontmatter_end_sect_pr)
+            remove_footer_references(cover_sect_pr)
+            remove_page_number_type(cover_sect_pr)
+            cover_break_p_pr.append(cover_sect_pr)
+            return True
+
+        inline_sections = collect_inline_sections()
+        if len(inline_sections) < 2 and ensure_cover_section_break(inline_sections):
+            inline_sections = collect_inline_sections()
+        if len(inline_sections) < 2:
+            return None
+        inline_sects = [sect_pr for _idx, _paragraph, sect_pr in inline_sections]
 
         content_types_root = ET.parse(content_types_path).getroot()
         updated = {}
@@ -5290,10 +5645,6 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml",
             )
 
-        def remove_footer_references(sect_pr):
-            for footer_reference in list(sect_pr.findall("w:footerReference", NSMAP)):
-                sect_pr.remove(footer_reference)
-
         def attach_footer(sect_pr, *, footer_cfg):
             remove_footer_references(sect_pr)
             rel_id = next_rel_id()
@@ -5323,7 +5674,7 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
         front_cfg = dict(active_cfg)
         front_cfg["pg01_format"] = str(active_cfg.get("frontmatter_page_number_wrap") or "plain")
         body_cfg = dict(active_cfg)
-        body_cfg["pg01_format"] = str(active_cfg.get("body_page_number_wrap") or active_cfg.get("pg01_format") or "hyphen_wrap")
+        body_cfg["pg01_format"] = str(active_cfg.get("body_page_number_wrap") or active_cfg.get("pg01_format") or "plain")
         attach_footer(frontmatter_sect_pr, footer_cfg=front_cfg)
         attach_footer(body_sect_pr, footer_cfg=body_cfg)
         updated["word/_rels/document.xml.rels"] = ET.tostring(rels_root, encoding="utf-8", xml_declaration=True)
@@ -5477,6 +5828,14 @@ def _apply_toc_prepasses(ctx: FixExecutionContext) -> tuple[FixExecutionContext,
             repair_keywords=ctx.scope_flags.abstract,
         )
         return _refresh_fix_context(ctx), toc_parts
+    inserted_visible_toc = ensure_visible_toc(
+        ctx.document_root,
+        ctx.cfg,
+        style_map=ctx.style_map,
+        runtime=ctx.runtime,
+    )
+    if inserted_visible_toc:
+        return _refresh_fix_context(ctx), {}
     return ctx, {}
 
 
@@ -5688,7 +6047,10 @@ def _apply_paragraph_fix(paragraph_node, ctx: FixExecutionContext):
             fix_caption_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_caption_number_sep(p_elem, ctx.cfg)
             trim_caption_terminal_punctuation(p_elem)
-    elif paragraph_node.module in {"body_caption_note", "appendix_caption_note"}:
+    elif paragraph_node.module in CAPTION_EN_MODULES:
+        if ctx.scope_flags.figures:
+            fix_english_caption_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
+    elif paragraph_node.module in CAPTION_NOTE_MODULES:
         if ctx.scope_flags.figures:
             fix_caption_note_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
             fix_sp_cjk_latin(p_elem, cfg=ctx.cfg, runtime=ctx.runtime)
@@ -5829,6 +6191,7 @@ def _apply_lnu_postpasses(ctx: FixExecutionContext):
         normalize_toc_title_paragraph(ctx.document_root, ctx.style_map, ctx.cfg)
         normalize_toc_entry_paragraphs(ctx.document_root, ctx.style_map, ctx.cfg)
     if ctx.scope_flags.figures:
+        remove_synthetic_caption_reference_leads(ctx.document_root, ctx.style_map)
         insert_missing_caption_reference_leads(ctx.document_root, cfg=ctx.cfg, style_map=ctx.style_map, runtime=ctx.runtime)
         normalize_lnu_figure_block_layout(
             ctx.document_root,

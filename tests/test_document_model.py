@@ -90,3 +90,23 @@ def test_build_document_model_exits_toc_on_first_non_toc_paragraph():
 
     sections = [node.container_section for node in model.paragraphs]
     assert sections == ["toc", "toc", "body", "body"]
+
+
+def test_build_document_model_treats_english_fig_line_after_cn_caption_as_caption_en():
+    doc = Document()
+    _add_heading(doc, "第1章 实验结果与分析", level=1, size=30)
+    doc.add_paragraph("图1.1  明胶凝胶强度")
+    doc.add_paragraph("Fig 1.1  Gel strength of gelatin samples.")
+    doc.add_paragraph("注：A 为对照组。")
+    doc.add_paragraph("后续正文。")
+
+    _, _, model = _build_model(doc)
+
+    modules = [node.module for node in model.section_nodes("body")]
+    assert modules == [
+        "body_heading",
+        "body_caption",
+        "body_caption_en",
+        "body_caption_note",
+        "body_paragraph",
+    ]

@@ -513,7 +513,7 @@ def test_workbench_render_verify_cli_rejects_artifact_tool_renderer(tmp_path):
     assert "artifact-tool" in result.stderr
 
 
-def test_workbench_verify_cli_highlights_manual_review_rules(tmp_path):
+def test_workbench_verify_cli_does_not_highlight_removed_lnu_f05(tmp_path):
     source_path = _make_lnu_f05_fail_doc(Path(tmp_path) / "workbench_cli_verify_lnu_f05.docx")
     result = subprocess.run(
         [
@@ -532,10 +532,9 @@ def test_workbench_verify_cli_highlights_manual_review_rules(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "可提交状态: manual-review-required" in result.stdout
-    assert "仍需人工复核：" in result.stdout
-    assert "LNU_F05" in result.stdout
-    assert "[提示] 当前结果仍含人工复核项" in result.stdout
+    assert "可提交状态: manual-review-required" not in result.stdout
+    assert "仍需人工复核：" not in result.stdout
+    assert "LNU_F05" not in result.stdout
 
 
 def test_workbench_audit_cli_prints_effective_profile(tmp_docx):

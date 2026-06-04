@@ -1,10 +1,12 @@
 import re
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import audit_thesis
 import fix_thesis
 import yaml
 from docx import Document
+from _thesis_utils import NSMAP, W_NS, get_paragraph_text
 from _profile_utils import PROFILE_ALIASES
 from thesis_tool.capabilities import load_rule_capabilities
 
@@ -13,6 +15,33 @@ def _write_profile(tmp_path: Path, content: str) -> Path:
     path = tmp_path / "custom-profile.yaml"
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def _w(tag: str) -> str:
+    return f"{{{W_NS}}}{tag}"
+
+
+def _make_run(text: str, *, superscript: bool = False) -> ET.Element:
+    run = ET.Element(_w("r"))
+    r_pr = ET.SubElement(run, _w("rPr"))
+    if superscript:
+        vert_align = ET.SubElement(r_pr, _w("vertAlign"))
+        vert_align.set(_w("val"), "superscript")
+    text_elem = ET.SubElement(run, _w("t"))
+    text_elem.text = text
+    return run
+
+
+def _make_body_context(paragraph: ET.Element) -> dict:
+    return {
+        "elem": paragraph,
+        "index": 1,
+        "kind": "body",
+        "section": "body",
+        "module": "body_paragraph",
+        "in_table": False,
+        "text": get_paragraph_text(paragraph),
+    }
 
 
 def test_build_audit_runtime_keeps_profile_rules_isolated():
@@ -54,6 +83,25 @@ disabled_rules:
     assert "H02" not in custom_rule_ids
     assert "T01" in default_rule_ids
     assert "H02" in default_rule_ids
+
+
+def test_check_c03_flags_adjacent_and_uncompressed_superscript_citations():
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("综述显示"))
+    paragraph.append(_make_run("[1]", superscript=True))
+    paragraph.append(_make_run("[2]", superscript=True))
+    paragraph.append(_make_run("，连续研究"))
+    paragraph.append(_make_run("[1,2,3]", superscript=True))
+    paragraph.append(_make_run("表明。"))
+    root = ET.Element(_w("document"))
+    body = ET.SubElement(root, _w("body"))
+    body.append(paragraph)
+
+    passed, issues, evidence = audit_thesis.check_c03(root, [_make_body_context(paragraph)], {})
+
+    assert passed is False
+    assert issues
+    assert evidence == "第1段"
 
 
 def test_fix_runtime_applies_per_side_margin_settings(tmp_path):
@@ -131,6 +179,8 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["abstract_en_body_font"] == "Times New Roman"
         assert cfg["abstract_en_body_size"] == 24
         assert cfg["abstract_en_body_line"] == 240
+        assert cfg["figure_caption_line"] == 240
+        assert cfg["figure_note_line"] == 240
         assert cfg["caption_number_sep"] == "."
         assert cfg["eq_number_sep"] == "."
         assert cfg["ref_hanging"] == 420
@@ -138,7 +188,7 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["ref_font_size"] == 21
         assert cfg["ref_line_spacing"] == 360
         assert cfg["ref_terminal_punct"] == "."
-        assert cfg["pg01_format"] == "hyphen_wrap"
+        assert cfg["pg01_format"] == "plain"
         assert cfg["cover_page_number"] is False
         assert cfg["frontmatter_page_number_format"] == "upperRoman"
         assert cfg["frontmatter_page_number_wrap"] == "plain"

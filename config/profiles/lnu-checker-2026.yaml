@@ -140,9 +140,9 @@ additions:
     scope: undergraduate
     severity: important
     check_level: Auto
-    description: "参考文献条目：宋体五号，1.5倍行距"
+    description: "参考文献条目：宋体五号，1.5倍行距，两端对齐，禁用自动断字"
     method: docx-structure
-    evidence: "参考文献字号和行距"
+    evidence: "参考文献字号、行距、对齐方式和自动断字设置"
     fix: "fix_reference_paragraph(profile='lnu-checker-2026')"
     source: lnu-checker-2026
 
@@ -261,10 +261,10 @@ additions:
     scope: undergraduate
     severity: important
     check_level: Auto
-    description: "目录必须自动生成"
+    description: "目录区段应存在，页码需人工核对"
     method: docx-structure
-    evidence: "TOC 域"
-    fix: "fix_insert_toc()"
+    evidence: "目录标题、目录条目或 TOC 域"
+    fix: "ensure_visible_toc()"
     source: lnu-checker-2026
 
   - id: LNU_TEXT02
@@ -289,26 +289,15 @@ additions:
     fix: "fix_lnu_figure_block_spacing()"
     source: lnu-checker-2026
 
-  - id: LNU_F05
-    module: figure
-    scope: undergraduate
-    severity: important
-    check_level: Semi
-    description: "图表需先文中引用"
-    method: docx-structure
-    evidence: "图表出现前正文引用"
-    fix: null
-    source: lnu-checker-2026
-
   - id: LNU_F06
     module: figure
     scope: undergraduate
     severity: minor
     check_level: Auto
-    description: "图题/图注版式"
+    description: "图题、英文图题与说明性图注版式"
     method: docx-structure
-    evidence: "图题/图注行距和字体"
-    fix: "fix_caption_paragraph()/fix_caption_note_paragraph()"
+    evidence: "图题、英文题名、说明性图注的行距、字体和对齐"
+    fix: "fix_caption_paragraph()/fix_english_caption_paragraph()/fix_caption_note_paragraph()"
     source: lnu-checker-2026
 
   - id: LNU_F07
@@ -449,11 +438,11 @@ settings:
   figure_blank_line_twips: 360
   table_blank_line_twips: 360
   table_cell_line: 360
-  figure_caption_line: 360
+  figure_caption_line: 240
   figure_note_line: 240
   eq_number_sep: "."
   ref_terminal_punct: "."
-  pg01_format: "hyphen_wrap"
+  pg01_format: "plain"
   cover_page_number: false
   frontmatter_page_number_format: "upperRoman"
   frontmatter_page_number_start: 1

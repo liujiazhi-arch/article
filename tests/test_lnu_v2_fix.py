@@ -290,6 +290,19 @@ def test_fix_half_width_punct_in_cjk_converts_body_only_and_skips_caption_and_re
     assert get_paragraph_text(reference) == "[1] 张三,论文题目.出版社"
 
 
+def test_fix_half_width_punct_in_cjk_updates_table_cell_paragraphs():
+    table = ET.Element(_w("tbl"))
+    row = ET.SubElement(table, _w("tr"))
+    cell = ET.SubElement(row, _w("tc"))
+    paragraph = ET.SubElement(cell, _w("p"))
+    paragraph.append(_make_run("ALAS1, GLRB, GLYAT,等"))
+    document = _make_doc_root(table)
+
+    fix_half_width_punct_in_cjk(document, style_map={}, allowed_ids={id(paragraph)})
+
+    assert get_paragraph_text(paragraph) == "ALAS1, GLRB, GLYAT，等"
+
+
 # ---------------------------------------------------------------------------
 # test_fix_heading_defaults
 # ---------------------------------------------------------------------------
@@ -1098,6 +1111,48 @@ def test_fix_insert_toc_ignores_numeric_body_style_ids(lnu_runtime):
     assert "TOCPageBreak" in toc_style_ids
     assert not any(style_id in {"TOC1", "TOC2", "TOC3"} for style_id in toc_style_ids)
     assert any(get_paragraph_text(p).strip() == "这是正文，不应进入目录。" for p in body.findall("w:p", NSMAP))
+
+
+def test_build_fix_runtime_keeps_toc_scope_visible_by_default():
+    runtime = fix_thesis.build_fix_runtime(profile_path="lnu", scopes=["toc"], toc=False)
+
+    assert runtime.cfg["toc_auto"] is False
+
+
+def test_ensure_visible_toc_inserts_plain_entries_without_toc_field(lnu_runtime):
+    cover = _make_paragraph("封面信息")
+    body_h1 = _make_paragraph("第1章 绪论")
+    body_h2 = _make_paragraph("1.1 研究背景")
+    body_para = _make_paragraph("这是正文。")
+    doc = _make_doc_root(cover, body_h1, body_h2, body_para)
+
+    changed = fix_thesis.ensure_visible_toc(
+        doc,
+        {"toc_title": "目录", "toc_max_level": 3},
+        style_map={},
+        runtime=lnu_runtime,
+    )
+
+    body = doc.find("w:body", NSMAP)
+    paragraphs = body.findall("w:p", NSMAP)
+    texts = [get_paragraph_text(p).strip() for p in paragraphs]
+    instr_text = "".join((instr.text or "") for instr in doc.findall(".//w:instrText", NSMAP))
+    toc_styles = [
+        p.find("w:pPr/w:pStyle", NSMAP).get(_w("val"))
+        for p in paragraphs
+        if p.find("w:pPr/w:pStyle", NSMAP) is not None
+    ]
+
+    assert changed == 1
+    assert "目  录" in texts
+    assert texts.index("目  录") < texts.index("第1章 绪论")
+    assert 'TOC \\o "1-3"' not in instr_text
+    assert "TOCHeading" in toc_styles
+    assert "TOC1" in toc_styles
+    assert "TOC2" in toc_styles
+    assert "TOCPageBreak" in toc_styles
+    assert any(text.startswith("第1章 绪论") and "待核对" in text for text in texts)
+    assert any(text.startswith("1.1 研究背景") and "待核对" in text for text in texts)
 
 
 def test_normalize_toc_entry_paragraphs_applies_latest_lnu_line_spacing():
