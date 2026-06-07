@@ -100,6 +100,8 @@ CLI
 
 发布边界：软件版本从 GitHub 发布，用户论文和密钥不进入 GitHub。GitHub Release 可以托管源码包、wheel、Windows 本地网页 zip、变更记录和校验信息；不要把本地论文、修复稿、API key、本地日志、运行缓存、状态数据库或未检查的反馈包上传到仓库、CI artifact 或公开 issue。
 
+跨项目复用的本地包发布经验见 `docs/GITHUB_LOCAL_BUNDLE_PLAYBOOK.md`。这份 playbook 记录从项目整理、Windows zip + bat、GitHub Release、隐私边界、发布证据到未来 macOS `.app` / `.dmg` 的通用判断，后续做类似“下载到电脑、本地运行”的 GitHub 包发布时先读它。
+
 1. 跑全量测试。
 2. 构建 wheel 和 source distribution。
 3. 构建 release wheelhouse。

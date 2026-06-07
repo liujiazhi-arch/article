@@ -2,6 +2,8 @@
 
 用于发布 GitHub Beta 和 Windows 本地网页包。GitHub 只分发软件版本，不同步用户论文数据。
 
+跨项目经验沉淀见 `docs/GITHUB_LOCAL_BUNDLE_PLAYBOOK.md`。新项目如果也要做成 GitHub Release 下载、本地运行的包，先用这份 playbook 确认产品形态、隐私边界、发布资产、Release 文案和实机 smoke。
+
 ## 发布前验证
 
 - 运行 `python3 -m pytest -q`。
