@@ -111,3 +111,9 @@ def test_default_output_naming_uses_versioned_single_document_labels():
     )
     assert normalize_path.parent == DEFAULT_INTERMEDIATE_OUTPUT_DIR
     assert normalize_path.parent != DEFAULT_OUTPUT_DIR
+
+
+def test_default_output_dir_is_derived_from_user_home(tmp_path):
+    from article_api import output_naming
+
+    assert output_naming._default_output_dir(tmp_path) == tmp_path / "Desktop" / "论文格式修复输出"

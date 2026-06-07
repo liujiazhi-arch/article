@@ -7,7 +7,12 @@ from typing import Iterable
 from thesis_tool.scopes import normalize_scope_names
 
 
-DEFAULT_OUTPUT_DIR = Path("/Users/apple/Desktop/论文格式修复输出")
+def _default_output_dir(home: str | Path | None = None) -> Path:
+    user_home = Path(home).expanduser() if home is not None else Path.home()
+    return user_home / "Desktop" / "论文格式修复输出"
+
+
+DEFAULT_OUTPUT_DIR = _default_output_dir()
 DEFAULT_INTERMEDIATE_OUTPUT_DIR = Path(__file__).resolve().parents[2] / ".article_runtime" / "intermediate"
 FORMAT_FIX_SUFFIX = "格式修复"
 NORMALIZE_SUFFIX = "结构整理"

@@ -169,6 +169,7 @@ def test_extract_pdf_page_texts_splits_pdftotext_form_feeds(monkeypatch, tmp_pat
         assert command[-2:] == [str(pdf_path.resolve()), "-"]
         return SimpleNamespace(stdout="第一页正文\f第 2 章 实验材料与方法\f")
 
+    monkeypatch.setattr(render_verify_module, "_find_pdftotext", lambda: "pdftotext")
     monkeypatch.setattr(render_verify_module.subprocess, "run", fake_run)
 
     page_texts, summary = render_verify_module._extract_pdf_page_texts(str(pdf_path), page_count=2)

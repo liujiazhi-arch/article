@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from article_api import job_execution
+
+
+def test_run_handler_subprocess_decodes_runner_stdout_as_utf8(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    class FakeProcess:
+        args = ["python", "-m", "article_api.job_runner", "request.json"]
+
+        def __init__(self, command, **kwargs):
+            captured["command"] = command
+            captured["encoding"] = kwargs.get("encoding")
+            captured["errors"] = kwargs.get("errors")
+            captured["text"] = kwargs.get("text")
+            self._communicated = False
+
+        def poll(self):
+            return 0
+
+        def communicate(self):
+            self._communicated = True
+            return json.dumps({"ok": True, "result": {"message": "论文格式检查"}}, ensure_ascii=False), ""
+
+    monkeypatch.setattr(job_execution.subprocess, "Popen", FakeProcess)
+
+    payload = job_execution.run_handler_subprocess(
+        "apply",
+        {"file_path": "demo.docx"},
+        timeout_seconds=None,
+        project_root=tmp_path,
+        scripts_root=Path("scripts"),
+    )
+
+    assert payload == {"ok": True, "result": {"message": "论文格式检查"}}
+    assert captured["text"] is True
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
