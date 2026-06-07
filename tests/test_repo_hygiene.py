@@ -30,6 +30,11 @@ def test_gitignore_keeps_runtime_artifacts_out_of_source_control():
 
     for pattern in (
         ".article_runtime/",
+        "data/state/",
+        "data/runtime/",
+        "uploads/",
+        "runtime/",
+        "artifacts/",
         ".tmp_render_probe_out/",
         ".tmp_render_artifact/",
         ".tmp_render_verify_live/",
@@ -38,8 +43,36 @@ def test_gitignore_keeps_runtime_artifacts_out_of_source_control():
         "build/",
         "dist/",
         "*.egg-info/",
+        ".env",
+        ".env.*",
+        "*.env",
+        "article-local.env",
+        "*.log",
+        "反馈包.zip",
+        "*feedback*.zip",
+        "article-backup*.zip",
+        "*.sqlite3",
+        "*.sqlite3-*",
     ):
         assert pattern in gitignore
+
+    assert "!.env.example" in gitignore
+
+
+def test_env_example_contains_no_real_secret_values():
+    env_example = (PROJECT_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "ARTICLE_LOCAL_RELEASE_API_URL=https://api.github.com/repos/<owner>/<repo>/releases/latest" in env_example
+    for forbidden in (
+        "sk-",
+        "api_key=",
+        "API_KEY=",
+        "/Users/",
+        "C:\\Users\\",
+        ".docx",
+        ".log",
+    ):
+        assert forbidden not in env_example
 
 
 def test_outputs_directory_is_fully_ignored():

@@ -509,8 +509,8 @@ def make_violating_doc(path: str | Path, rule_id: str) -> Path:
     return output_path
 
 
-def audit_rule_status(docx_path: str | Path, rule_id: str) -> dict:
-    results, score, report = audit_thesis.audit_docx(str(docx_path))
+def audit_rule_status(docx_path: str | Path, rule_id: str, *, profile_path: str | None = None) -> dict:
+    results, score, report = audit_thesis.audit_docx(str(docx_path), profile_path=profile_path)
     result = next(item for item in results if item["id"] == rule_id)
     return {
         "rule": result,

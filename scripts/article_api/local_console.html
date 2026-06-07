@@ -5,28 +5,69 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>论文格式本地控制台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%231d1d1f'/%3E%3Cpath d='M20 16h18l8 8v24H20z' fill='white'/%3E%3Cpath d='M38 16v9h8' fill='%23e8f1ff'/%3E%3Cpath d='M25 32h14M25 38h14M25 44h10' stroke='%230071e3' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <script>
+    (function () {
+      try {
+        const storedTheme = localStorage.getItem('article-console-theme');
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = storedTheme === 'light' || storedTheme === 'dark'
+          ? storedTheme
+          : (prefersDark ? 'dark' : 'light');
+      } catch (_ignored) {
+        document.documentElement.dataset.theme = 'light';
+      }
+    }());
+  </script>
   <style>
     :root {
-      color-scheme: light;
+      color-scheme: light dark;
       --ink: #1d1d1f;
-      --soft: #6e6e73;
+      --soft: #55565c;
+      --muted: #536579;
+      --subtle: #667085;
       --hairline: rgba(0, 0, 0, 0.08);
       --blue: #0071e3;
       --bg: #f5f5f7;
       --white: #fff;
+      --surface: #fff;
+      --surface-raised: rgba(255, 255, 255, 0.9);
+      --surface-soft: #f5f5f7;
+      --surface-muted: #f7f8fb;
+      --surface-blue: #eaf3ff;
+      --surface-blue-soft: #f5faff;
+      --input-bg: #fff;
       --green: #0b7a4b;
       --amber: #a15c00;
-      --red: #b42318;
-      --glass: rgba(255, 255, 255, 0.72);
-      --panel-shadow: 0 30px 80px rgba(0, 0, 0, 0.08);
-      --soft-shadow: 0 18px 50px rgba(0, 0, 0, 0.06);
-    }
+	      --red: #b42318;
+	      --green-soft: #e8f7ef;
+	      --red-soft: #fff0ee;
+	      --amber-soft: #fff7e8;
+	      --glass: rgba(255, 255, 255, 0.72);
+	      --glass-strong: rgba(255, 255, 255, 0.78);
+	      --glass-soft: rgba(255, 255, 255, 0.54);
+	      --glass-border: rgba(255, 255, 255, 0.66);
+	      --content-max: 1440px;
+	      --content-width: min(var(--content-max), calc(100vw - clamp(20px, 8vw, 156px)));
+	      --topbar-height: 68px;
+	      --topbar-compact-height: 58px;
+	      --shadow-sm: 0 8px 18px rgba(15, 23, 42, 0.045);
+	      --shadow-md: 0 16px 34px rgba(15, 23, 42, 0.065);
+	      --shadow-lg: 0 30px 80px rgba(15, 23, 42, 0.08);
+	      --shadow-blue: 0 18px 42px rgba(0, 113, 227, 0.14);
+	      --panel-shadow: var(--shadow-lg);
+	      --soft-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+	      --focus-ring: 0 0 0 3px rgba(0, 113, 227, 0.34), 0 0 0 6px rgba(0, 113, 227, 0.14);
+	      --skeleton-base: rgba(226, 232, 240, 0.86);
+	      --skeleton-sheen: rgba(255, 255, 255, 0.82);
+	      --spring: cubic-bezier(0.22, 1, 0.36, 1);
+	    }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     html { scroll-behavior: smooth; }
-    body {
-      margin: 0;
-      min-height: 100vh;
+	    body {
+	      margin: 0;
+	      min-height: 100vh;
+	      min-height: 100svh;
       overflow-x: hidden;
       background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(245, 245, 247, 0.96) 44%, rgba(255, 255, 255, 0.98) 100%),
@@ -35,44 +76,61 @@
         var(--bg);
       color: var(--ink);
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      letter-spacing: 0;
-    }
+	      letter-spacing: 0;
+	    }
+	    main {
+	      min-height: calc(100svh - var(--topbar-height));
+	      padding-bottom: clamp(40px, 7vh, 96px);
+	    }
     button, input, select { font: inherit; }
     button {
       border: 0;
       border-radius: 999px;
       padding: 10px 18px;
-      background: #e8e8ed;
-      color: var(--ink);
-      cursor: pointer;
-      transition: transform 160ms ease, background 160ms ease, opacity 160ms ease;
-      white-space: nowrap;
-    }
-    button:hover { transform: translateY(-1px); background: #dedee3; }
-    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
-    button.primary { background: var(--blue); color: #fff; }
-    button.primary:hover { background: #0077ed; }
-    button.text { background: transparent; color: var(--blue); padding: 8px 4px; }
+	      background: #e8e8ed;
+	      color: var(--ink);
+	      cursor: pointer;
+	      transition: transform 220ms var(--spring), background 220ms ease, opacity 160ms ease, box-shadow 220ms ease;
+	      white-space: nowrap;
+	    }
+	    button:hover { transform: translateY(-1px); background: #dedee3; }
+	    button:active { transform: translateY(0) scale(0.98); }
+	    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+	    button.primary { background: var(--blue); color: #fff; box-shadow: var(--shadow-blue); }
+	    button.primary:hover { background: #0077ed; box-shadow: var(--shadow-blue); }
+	    button.text { background: transparent; color: var(--blue); padding: 8px 4px; }
+	    button:focus-visible,
+	    input[type="text"]:focus-visible,
+	    select:focus-visible,
+	    a:focus-visible,
+	    [tabindex]:focus-visible {
+	      outline: 2px solid transparent;
+	      outline-offset: 3px;
+	      box-shadow: var(--focus-ring);
+	    }
+	    button.primary:focus-visible {
+	      box-shadow: var(--focus-ring), var(--shadow-blue);
+	    }
     input[type="text"], select {
       width: 100%;
       height: 44px;
       border: 1px solid var(--hairline);
       border-radius: 12px;
       padding: 0 13px;
-      background: #fff;
+      background: var(--input-bg);
       color: var(--ink);
       outline: none;
     }
     input[type="text"]:focus, select:focus {
       border-color: rgba(0, 113, 227, 0.55);
-      box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.12);
+      box-shadow: var(--focus-ring);
     }
-    label { display: block; margin: 0 0 8px; color: var(--soft); font-size: 13px; }
-    .topbar {
+    label { display: block; margin: 0 0 8px; color: var(--soft); font-size: 14px; }
+	    .topbar {
       position: sticky;
       top: 0;
       z-index: 5;
-      height: 52px;
+	      height: var(--topbar-height);
       display: flex;
       justify-content: center;
       border-bottom: 1px solid rgba(0, 0, 0, 0.04);
@@ -81,69 +139,125 @@
       -webkit-backdrop-filter: saturate(180%) blur(20px);
       transition: height 220ms ease, background 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
     }
-    .topbar.compact {
-      height: 46px;
+	    .topbar.compact {
+	      height: var(--topbar-compact-height);
       border-bottom-color: rgba(0, 0, 0, 0.08);
       background: var(--glass);
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.06);
+      box-shadow: var(--shadow-md);
     }
-    .topbar-inner {
-      width: min(1180px, calc(100% - 36px));
+	    .topbar-inner {
+	      width: var(--content-width);
+	      display: flex;
+      align-items: center;
+	      justify-content: flex-start;
+      flex-wrap: wrap;
+	      gap: 18px;
+	      font-size: 16px;
+	    }
+	    .brand {
+	      display: inline-flex;
+	      align-items: center;
+	      gap: 10px;
+	      font-weight: 760;
+	      white-space: nowrap;
+	      line-height: 1;
+	    }
+	    .brand-mark {
+	      width: 0;
+	      height: 32px;
+	      opacity: 0;
+	      transform: translateX(-8px) scale(0.78) rotate(-8deg);
+	      transition: width 380ms var(--spring), opacity 260ms ease, transform 420ms var(--spring), filter 360ms ease;
+	      pointer-events: none;
+	    }
+	    .brand-mark-reveal {
+	      animation: emblemIntro 1200ms var(--spring) 220ms both;
+	    }
+	    .brand-mark img {
+	      display: block;
+	      width: 32px;
+	      height: 32px;
+	      border-radius: 50%;
+	      object-fit: cover;
+	      box-shadow: var(--shadow-sm);
+	      transition: transform 360ms var(--spring), box-shadow 360ms ease;
+	    }
+	    .topbar.brand-active .brand-mark,
+	    .topbar.compact .brand-mark,
+	    .topbar.brand-pulse .brand-mark,
+	    .brand:hover .brand-mark {
+	      width: 32px;
+	      opacity: 1;
+	      transform: translateY(-1px) scale(1) rotate(0deg);
+	    }
+	    .topbar.brand-active .brand-mark img,
+	    .topbar.brand-pulse .brand-mark img {
+	      animation: emblemBreath 4200ms ease-in-out infinite;
+	    }
+	    .brand:hover .brand-mark img {
+	      transform: rotate(-2deg) scale(1.08);
+	      box-shadow: var(--shadow-blue);
+	    }
+	    .nav { margin-left: auto; display: flex; gap: 26px; color: var(--soft); }
+	    .nav button { padding: 8px 0; background: transparent; color: inherit; border-radius: 0; font-size: 16px; font-weight: 660; }
+	    .nav button.active { color: var(--ink); }
+    .theme-toggle {
+      flex: 0 0 auto;
+      min-width: 58px;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+      box-shadow: var(--shadow-sm);
+      font-size: 13px;
+      font-weight: 760;
+    }
+    .theme-toggle:hover {
+      background: #fff;
+      box-shadow: var(--shadow-md);
+    }
+    .health { color: var(--soft); margin-left: 8px; }
+    .update-check {
       display: flex;
       align-items: center;
-      justify-content: flex-start;
-      gap: 18px;
-      font-size: 13px;
-    }
-    .brand {
-      display: inline-flex;
-      align-items: center;
       gap: 8px;
-      font-weight: 700;
+      min-width: 0;
+    }
+    .update-check-button {
+      flex: 0 0 auto;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: #eef1f5;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 760;
+    }
+    .update-check-note {
+      max-width: 300px;
+      overflow: hidden;
+      color: var(--soft);
+      font-size: 13px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .brand-mark {
-      width: 0;
-      height: 24px;
-      opacity: 0;
-      transform: scale(0.82) rotate(-8deg);
-      transition: width 260ms ease, opacity 260ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
-      pointer-events: none;
-    }
-    .brand-mark img {
-      display: block;
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      object-fit: cover;
-      box-shadow: 0 8px 18px rgba(0, 113, 227, 0.18);
-    }
-    .topbar.brand-active .brand-mark,
-    .topbar.compact .brand-mark,
-    .brand:hover .brand-mark {
-      width: 24px;
-      opacity: 1;
-      transform: scale(1) rotate(0deg);
-    }
-    .nav { margin-left: auto; display: flex; gap: 26px; color: var(--soft); }
-    .nav button { padding: 0; background: transparent; color: inherit; border-radius: 0; }
-    .nav button.active { color: var(--ink); }
-    .health { color: var(--soft); margin-left: 8px; }
     .page { display: none; }
     .page.active { display: block; }
     .hero {
       position: relative;
-      min-height: 300px;
+      min-height: 268px;
       display: grid;
       place-items: center;
       text-align: center;
-      padding: 72px 24px 34px;
+      padding: 64px 24px 28px;
       isolation: isolate;
     }
-    .hero::before {
+	    .hero::before {
       content: "";
       position: absolute;
-      inset: 16px max(18px, calc((100vw - 1180px) / 2)) 0;
+	      inset: 16px max(18px, calc((100vw - var(--content-max)) / 2)) 0;
       z-index: -1;
       border-radius: 34px;
       background:
@@ -163,34 +277,35 @@
       max-width: 980px;
       margin: 0;
       font-size: clamp(44px, 7.2vw, 84px);
-      line-height: 0.98;
+      line-height: 1.08;
       letter-spacing: 0;
       font-weight: 700;
     }
-    .hero p {
-      max-width: 720px;
-      margin: 18px auto 0;
-      color: var(--soft);
-      font-size: clamp(18px, 2.2vw, 25px);
-      line-height: 1.38;
-    }
-    .hero-actions {
-      display: flex;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 14px;
-      margin-top: 22px;
-    }
-    .stage {
-      width: min(1120px, calc(100% - 36px));
-      margin: 0 auto 34px;
-      overflow: hidden;
-      border-radius: 28px;
-      background: rgba(255, 255, 255, 0.86);
-      box-shadow: var(--panel-shadow);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-    }
+	    .hero-actions {
+	      display: flex;
+	      justify-content: center;
+	      flex-wrap: wrap;
+	      gap: 14px;
+	      margin-top: 24px;
+	    }
+	    .records-hero {
+	      min-height: 238px;
+	      padding-top: clamp(46px, 7vw, 72px);
+	    }
+	    .records-hero h1 {
+	      font-size: clamp(44px, 6.2vw, 76px);
+	    }
+	    .stage {
+	      width: var(--content-width);
+	      margin: 0 auto 34px;
+	      overflow: hidden;
+	      border-radius: 28px;
+	      background: linear-gradient(150deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.64));
+	      border: 1px solid var(--glass-border);
+	      box-shadow: var(--panel-shadow);
+	      backdrop-filter: saturate(175%) blur(24px);
+	      -webkit-backdrop-filter: saturate(175%) blur(24px);
+	    }
     .stage-head {
       display: flex;
       align-items: center;
@@ -215,12 +330,19 @@
     .source-chip.failed { color: var(--red); background: #fff0ee; }
     .stage-grid {
       display: grid;
-      grid-template-columns: minmax(0, 0.92fr) minmax(380px, 1.08fr);
-      gap: 42px;
-      padding: 34px;
+      grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr);
+      gap: clamp(28px, 3.5vw, 56px);
+      padding: clamp(28px, 3.4vw, 46px);
       border-top: 1px solid rgba(0, 0, 0, 0.05);
     }
-    .pane { min-width: 0; }
+	    .pane { min-width: 0; }
+	    @media (min-width: 1180px) {
+	      #view-paper .stage-grid > .pane:last-child {
+	        position: sticky;
+	        top: 74px;
+	        align-self: start;
+	      }
+	    }
     .upload {
       position: relative;
       min-height: 210px;
@@ -242,7 +364,7 @@
       transform: translateY(-2px) scale(1.01);
       border-color: rgba(0, 113, 227, 0.48);
       background: #f5faff;
-      box-shadow: 0 18px 45px rgba(0, 113, 227, 0.12), inset 0 1px rgba(255, 255, 255, 0.92);
+      box-shadow: var(--shadow-blue), inset 0 1px rgba(255, 255, 255, 0.92);
     }
     .pdf-upload {
       position: relative;
@@ -259,18 +381,18 @@
     }
     .pdf-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .pdf-upload strong { color: var(--ink); font-size: 17px; }
-    .pdf-upload span { color: #526173; font-size: 13px; line-height: 1.45; }
+    .pdf-upload span { color: var(--muted); font-size: 14px; line-height: 1.45; }
     .pdf-upload.dragging {
       border-color: rgba(0, 113, 227, 0.8);
       background: #eaf4ff;
       transform: translateY(-2px) scale(1.01);
-      box-shadow: 0 18px 40px rgba(0, 113, 227, 0.12);
+      box-shadow: var(--shadow-blue);
     }
     .pdf-path-fallback {
       margin-top: 10px;
     }
     .pdf-path-fallback label {
-      font-size: 12px;
+      font-size: 13px;
       color: var(--soft);
     }
     .pdf-path-fallback input {
@@ -347,7 +469,7 @@
       margin-top: 8px;
       color: var(--soft);
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 11px;
+      font-size: 12px;
       white-space: normal;
       word-break: break-all;
     }
@@ -379,7 +501,7 @@
     }
     .render-workflows > p {
       margin: 0 0 14px;
-      color: #425466;
+      color: var(--muted);
       font-size: 15px;
       line-height: 1.55;
     }
@@ -408,18 +530,18 @@
       padding: 16px 18px;
       border: 1px solid rgba(0, 0, 0, 0.05);
       border-radius: 14px;
-      background: #fff;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.04);
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
       transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
     }
     .workflow-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 16px 34px rgba(0, 0, 0, 0.07);
+      box-shadow: var(--shadow-md);
     }
     .workflow-card.selected {
       border-color: rgba(0, 113, 227, 0.28);
       background: #f4f9ff;
-      box-shadow: 0 14px 28px rgba(0, 113, 227, 0.10);
+      box-shadow: var(--shadow-blue);
       transform: translateY(-1px);
     }
     .workflow-title {
@@ -441,7 +563,7 @@
       font-weight: 700;
     }
     .workflow-card span {
-      color: #536579;
+      color: var(--muted);
       font-size: 14px;
       line-height: 1.55;
     }
@@ -477,7 +599,7 @@
       opacity: 0.72;
       background: #fbfbfd;
       border-color: rgba(0, 0, 0, 0.06);
-      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.03);
+      box-shadow: var(--shadow-sm);
     }
     .workflow-card.weakened.selected {
       opacity: 0.92;
@@ -494,46 +616,82 @@
       gap: 10px;
       margin-top: 16px;
     }
+    .status-studio {
+      display: grid;
+      gap: clamp(18px, 2.3vw, 28px);
+      align-self: start;
+    }
+    .status-flow-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 30px;
+      padding: 10px;
+      background:
+        linear-gradient(145deg, rgba(232, 244, 255, 0.86), rgba(255, 255, 255, 0.82) 58%),
+        rgba(255, 255, 255, 0.72);
+      box-shadow: var(--shadow-blue), inset 0 1px rgba(255, 255, 255, 0.88);
+      animation: panelFloatIn 680ms var(--spring) both;
+    }
     .steps {
       display: flex;
       align-items: stretch;
-      gap: 0;
-      margin: 2px 0 34px;
+      gap: 8px;
+      margin: 0;
       border-radius: 999px;
-      background: #f5f5f7;
-      padding: 6px;
+      background: rgba(255, 255, 255, 0.52);
+      padding: 8px;
     }
     .step {
       flex: 1;
       min-width: 0;
-      min-height: 52px;
-      padding: 10px 12px;
-      border-radius: 999px;
-      background: transparent;
+      min-height: 68px;
+      padding: 14px 12px;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.46);
       text-align: center;
-      transition: transform 220ms ease, color 220ms ease, background 220ms ease, box-shadow 220ms ease;
+      transition: transform 280ms var(--spring), color 220ms ease, background 220ms ease, box-shadow 260ms ease;
     }
-    .step b { display: block; margin-bottom: 2px; font-size: 14px; }
-    .step span { color: var(--soft); font-size: 11px; line-height: 1.25; }
-    .step.running { background: #eaf3ff; color: var(--blue); }
-    .step.done { background: #eaf7f0; color: var(--green); }
-    .step.failed { background: #fff0ee; color: var(--red); }
+    .step:hover { transform: translateY(-2px); }
+    .step b { display: block; margin-bottom: 4px; font-size: 17px; line-height: 1.2; }
+    .step span { color: var(--muted); font-size: 14px; line-height: 1.35; }
+    .step.running {
+      background: var(--surface);
+      color: var(--blue);
+      box-shadow: var(--shadow-blue), inset 0 0 0 1px rgba(0, 113, 227, 0.12);
+    }
+    .step.done {
+      background: var(--surface);
+      color: var(--green);
+      box-shadow: var(--shadow-sm), inset 0 0 0 1px rgba(27, 128, 72, 0.11);
+    }
+    .step.failed {
+      background: var(--surface);
+      color: var(--red);
+      box-shadow: var(--shadow-sm), inset 0 0 0 1px rgba(180, 35, 24, 0.11);
+    }
     .step.step-pulse {
       animation: stepPulse 900ms ease;
     }
     .result-strip {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 1px;
-      overflow: hidden;
-      border-radius: 22px;
-      background: rgba(0, 0, 0, 0.06);
-      margin-bottom: 28px;
+      gap: 12px;
+      overflow: visible;
+      border-radius: 30px;
+      background: transparent;
+      margin-bottom: 0;
     }
-    .metric { background: #fbfbfd; padding: 22px; }
-    .metric b { display: block; font-size: 30px; line-height: 1; margin-bottom: 8px; }
+    .metric {
+      min-height: 126px;
+      padding: 24px;
+      border-radius: 26px;
+      background: var(--surface);
+      box-shadow: var(--shadow-md), inset 0 0 0 1px rgba(0, 113, 227, 0.07);
+      animation: panelFloatIn 760ms var(--spring) both;
+    }
+    .metric b { display: block; font-size: clamp(32px, 4vw, 46px); line-height: 1; margin-bottom: 12px; letter-spacing: 0; }
     .metric b.metric-updated { animation: metricPop 620ms ease; }
-    .metric span { color: var(--soft); font-size: 13px; }
+    .metric span { color: var(--muted); font-size: 15px; font-weight: 700; }
     .summary {
       min-height: 260px;
       margin: 0;
@@ -550,37 +708,61 @@
     }
     .report {
       min-height: 260px;
-      border-radius: 24px;
-      padding: 24px;
-      background: #f5f5f7;
-      transition: transform 260ms ease, box-shadow 260ms ease, background 260ms ease;
+      border-radius: 32px;
+      padding: clamp(22px, 3vw, 34px);
+      background:
+        linear-gradient(145deg, rgba(232, 244, 255, 0.72), rgba(255, 255, 255, 0.88) 56%),
+        rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.74);
+      box-shadow: var(--panel-shadow), var(--shadow-blue), inset 0 1px rgba(255, 255, 255, 0.92);
+      backdrop-filter: saturate(180%) blur(26px);
+      -webkit-backdrop-filter: saturate(180%) blur(26px);
+      transition: transform 280ms var(--spring), box-shadow 260ms ease, background 260ms ease;
     }
     .report.report-updated { animation: reportRefresh 680ms ease; }
+    .status-glass-panel { animation: panelFloatIn 760ms var(--spring) both; }
+    .report-section-card,
+    .record-section-card {
+      padding: clamp(20px, 2.4vw, 30px);
+      border-radius: 26px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      box-shadow: var(--shadow-md), inset 0 1px rgba(255, 255, 255, 0.88);
+    }
+    .report-section-card.is-primary,
+    .record-section-card.is-primary {
+      background: linear-gradient(145deg, #fff, rgba(232, 244, 255, 0.82));
+      box-shadow: var(--shadow-blue), inset 0 1px rgba(255, 255, 255, 0.9);
+    }
+    .report-section-card.is-next {
+      background: linear-gradient(145deg, rgba(245, 250, 255, 0.96), #fff);
+    }
     .report-section + .report-section {
-      margin-top: 20px;
-      padding-top: 18px;
-      border-top: 1px solid rgba(0, 0, 0, 0.06);
+      margin-top: 16px;
+      padding-top: clamp(20px, 2.4vw, 30px);
+      border-top: 0;
     }
     .report-label {
-      margin: 0 0 8px;
-      color: var(--soft);
-      font-size: 13px;
-      font-weight: 600;
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 800;
     }
     .report-value {
       margin: 0;
       color: var(--ink);
-      font-size: 17px;
-      line-height: 1.55;
+      font-size: clamp(20px, 2.2vw, 28px);
+      font-weight: 760;
+      line-height: 1.38;
     }
     .report-list {
       margin: 0;
-      padding-left: 18px;
+      padding-left: 20px;
       color: var(--ink);
-      font-size: 15px;
+      font-size: 17px;
       line-height: 1.7;
     }
-    .report-list li + li { margin-top: 4px; }
+    .report-list li + li { margin-top: 8px; }
     .report-link {
       display: inline-flex;
       margin-top: 10px;
@@ -595,11 +777,12 @@
     .report-progress {
       display: grid;
       gap: 10px;
-      margin-top: 14px;
-      padding: 14px 16px;
-      border-radius: 18px;
-      background: #fff;
-      border: 1px solid rgba(0, 0, 0, 0.06);
+      margin-top: 18px;
+      padding: 18px 20px;
+      border-radius: 22px;
+      background: var(--surface);
+      border: 1px solid rgba(0, 113, 227, 0.10);
+      box-shadow: var(--shadow-blue);
     }
     .report-progress-head {
       display: flex;
@@ -607,7 +790,7 @@
       justify-content: space-between;
       gap: 12px;
       color: var(--ink);
-      font-size: 14px;
+      font-size: 16px;
       font-weight: 700;
     }
     .report-progress-percent {
@@ -616,7 +799,7 @@
       white-space: nowrap;
     }
     .report-progress-bar {
-      height: 8px;
+      height: 10px;
       overflow: hidden;
       border-radius: 999px;
       background: #e8e8ed;
@@ -626,60 +809,438 @@
       width: 0%;
       height: 100%;
       border-radius: inherit;
-      background: var(--blue);
-      transition: width 260ms ease;
+      background: linear-gradient(90deg, #0071e3, #52a8ff);
+      transition: width 320ms var(--spring);
     }
     .report-progress-list {
       margin: 0;
       padding-left: 18px;
       color: var(--soft);
-      font-size: 13px;
+      font-size: 15px;
       line-height: 1.65;
     }
     .report-progress-list li.current {
       color: var(--ink);
       font-weight: 700;
     }
-    details { margin-top: 14px; color: var(--soft); font-size: 13px; }
-    details .summary { margin-top: 10px; min-height: 100px; }
-    .record-panel {
-      display: grid;
-      gap: 16px;
+	    details { margin-top: 14px; color: var(--soft); font-size: 13px; }
+	    details .summary { margin-top: 10px; min-height: 100px; }
+		    .glass-card {
+		      border: 1px solid rgba(255, 255, 255, 0.68);
+		      background:
+		        linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.42)),
+		        rgba(255, 255, 255, 0.62);
+		      box-shadow: var(--soft-shadow), inset 0 1px rgba(255, 255, 255, 0.82);
+		      backdrop-filter: saturate(180%) blur(24px);
+		      -webkit-backdrop-filter: saturate(180%) blur(24px);
+		    }
+    .status-flow-card.glass-card {
+      background:
+        linear-gradient(145deg, rgba(232, 244, 255, 0.9), rgba(255, 255, 255, 0.84) 58%),
+        rgba(255, 255, 255, 0.78);
+      box-shadow: var(--shadow-blue), inset 0 1px rgba(255, 255, 255, 0.88);
     }
-    .record-query { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
-    .record-help {
-      margin: 0;
+    .record-result-card.glass-card {
+      background:
+        linear-gradient(145deg, rgba(232, 244, 255, 0.82), rgba(255, 255, 255, 0.9) 54%),
+        rgba(255, 255, 255, 0.8);
+      box-shadow: var(--panel-shadow), var(--shadow-blue), inset 0 1px rgba(255, 255, 255, 0.92);
+    }
+	    .interactive-glass {
+	      transform: translateZ(0);
+	      transition: transform 260ms var(--spring), box-shadow 260ms ease, border-color 260ms ease, background 260ms ease;
+	    }
+	    .interactive-glass:hover {
+	      transform: translateY(-3px) scale(1.01);
+	      border-color: rgba(0, 113, 227, 0.24);
+	      box-shadow: var(--panel-shadow), var(--shadow-blue), inset 0 1px rgba(255, 255, 255, 0.9);
+	    }
+	    .interactive-glass:active {
+	      transform: translateY(-1px) scale(0.992);
+	    }
+	    .record-panel {
+	      display: grid;
+	      gap: 16px;
+	    }
+	    .records-stage {
+	      position: relative;
+	      margin-top: clamp(26px, 6vh, 74px);
+	    }
+	    .records-layout {
+	      display: grid;
+	      grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+	      gap: clamp(26px, 4vw, 60px);
+	      align-items: start;
+	      padding: clamp(28px, 3.4vw, 46px);
+	      border-top: 1px solid rgba(0, 0, 0, 0.05);
+	    }
+	    .records-query-card {
+	      position: sticky;
+	      top: 74px;
+	      display: grid;
+	      gap: 18px;
+	      padding: clamp(18px, 2.4vw, 28px);
+	      border-radius: 24px;
+	    }
+	    .records-main-stack {
+	      display: grid;
+	      gap: 16px;
+	      min-width: 0;
+	    }
+	    .record-query { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+	    .record-help {
+	      margin: 0;
       color: var(--soft);
       font-size: 14px;
       line-height: 1.5;
     }
-    .record-result {
-      display: grid;
-      gap: 14px;
-      margin-top: 2px;
+	    .recent-jobs {
+	      display: grid;
+	      gap: 14px;
+	    }
+	    .records-recent-card {
+	      padding: clamp(18px, 2.4vw, 28px);
+	      border-radius: 24px;
+	    }
+    .recent-jobs-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 4px;
     }
-    .record-result[hidden] { display: none; }
-    .record-output {
+    .recent-jobs-head h3 {
       margin: 0;
-      padding: 16px;
-      border-radius: 18px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+    .recent-jobs-head button {
+      padding: 7px 12px;
+      font-size: 13px;
+    }
+	    .recent-job-list {
+	      display: grid;
+	      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+	      gap: 12px;
+	    }
+	    .recent-job-card {
+	      display: grid;
+	      grid-template-columns: 1fr auto;
+	      gap: 10px;
+	      width: 100%;
+	      min-height: 88px;
+	      padding: 14px 16px;
+	      border-radius: 18px;
+	      text-align: left;
+	      align-items: center;
+	    }
+	    .recent-job-card:hover { background: rgba(247, 251, 255, 0.78); }
+	    .recent-job-main {
+	      min-width: 0;
+	      display: grid;
+	      gap: 6px;
+	    }
+	    .recent-job-document {
+	      color: var(--ink);
+	      font-size: 15px;
+	      font-weight: 760;
+	      line-height: 1.28;
+	      overflow: hidden;
+	      text-overflow: ellipsis;
+	      white-space: nowrap;
+	    }
+	    .recent-job-operation {
+	      color: var(--blue);
+	      font-size: 13px;
+	      font-weight: 740;
+	      line-height: 1.3;
+	    }
+	    .recent-job-id {
+	      color: var(--soft);
+	      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	      font-size: 12px;
+	      overflow: hidden;
+	      text-overflow: ellipsis;
+	      white-space: nowrap;
+	    }
+	    .recent-job-meta {
+	      color: var(--soft);
+	      font-size: 13px;
+	      line-height: 1.45;
+	      overflow: hidden;
+	      text-overflow: ellipsis;
+	      white-space: nowrap;
+	    }
+    .recent-job-status {
+      align-self: start;
+      min-width: 58px;
+      text-align: center;
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: #f5f5f7;
+      color: var(--soft);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .recent-job-status.ok { background: #e8f7ef; color: var(--green); }
+    .recent-job-status.failed { background: #fff0ee; color: var(--red); }
+    .recent-job-status.running { background: #eaf3ff; color: var(--blue); }
+    .recent-job-empty {
+      margin: 0;
+      padding: 12px 14px;
+      border-radius: 14px;
       background: #f7f8fb;
+      color: var(--soft);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .loading-skeleton {
+      position: relative;
+      overflow: hidden;
+      color: transparent !important;
+      background: var(--skeleton-base);
+    }
+    .loading-skeleton::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, var(--skeleton-sheen), transparent);
+      animation: skeletonSweep 1350ms ease-in-out infinite;
+    }
+    .skeleton-line {
+      display: block;
+      width: var(--skeleton-width, 100%);
+      height: var(--skeleton-height, 14px);
+      border-radius: 999px;
+    }
+    .skeleton-stack {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+    .recent-job-skeleton,
+    .record-section-skeleton {
+      pointer-events: none;
+    }
+    .recent-job-skeleton {
+      grid-template-columns: 1fr 72px;
+    }
+    .record-skeleton-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .record-skeleton-pill {
+      min-height: 86px;
+      padding: 18px 20px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid rgba(255, 255, 255, 0.72);
+    }
+	    .record-result {
+	      display: grid;
+	      gap: 14px;
+	      margin-top: 0;
+	    }
+	    .record-result[hidden] { display: none; }
+	    .record-placeholder {
+	      display: grid;
+	      place-items: center;
+	      min-height: 260px;
+	      padding: clamp(22px, 3vw, 34px);
+	      border-radius: 28px;
+	      text-align: center;
+	      color: var(--soft);
+	    }
+	    .record-placeholder strong {
+	      display: block;
+	      margin-bottom: 8px;
+	      color: var(--ink);
+	      font-size: 20px;
+	    }
+	    .record-placeholder p {
+	      max-width: 420px;
+	      margin: 0;
+	      font-size: 14px;
+	      line-height: 1.6;
+	    }
+		    .record-result-card {
+		      min-height: 420px;
+		      border-radius: 28px;
+		      padding: clamp(22px, 3vw, 34px);
+		    }
+		    .record-detail {
+	      display: grid;
+	      gap: 20px;
+	    }
+	    .record-card-head {
+	      display: grid;
+	      grid-template-columns: minmax(0, 1fr) auto;
+	      gap: 12px 18px;
+	      align-items: start;
+	    }
+    .record-detail-hero {
+      padding: clamp(22px, 2.8vw, 34px);
+      border-radius: 28px;
+      background: linear-gradient(145deg, #fff, rgba(232, 244, 255, 0.76));
+      border: 1px solid rgba(255, 255, 255, 0.78);
+      box-shadow: var(--shadow-blue), inset 0 1px rgba(255, 255, 255, 0.92);
+    }
+	    .record-kicker {
+	      margin: 0;
+	      color: var(--blue);
+	      font-size: 17px;
+	      font-weight: 800;
+    }
+	    .record-title {
+      margin: 0;
       color: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 18px;
+      line-height: 1.35;
+	      word-break: break-all;
+	    }
+    .record-title-main {
+      margin: 0;
+      color: var(--ink);
+      font-size: clamp(26px, 3vw, 40px);
+      font-weight: 800;
+      line-height: 1.16;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }
+    .record-job-id {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+	    .record-subtitle {
+	      margin: 0;
+	      color: var(--muted);
+	      font-size: 17px;
+	      line-height: 1.55;
+	    }
+    .record-pill-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+	      gap: 14px;
+    }
+	    .record-pill {
+	      min-width: 0;
+		      padding: 18px 20px;
+		      border-radius: 22px;
+		      background: rgba(255, 255, 255, 0.78);
+		      border: 1px solid rgba(255, 255, 255, 0.72);
+		      box-shadow: var(--shadow-sm);
+	    }
+    .record-pill b {
+      display: block;
+      margin-bottom: 5px;
+	      color: var(--muted);
+	      font-size: 15px;
+	      font-weight: 800;
+    }
+    .record-pill span {
+      display: block;
+      color: var(--ink);
+	      font-size: 19px;
+	      font-weight: 720;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .record-output,
+    .record-file-list {
+      display: grid;
+      gap: 10px;
+    }
+    .record-trace-copy {
+      margin: 0;
+	      color: var(--muted);
+	      font-size: 17px;
+	      line-height: 1.58;
+    }
+    .record-issue-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--ink);
+	      font-size: 17px;
+	      line-height: 1.7;
+	    }
+	    .record-issue-list li + li { margin-top: 8px; }
+	    .record-file-item {
+	      display: grid;
+	      gap: 6px;
+		      padding: 18px 20px;
+		      border-radius: 22px;
+		      background: rgba(255, 255, 255, 0.78);
+		      border: 1px solid rgba(255, 255, 255, 0.72);
+		      box-shadow: var(--shadow-sm);
+	    }
+    .record-file-item b {
+      color: var(--ink);
+	      font-size: 17px;
+    }
+    .record-file-item span {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+    .record-file-item code {
+      color: var(--muted);
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 13px;
       line-height: 1.55;
-      white-space: pre-wrap;
-      word-break: break-word;
+      white-space: normal;
+      word-break: break-all;
     }
-    .record-detail {
-      margin: 0;
-      color: var(--ink);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 13px;
-      line-height: 1.6;
-      white-space: pre-wrap;
-      word-break: break-word;
+    .record-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 4px;
     }
+	    .record-link-button {
+	      display: inline-flex;
+	      align-items: center;
+	      justify-content: center;
+	      min-height: 44px;
+	      padding: 0 18px;
+	      border-radius: 999px;
+	      background: #eaf3ff;
+	      color: var(--blue);
+	      font-size: 15px;
+	      font-weight: 700;
+	      text-decoration: none;
+	    }
+	    .record-muted {
+	      color: var(--muted);
+	      font-size: 15px;
+	    }
+	    .record-action-note {
+	      margin: 8px 0 0;
+	      color: var(--soft);
+		      font-size: 15px;
+	      line-height: 1.55;
+	    }
+	    .record-report-preview {
+	      margin-top: 12px;
+	      max-height: 360px;
+	      overflow: auto;
+	      white-space: pre-wrap;
+	      word-break: break-word;
+	      border-radius: 18px;
+	      padding: 16px 18px;
+	      background: rgba(255, 255, 255, 0.66);
+	      border: 1px solid rgba(0, 0, 0, 0.05);
+	      color: #304052;
+	      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		      font-size: 14px;
+	      line-height: 1.65;
+	    }
     .split-workbench {
       display: grid;
       gap: 18px;
@@ -708,7 +1269,7 @@
       border-radius: 18px;
       background: #f7f8fb;
       border: 1px dashed rgba(68, 83, 100, 0.22);
-      color: #536579;
+      color: var(--muted);
       line-height: 1.55;
     }
     .downstream-note strong {
@@ -750,13 +1311,13 @@
     }
     .candidate-mode p {
       margin: 0;
-      color: #536579;
+      color: var(--muted);
       font-size: 14px;
       line-height: 1.55;
     }
     .candidate-mode small {
       color: var(--soft);
-      font-size: 12px;
+		      font-size: 13px;
       line-height: 1.45;
     }
     .candidate-status {
@@ -772,7 +1333,7 @@
       border-radius: 18px;
       background: #fff;
       border: 1px solid rgba(0, 0, 0, 0.06);
-      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+      box-shadow: var(--shadow-sm);
     }
     .candidate-status-head {
       display: flex;
@@ -800,7 +1361,7 @@
     }
     .candidate-status-copy {
       margin: 0;
-      color: #536579;
+      color: var(--muted);
       font-size: 14px;
       line-height: 1.65;
     }
@@ -833,12 +1394,83 @@
     .candidate-status-notes {
       margin: 0;
       padding-left: 18px;
-      color: #536579;
+      color: var(--muted);
       font-size: 13px;
       line-height: 1.65;
     }
     .candidate-status-notes li + li {
       margin-top: 4px;
+    }
+    .scope-selection-panel {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: #f7f8fb;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    .scope-selection-panel[hidden] { display: none; }
+    .scope-selection-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .scope-selection-title {
+      margin: 0 0 4px;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 760;
+    }
+    .scope-selection-copy {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .scope-selection-count {
+      flex: 0 0 auto;
+      min-height: 28px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #eaf3ff;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 740;
+      white-space: nowrap;
+    }
+    .scope-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 8px;
+    }
+    .scope-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 42px;
+      margin: 0;
+      padding: 9px 11px;
+      border-radius: 14px;
+      background: var(--surface);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .scope-option input {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      accent-color: var(--blue);
+    }
+    .scope-option small {
+      margin-left: auto;
+      color: var(--soft);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
     }
     .muted { color: var(--soft); }
     .motion-reveal {
@@ -860,39 +1492,554 @@
       45% { transform: scale(1.035); box-shadow: 0 10px 28px rgba(0, 113, 227, 0.12); }
       100% { transform: scale(1); box-shadow: none; }
     }
-    @keyframes metricPop {
-      0% { color: var(--ink); transform: translateY(0); }
-      45% { color: var(--blue); transform: translateY(-2px); }
-      100% { color: var(--ink); transform: translateY(0); }
+	    @keyframes metricPop {
+	      0% { color: var(--ink); transform: translateY(0); }
+	      45% { color: var(--blue); transform: translateY(-2px); }
+	      100% { color: var(--ink); transform: translateY(0); }
+	    }
+	    @keyframes panelFloatIn {
+	      0% { opacity: 0; transform: translateY(18px) scale(0.985); filter: blur(7px); }
+	      60% { opacity: 1; transform: translateY(-2px) scale(1.004); filter: blur(0); }
+	      100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+	    }
+		    @keyframes reportRefresh {
+	      0% { transform: translateY(0); background: var(--surface-soft); box-shadow: none; }
+	      45% { transform: translateY(-2px); background: var(--surface-blue-soft); box-shadow: var(--shadow-blue); }
+	      100% { transform: translateY(0); background: var(--surface-soft); box-shadow: none; }
+	    }
+    @keyframes skeletonSweep {
+      0% { transform: translateX(-100%); }
+      60%, 100% { transform: translateX(100%); }
     }
-    @keyframes reportRefresh {
-      0% { transform: translateY(0); background: #f5f5f7; box-shadow: none; }
-      45% { transform: translateY(-2px); background: #f7fbff; box-shadow: 0 22px 55px rgba(0, 113, 227, 0.11); }
-      100% { transform: translateY(0); background: #f5f5f7; box-shadow: none; }
-    }
-    @media (max-width: 980px) {
-      .topbar-inner { width: calc(100% - 24px); }
-      .health { display: none; }
-      .stage-grid { grid-template-columns: 1fr; gap: 34px; }
-      .steps { border-radius: 24px; align-items: stretch; flex-wrap: wrap; }
-      .step { flex-basis: calc(50% - 4px); border-radius: 18px; }
-    }
-    @media (max-width: 640px) {
-      .nav { gap: 16px; }
-      .hero { min-height: 300px; padding-top: 44px; }
-      .hero h1 { font-size: 44px; }
-      .stage-head, .pane, .records { padding: 24px; }
-      .stage { width: calc(100% - 20px); border-radius: 24px; }
-      .field-row, .result-strip, .record-query { grid-template-columns: 1fr; }
+	    @keyframes emblemIntro {
+	      0% { width: 0; opacity: 0; transform: translateX(-10px) scale(0.74) rotate(-10deg); }
+	      48% { width: 32px; opacity: 1; transform: translateY(-1px) scale(1.08) rotate(2deg); }
+	      100% { width: 0; opacity: 0; transform: translateX(-8px) scale(0.78) rotate(-8deg); }
+	    }
+	    @keyframes emblemBreath {
+	      0%, 100% { filter: drop-shadow(0 0 0 rgba(0, 113, 227, 0)); transform: translateZ(0) scale(1); }
+	      50% { filter: drop-shadow(0 8px 16px rgba(0, 113, 227, 0.16)); transform: translateZ(0) scale(1.04); }
+	    }
+	    @media (max-width: 980px) {
+	      .topbar-inner { width: calc(100% - 24px); }
+	      .health { display: none; }
+      .update-check {
+        flex: 1 1 100%;
+        order: 4;
+      }
+      .update-check-note {
+        display: block;
+        max-width: none;
+        white-space: normal;
+      }
+	      .stage-grid { grid-template-columns: 1fr; gap: 34px; }
+	      .records-layout { grid-template-columns: 1fr; }
+	      .records-query-card { position: relative; top: auto; }
+	      .steps { border-radius: 24px; align-items: stretch; flex-wrap: wrap; }
+	      .step { flex-basis: calc(50% - 4px); border-radius: 18px; }
+	    }
+	    @media (max-width: 640px) {
+	      :root {
+	        --topbar-height: 58px;
+	        --topbar-compact-height: 54px;
+	      }
+	      .nav { gap: 16px; }
+	      .topbar-inner, .nav button { font-size: 15px; }
+	      .brand-mark { height: 28px; }
+	      .brand-mark img,
+	      .topbar.brand-active .brand-mark,
+	      .topbar.compact .brand-mark,
+	      .topbar.brand-pulse .brand-mark,
+	      .brand:hover .brand-mark { width: 28px; }
+	      .brand-mark img { height: 28px; }
+	      .hero { min-height: 260px; padding-top: 42px; }
+	      .hero h1 { font-size: 44px; }
+	      .records-hero { min-height: 220px; }
+	      .stage-head { padding: 24px; }
+	      .stage-grid, .records-layout { padding: 24px; }
+	      .stage { width: calc(100% - 20px); border-radius: 24px; }
+	      .field-row, .result-strip, .record-query, .record-pill-grid { grid-template-columns: 1fr; }
+	      .recent-job-list { grid-template-columns: 1fr; }
       .render-pdf-row, .workflow-card { grid-template-columns: 1fr; }
       .workbench-nav { flex-direction: column; }
       .candidate-status-grid { grid-template-columns: 1fr; }
+      .scope-selection-head { display: grid; }
+      .scope-list { grid-template-columns: 1fr; }
       .workflow-actions {
         grid-column: 1;
         grid-row: auto;
         justify-content: flex-start;
       }
     }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink: #f5f5f7;
+        --soft: #b8c0cc;
+        --muted: #aab4c3;
+        --subtle: #909cad;
+        --hairline: rgba(255, 255, 255, 0.14);
+        --blue: #2997ff;
+        --bg: #080b12;
+        --white: #f5f5f7;
+        --surface: #171b24;
+        --surface-raised: rgba(27, 32, 43, 0.92);
+        --surface-soft: #10141d;
+        --surface-muted: #151a24;
+        --surface-blue: rgba(41, 151, 255, 0.18);
+        --surface-blue-soft: rgba(41, 151, 255, 0.12);
+        --input-bg: rgba(16, 20, 29, 0.94);
+        --green: #4cd486;
+        --amber: #ffd166;
+        --red: #ff6b5f;
+        --green-soft: rgba(76, 212, 134, 0.16);
+        --red-soft: rgba(255, 107, 95, 0.16);
+        --amber-soft: rgba(255, 209, 102, 0.16);
+        --glass: rgba(20, 25, 35, 0.74);
+        --glass-strong: rgba(25, 30, 42, 0.82);
+        --glass-soft: rgba(25, 30, 42, 0.58);
+        --glass-border: rgba(255, 255, 255, 0.12);
+        --shadow-sm: 0 8px 18px rgba(0, 0, 0, 0.24);
+        --shadow-md: 0 16px 34px rgba(0, 0, 0, 0.32);
+        --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.46);
+        --shadow-blue: 0 18px 42px rgba(41, 151, 255, 0.16);
+        --panel-shadow: var(--shadow-lg);
+        --soft-shadow: 0 18px 50px rgba(0, 0, 0, 0.34);
+        --focus-ring: 0 0 0 3px rgba(41, 151, 255, 0.5), 0 0 0 7px rgba(41, 151, 255, 0.18);
+        --skeleton-base: rgba(48, 57, 72, 0.82);
+        --skeleton-sheen: rgba(120, 140, 170, 0.36);
+      }
+      body {
+        background:
+          linear-gradient(180deg, rgba(9, 12, 18, 0.98) 0%, rgba(14, 18, 26, 0.98) 54%, rgba(8, 11, 17, 0.99) 100%),
+          radial-gradient(1200px 620px at 50% -18%, rgba(41, 151, 255, 0.2), transparent 58%),
+          radial-gradient(980px 520px at 92% 18%, rgba(82, 180, 160, 0.12), transparent 56%),
+          var(--bg);
+      }
+      button { background: #242a35; color: var(--ink); }
+      button:hover { background: #2c3340; }
+      button.primary { background: var(--blue); color: #06101d; }
+      button.primary:hover { background: #5ab0ff; }
+      .topbar {
+        border-bottom-color: rgba(255, 255, 255, 0.08);
+        background: rgba(12, 15, 22, 0.82);
+      }
+      .hero::before {
+        background:
+          linear-gradient(145deg, rgba(31, 38, 52, 0.82), rgba(18, 23, 33, 0.46)),
+          linear-gradient(90deg, rgba(41, 151, 255, 0.12), rgba(82, 180, 160, 0.08));
+        box-shadow: inset 0 1px rgba(255, 255, 255, 0.1);
+      }
+      .stage,
+      .status-flow-card,
+      .report,
+      .record-result-card.glass-card,
+      .glass-card {
+        border-color: var(--glass-border);
+        background:
+          linear-gradient(145deg, rgba(31, 38, 52, 0.82), rgba(18, 23, 33, 0.62)),
+          rgba(18, 23, 33, 0.72);
+      }
+      .status-flow-card.glass-card {
+        background:
+          linear-gradient(145deg, rgba(28, 44, 67, 0.92), rgba(18, 23, 33, 0.8) 58%),
+          rgba(18, 23, 33, 0.82);
+      }
+      input[type="text"], select,
+      .upload,
+      .pdf-upload,
+      .workflow-card,
+      .candidate-mode,
+      .candidate-status-panel,
+      .metric,
+      .report-progress,
+      .summary,
+      .record-detail-hero,
+      .report-section-card,
+      .record-section-card,
+      .record-pill,
+      .record-file-item,
+      .record-report-preview,
+      .record-skeleton-pill {
+        background: var(--surface-raised);
+        border-color: var(--glass-border);
+        color: var(--ink);
+      }
+      .report-section-card.is-primary,
+      .record-section-card.is-primary,
+      .record-detail-hero {
+        background: linear-gradient(145deg, rgba(35, 46, 63, 0.96), rgba(25, 45, 70, 0.78));
+      }
+      .report-section-card.is-next,
+      .render-workflows,
+      .workflow-card.selected,
+      .candidate-mode.selected {
+        background: linear-gradient(145deg, rgba(28, 44, 67, 0.88), rgba(18, 23, 33, 0.92));
+      }
+      .steps {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .step {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .step span,
+      .metric span,
+      .pdf-upload span,
+      .render-workflows > p,
+      .workflow-card span,
+      .record-subtitle,
+      .record-job-id,
+      .record-trace-copy,
+      .record-file-item span,
+      .record-file-item code,
+      .record-muted,
+      .record-report-preview,
+      .candidate-mode p,
+      .candidate-status-copy,
+      .candidate-status-notes {
+        color: var(--muted);
+      }
+      .source-chip,
+      .recent-job-status,
+      .recent-job-empty,
+      .safe-note,
+      .source-summary,
+      .candidate-status-item,
+      .downstream-note {
+        background: var(--surface-muted);
+        color: var(--soft);
+      }
+      .source-chip.ok,
+      .recent-job-status.ok { background: var(--green-soft); color: var(--green); }
+      .source-chip.running,
+      .recent-job-status.running,
+      .workflow-badge,
+      .candidate-status-badge { background: var(--surface-blue); color: var(--blue); }
+      .source-chip.failed,
+      .recent-job-status.failed { background: var(--red-soft); color: var(--red); }
+      .report-progress-bar { background: rgba(255, 255, 255, 0.16); }
+      .loading-skeleton { background: var(--skeleton-base); }
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --ink: #1d1d1f;
+      --soft: #55565c;
+      --muted: #536579;
+      --subtle: #667085;
+      --hairline: rgba(0, 0, 0, 0.08);
+      --blue: #0071e3;
+      --bg: #f5f5f7;
+      --white: #fff;
+      --surface: #fff;
+      --surface-raised: rgba(255, 255, 255, 0.9);
+      --surface-soft: #f5f5f7;
+      --surface-muted: #f7f8fb;
+      --surface-blue: #eaf3ff;
+      --surface-blue-soft: #f5faff;
+      --input-bg: #fff;
+      --green: #0b7a4b;
+      --amber: #a15c00;
+      --red: #b42318;
+      --green-soft: #e8f7ef;
+      --red-soft: #fff0ee;
+      --amber-soft: #fff7e8;
+      --glass: rgba(255, 255, 255, 0.72);
+      --glass-strong: rgba(255, 255, 255, 0.78);
+      --glass-soft: rgba(255, 255, 255, 0.54);
+      --glass-border: rgba(255, 255, 255, 0.66);
+      --shadow-sm: 0 8px 18px rgba(15, 23, 42, 0.045);
+      --shadow-md: 0 16px 34px rgba(15, 23, 42, 0.065);
+      --shadow-lg: 0 30px 80px rgba(15, 23, 42, 0.08);
+      --shadow-blue: 0 18px 42px rgba(0, 113, 227, 0.14);
+      --panel-shadow: var(--shadow-lg);
+      --soft-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+      --focus-ring: 0 0 0 3px rgba(0, 113, 227, 0.34), 0 0 0 6px rgba(0, 113, 227, 0.14);
+      --skeleton-base: rgba(226, 232, 240, 0.86);
+      --skeleton-sheen: rgba(255, 255, 255, 0.82);
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --ink: #f5f5f7;
+      --soft: #b8c0cc;
+      --muted: #aab4c3;
+      --subtle: #909cad;
+      --hairline: rgba(255, 255, 255, 0.14);
+      --blue: #2997ff;
+      --bg: #080b12;
+      --white: #f5f5f7;
+      --surface: #171b24;
+      --surface-raised: rgba(27, 32, 43, 0.92);
+      --surface-soft: #10141d;
+      --surface-muted: #151a24;
+      --surface-blue: rgba(41, 151, 255, 0.18);
+      --surface-blue-soft: rgba(41, 151, 255, 0.12);
+      --input-bg: rgba(16, 20, 29, 0.94);
+      --green: #4cd486;
+      --amber: #ffd166;
+      --red: #ff6b5f;
+      --green-soft: rgba(76, 212, 134, 0.16);
+      --red-soft: rgba(255, 107, 95, 0.16);
+      --amber-soft: rgba(255, 209, 102, 0.16);
+      --glass: rgba(20, 25, 35, 0.74);
+      --glass-strong: rgba(25, 30, 42, 0.82);
+      --glass-soft: rgba(25, 30, 42, 0.58);
+      --glass-border: rgba(255, 255, 255, 0.12);
+      --shadow-sm: 0 8px 18px rgba(0, 0, 0, 0.24);
+      --shadow-md: 0 16px 34px rgba(0, 0, 0, 0.32);
+      --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.46);
+      --shadow-blue: 0 18px 42px rgba(41, 151, 255, 0.16);
+      --panel-shadow: var(--shadow-lg);
+      --soft-shadow: 0 18px 50px rgba(0, 0, 0, 0.34);
+      --focus-ring: 0 0 0 3px rgba(41, 151, 255, 0.5), 0 0 0 7px rgba(41, 151, 255, 0.18);
+      --skeleton-base: rgba(48, 57, 72, 0.82);
+      --skeleton-sheen: rgba(120, 140, 170, 0.36);
+    }
+    [data-theme="light"] body {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(245, 245, 247, 0.96) 44%, rgba(255, 255, 255, 0.98) 100%),
+        radial-gradient(1200px 620px at 50% -18%, rgba(0, 113, 227, 0.18), transparent 58%),
+        radial-gradient(980px 520px at 92% 18%, rgba(12, 126, 112, 0.10), transparent 56%),
+        var(--bg);
+    }
+    [data-theme="dark"] body {
+      background:
+        linear-gradient(180deg, rgba(9, 12, 18, 0.98) 0%, rgba(14, 18, 26, 0.98) 54%, rgba(8, 11, 17, 0.99) 100%),
+        radial-gradient(1200px 620px at 50% -18%, rgba(41, 151, 255, 0.2), transparent 58%),
+        radial-gradient(980px 520px at 92% 18%, rgba(82, 180, 160, 0.12), transparent 56%),
+        var(--bg);
+    }
+    [data-theme="light"] button { background: #e8e8ed; color: var(--ink); }
+    [data-theme="light"] button:hover { background: #dedee3; }
+    [data-theme="light"] button.primary { background: var(--blue); color: #fff; }
+    [data-theme="light"] button.primary:hover { background: #0077ed; }
+    [data-theme="light"] button.text { background: transparent; color: var(--blue); }
+    [data-theme="light"] .nav button {
+      background: transparent;
+      color: inherit;
+    }
+    [data-theme="light"] .nav button:hover { background: transparent; }
+    [data-theme="light"] .nav button.active { color: var(--ink); }
+    [data-theme="light"] .workflow-actions button {
+      background: var(--blue);
+      color: #fff;
+    }
+    [data-theme="light"] .workflow-actions button:hover { background: #0077ed; }
+    [data-theme="light"] .record-link-button {
+      background: #eaf3ff;
+      color: var(--blue);
+    }
+    [data-theme="dark"] button { background: #242a35; color: var(--ink); }
+    [data-theme="dark"] button:hover { background: #2c3340; }
+    [data-theme="dark"] button.primary { background: var(--blue); color: #06101d; }
+    [data-theme="dark"] button.primary:hover { background: #5ab0ff; }
+    [data-theme="dark"] button.text { background: transparent; color: var(--blue); }
+    [data-theme="dark"] .nav button {
+      background: transparent;
+      color: inherit;
+    }
+    [data-theme="dark"] .nav button:hover { background: transparent; }
+    [data-theme="dark"] .nav button.active { color: var(--ink); }
+    [data-theme="dark"] .workflow-actions button {
+      background: var(--blue);
+      color: #fff;
+    }
+    [data-theme="dark"] .workflow-actions button:hover { background: #5ab0ff; }
+    [data-theme="dark"] .record-link-button {
+      background: var(--surface-blue);
+      color: var(--blue);
+    }
+    [data-theme="light"] .theme-toggle {
+      border-color: rgba(0, 0, 0, 0.06);
+      background: rgba(255, 255, 255, 0.72);
+    }
+    [data-theme="light"] .theme-toggle:hover { background: #fff; }
+    [data-theme="dark"] .theme-toggle {
+      border-color: rgba(255, 255, 255, 0.12);
+      background: rgba(36, 42, 53, 0.78);
+    }
+    [data-theme="dark"] .theme-toggle:hover { background: #2c3340; }
+    [data-theme="light"] .topbar {
+      border-bottom-color: rgba(0, 0, 0, 0.04);
+      background: rgba(245, 245, 247, 0.82);
+    }
+    [data-theme="dark"] .topbar {
+      border-bottom-color: rgba(255, 255, 255, 0.08);
+      background: rgba(12, 15, 22, 0.82);
+    }
+    [data-theme="light"] .hero::before {
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.38)),
+        linear-gradient(90deg, rgba(0, 113, 227, 0.08), rgba(12, 126, 112, 0.07));
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.9);
+    }
+    [data-theme="dark"] .hero::before {
+      background:
+        linear-gradient(145deg, rgba(31, 38, 52, 0.82), rgba(18, 23, 33, 0.46)),
+        linear-gradient(90deg, rgba(41, 151, 255, 0.12), rgba(82, 180, 160, 0.08));
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.1);
+    }
+    [data-theme="dark"] #view-paper .hero {
+      padding-bottom: clamp(48px, 6vw, 78px);
+    }
+    [data-theme="dark"] #view-paper .hero::before {
+      inset: 18px max(18px, calc((100vw - var(--content-max)) / 2)) 22px;
+      border-color: rgba(255, 255, 255, 0.08);
+      background:
+        linear-gradient(145deg, rgba(25, 31, 42, 0.76), rgba(12, 17, 25, 0.42)),
+        linear-gradient(90deg, rgba(41, 151, 255, 0.10), rgba(82, 180, 160, 0.07));
+      box-shadow:
+        inset 0 1px rgba(255, 255, 255, 0.08),
+        0 18px 48px rgba(0, 0, 0, 0.22);
+    }
+    [data-theme="dark"] #view-paper .stage {
+      margin-top: clamp(28px, 4vw, 52px);
+      box-shadow:
+        0 34px 88px rgba(0, 0, 0, 0.42),
+        0 -1px rgba(255, 255, 255, 0.06);
+    }
+    [data-theme="light"] .stage,
+    [data-theme="light"] .status-flow-card,
+    [data-theme="light"] .report,
+    [data-theme="light"] .record-result-card.glass-card,
+    [data-theme="light"] .glass-card {
+      border-color: var(--glass-border);
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.42)),
+        rgba(255, 255, 255, 0.62);
+    }
+    [data-theme="dark"] .stage,
+    [data-theme="dark"] .status-flow-card,
+    [data-theme="dark"] .report,
+    [data-theme="dark"] .record-result-card.glass-card,
+    [data-theme="dark"] .glass-card {
+      border-color: var(--glass-border);
+      background:
+        linear-gradient(145deg, rgba(31, 38, 52, 0.82), rgba(18, 23, 33, 0.62)),
+        rgba(18, 23, 33, 0.72);
+    }
+    [data-theme="light"] .status-flow-card.glass-card {
+      background:
+        linear-gradient(145deg, rgba(232, 244, 255, 0.9), rgba(255, 255, 255, 0.84) 58%),
+        rgba(255, 255, 255, 0.78);
+    }
+    [data-theme="dark"] .status-flow-card.glass-card {
+      background:
+        linear-gradient(145deg, rgba(28, 44, 67, 0.92), rgba(18, 23, 33, 0.8) 58%),
+        rgba(18, 23, 33, 0.82);
+    }
+    [data-theme="light"] .record-result-card.glass-card {
+      background:
+        linear-gradient(145deg, rgba(232, 244, 255, 0.82), rgba(255, 255, 255, 0.9) 54%),
+        rgba(255, 255, 255, 0.8);
+    }
+    [data-theme="dark"] input[type="text"],
+    [data-theme="dark"] select,
+    [data-theme="dark"] .upload,
+    [data-theme="dark"] .pdf-upload,
+    [data-theme="dark"] .workflow-card,
+    [data-theme="dark"] .candidate-mode,
+    [data-theme="dark"] .candidate-status-panel,
+    [data-theme="dark"] .metric,
+    [data-theme="dark"] .report-progress,
+    [data-theme="dark"] .summary,
+    [data-theme="dark"] .record-detail-hero,
+    [data-theme="dark"] .report-section-card,
+    [data-theme="dark"] .record-section-card,
+    [data-theme="dark"] .record-pill,
+    [data-theme="dark"] .record-file-item,
+    [data-theme="dark"] .record-report-preview,
+    [data-theme="dark"] .record-skeleton-pill {
+      background: var(--surface-raised);
+      border-color: var(--glass-border);
+      color: var(--ink);
+    }
+    [data-theme="light"] input[type="text"],
+    [data-theme="light"] select { background: var(--input-bg); }
+    [data-theme="light"] .upload { background: #fbfbfd; }
+    [data-theme="light"] .pdf-upload { background: #f6fbff; }
+    [data-theme="light"] .metric,
+    [data-theme="light"] .report-progress,
+    [data-theme="light"] .workflow-card,
+    [data-theme="light"] .candidate-mode,
+    [data-theme="light"] .candidate-status-panel { background: var(--surface); }
+    [data-theme="light"] .summary { background: #f5f5f7; }
+    [data-theme="light"] .record-detail-hero {
+      background: linear-gradient(145deg, #fff, rgba(232, 244, 255, 0.76));
+    }
+    [data-theme="light"] .report-section-card,
+    [data-theme="light"] .record-section-card,
+    [data-theme="light"] .record-pill,
+    [data-theme="light"] .record-file-item,
+    [data-theme="light"] .record-report-preview,
+    [data-theme="light"] .record-skeleton-pill {
+      background: rgba(255, 255, 255, 0.78);
+      border-color: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+    }
+    [data-theme="light"] .report-section-card.is-primary,
+    [data-theme="light"] .record-section-card.is-primary {
+      background: linear-gradient(145deg, #fff, rgba(232, 244, 255, 0.82));
+    }
+    [data-theme="dark"] .report-section-card.is-primary,
+    [data-theme="dark"] .record-section-card.is-primary,
+    [data-theme="dark"] .record-detail-hero {
+      background: linear-gradient(145deg, rgba(35, 46, 63, 0.96), rgba(25, 45, 70, 0.78));
+    }
+    [data-theme="light"] .report-section-card.is-next,
+    [data-theme="light"] .render-workflows,
+    [data-theme="light"] .workflow-card.selected,
+    [data-theme="light"] .candidate-mode.selected {
+      background: linear-gradient(145deg, rgba(245, 250, 255, 0.96), #fff);
+    }
+    [data-theme="dark"] .report-section-card.is-next,
+    [data-theme="dark"] .render-workflows,
+    [data-theme="dark"] .workflow-card.selected,
+    [data-theme="dark"] .candidate-mode.selected {
+      background: linear-gradient(145deg, rgba(28, 44, 67, 0.88), rgba(18, 23, 33, 0.92));
+    }
+    [data-theme="light"] .steps { background: rgba(255, 255, 255, 0.52); }
+    [data-theme="light"] .step { background: rgba(255, 255, 255, 0.46); }
+    [data-theme="dark"] .steps,
+    [data-theme="dark"] .step { background: rgba(255, 255, 255, 0.08); }
+    [data-theme="light"] .source-chip,
+    [data-theme="light"] .recent-job-status,
+    [data-theme="light"] .recent-job-empty,
+    [data-theme="light"] .safe-note,
+    [data-theme="light"] .source-summary,
+    [data-theme="light"] .candidate-status-item,
+    [data-theme="light"] .downstream-note {
+      background: var(--surface-muted);
+      color: var(--soft);
+    }
+    [data-theme="dark"] .source-chip,
+    [data-theme="dark"] .recent-job-status,
+    [data-theme="dark"] .recent-job-empty,
+    [data-theme="dark"] .safe-note,
+    [data-theme="dark"] .source-summary,
+    [data-theme="dark"] .candidate-status-item,
+    [data-theme="dark"] .downstream-note {
+      background: var(--surface-muted);
+      color: var(--soft);
+    }
+    [data-theme="light"] .source-chip.ok,
+    [data-theme="light"] .recent-job-status.ok,
+    [data-theme="dark"] .source-chip.ok,
+    [data-theme="dark"] .recent-job-status.ok { background: var(--green-soft); color: var(--green); }
+    [data-theme="light"] .source-chip.running,
+    [data-theme="light"] .recent-job-status.running,
+    [data-theme="light"] .workflow-badge,
+    [data-theme="light"] .candidate-status-badge,
+    [data-theme="dark"] .source-chip.running,
+    [data-theme="dark"] .recent-job-status.running,
+    [data-theme="dark"] .workflow-badge,
+    [data-theme="dark"] .candidate-status-badge { background: var(--surface-blue); color: var(--blue); }
+    [data-theme="light"] .source-chip.failed,
+    [data-theme="light"] .recent-job-status.failed,
+    [data-theme="dark"] .source-chip.failed,
+    [data-theme="dark"] .recent-job-status.failed { background: var(--red-soft); color: var(--red); }
+    [data-theme="light"] .report-progress-bar { background: #e8e8ed; }
+    [data-theme="dark"] .report-progress-bar { background: rgba(255, 255, 255, 0.16); }
+    [data-theme="light"] .loading-skeleton,
+    [data-theme="dark"] .loading-skeleton { background: var(--skeleton-base); }
     @media (prefers-reduced-motion: reduce) {
       html { scroll-behavior: auto; }
       *, *::before, *::after {
@@ -912,14 +2059,19 @@
 <body>
   <header class="topbar">
     <div class="topbar-inner">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"><img src="assets/lnu-emblem.jpg" alt=""></span><span>辽宁大学毕业论文格式</span></div>
-      <nav class="nav" aria-label="页面导航">
-        <button type="button" class="active" data-view-button="paper">主流程</button>
-        <button type="button" data-view-button="records">任务查询</button>
-      </nav>
-      <div id="health-line" class="health">正在连接本地服务...</div>
-    </div>
-  </header>
+      <div class="brand"><span class="brand-mark brand-mark-reveal" aria-hidden="true"><img src="assets/lnu-emblem.jpg" alt=""></span><span>辽宁大学毕业论文格式</span></div>
+	      <nav class="nav" aria-label="页面导航">
+	        <button type="button" class="active" data-view-button="paper">主流程</button>
+	        <button type="button" data-view-button="records">任务查询</button>
+	      </nav>
+      <button type="button" id="theme-toggle-button" class="theme-toggle" aria-label="切换深浅色" aria-pressed="false">深色</button>
+      <div class="update-check" aria-live="polite">
+        <button type="button" id="update-check-button" class="update-check-button">检查新版本</button>
+        <span id="update-check-note" class="update-check-note">手动检查 GitHub Release。只检查软件版本，不上传论文。</span>
+      </div>
+	      <div id="health-line" class="health">正在连接本地服务...</div>
+	    </div>
+	  </header>
 
   <main>
     <section id="view-paper" class="page active">
@@ -927,8 +2079,7 @@
         <div>
           <small class="motion-reveal">辽宁大学毕业论文</small>
           <h1 class="motion-reveal delay-1">格式检查与修复</h1>
-          <p class="motion-reveal delay-2">上传 DOCX，生成修复稿；再上传导出的 PDF 复审。</p>
-          <div class="hero-actions motion-reveal delay-3">
+          <div class="hero-actions motion-reveal delay-2">
             <button type="button" class="primary" data-scroll-target="stage">开始处理</button>
             <button type="button" class="text" data-scroll-target="render-workflows">上传 PDF 复审</button>
           </div>
@@ -965,8 +2116,8 @@
             </div>
 
             <div class="primary-row">
-              <button type="button" class="primary" id="run-all-button">一键生成修复稿</button>
-              <span class="muted">完成后打开修复稿导出 PDF。</span>
+              <button type="button" class="primary" id="run-all-button">生成修复方案</button>
+              <span class="muted">先选择修复范围，再生成修复稿。</span>
             </div>
 
             <div class="render-workflows motion-reveal" id="render-workflows">
@@ -991,25 +2142,37 @@
 
           </div>
 
-          <div class="pane">
-            <div id="single-steps" class="steps"></div>
-            <div class="result-strip motion-reveal delay-1">
-              <div class="metric"><b id="metric-failed">-</b><span>未通过规则</span></div>
-              <div class="metric"><b id="metric-manual">-</b><span>人工复核项</span></div>
-              <div class="metric"><b id="metric-pages">-</b><span>渲染页数</span></div>
+	          <div class="pane status-studio">
+	            <div class="status-flow-card glass-card">
+	              <div id="single-steps" class="steps"></div>
+	            </div>
+            <div id="scope-selection-panel" class="scope-selection-panel" hidden>
+              <div class="scope-selection-head">
+                <div>
+                  <p class="scope-selection-title">选择修复范围</p>
+                  <p class="scope-selection-copy">已按方案默认选择未通过范围，可取消不想自动修的项目。</p>
+                </div>
+                <span id="scope-selection-count" class="scope-selection-count">未生成方案</span>
+              </div>
+              <div class="scope-list" data-scope-list></div>
             </div>
-            <div id="report-card" class="report motion-reveal delay-2">
-              <div class="report-section">
-                <p class="report-label">总体结论</p>
-                <p class="report-value" id="report-conclusion">选择一篇论文后开始处理。</p>
-              </div>
-              <div class="report-section">
-                <p class="report-label">关键问题</p>
-                <ul class="report-list" id="report-issues"><li>暂无</li></ul>
-              </div>
-              <div class="report-section">
-                <p class="report-label">建议下一步</p>
-            <p class="report-value" id="report-next">选择文件，然后点击“一键生成修复稿”。</p>
+	            <div class="result-strip motion-reveal delay-1">
+	              <div class="metric"><b id="metric-failed">-</b><span>未通过规则</span></div>
+	              <div class="metric"><b id="metric-manual">-</b><span>人工复核项</span></div>
+	              <div class="metric"><b id="metric-pages">-</b><span>渲染页数</span></div>
+	            </div>
+	            <div id="report-card" class="report motion-reveal delay-2">
+		              <div class="report-section is-primary report-section-card">
+	                <p class="report-label">总体结论</p>
+	                <p class="report-value" id="report-conclusion">选择一篇论文后开始处理。</p>
+	              </div>
+	              <div class="report-section report-section-card">
+	                <p class="report-label">关键问题</p>
+	                <ul class="report-list" id="report-issues"><li>暂无</li></ul>
+	              </div>
+		              <div class="report-section is-next report-section-card">
+	                <p class="report-label">建议下一步</p>
+            <p class="report-value" id="report-next">选择文件，然后点击“生成修复方案”。</p>
                 <button type="button" class="primary report-action" id="report-action-button" hidden>继续</button>
                 <div class="report-progress" id="report-progress" hidden>
                   <div class="report-progress-head">
@@ -1031,35 +2194,71 @@
         </div>
       </section>
 
-    </section>
+	    </section>
 
-    <section id="view-records" class="page">
-      <section class="stage motion-reveal">
-        <div class="stage-head">
-          <div>
-            <h2>任务查询</h2>
+	    <section id="view-records" class="page">
+	      <div class="records-hero hero">
+	        <div>
+	          <small class="motion-reveal">辽宁大学毕业论文</small>
+	          <h1 class="motion-reveal delay-1">任务查询</h1>
+	        </div>
+	      </div>
+	      <section class="stage records-stage motion-reveal">
+	        <div class="stage-head">
+	          <div>
+	            <h2>任务查询</h2>
             <p>粘贴任务编号，查看处理状态和输出文件。</p>
           </div>
           <span id="record-status-badge" class="source-chip">未查询</span>
         </div>
-        <div class="stage-grid">
-          <div class="pane record-panel">
-            <div class="record-query">
-              <input id="job-id-input" type="text" placeholder="粘贴任务编号">
-              <button type="button" id="load-job-button" class="primary">查看任务</button>
-            </div>
-            <p class="record-help">生成修复稿或下一版 DOCX 后，可在这里粘贴任务编号查看结果。</p>
-          </div>
-          <div class="pane">
-            <div id="record-result" class="record-result" hidden>
-              <div class="report">
-                <div class="report-section">
-                  <p class="report-label">任务状态</p>
-                  <pre id="job-detail" class="record-detail"></pre>
-                </div>
-                <div class="report-section">
-                  <p class="report-label">输出结果</p>
-                  <pre id="job-result" class="record-output"></pre>
+	        <div class="records-layout">
+	          <div class="pane records-query-card glass-card interactive-glass record-panel">
+	            <div class="record-query">
+	              <input id="job-id-input" type="text" placeholder="粘贴任务编号">
+	              <button type="button" id="load-job-button" class="primary">查看任务</button>
+	            </div>
+	            <p class="record-help">生成修复稿或下一版 DOCX 后，可在这里粘贴任务编号查看结果。</p>
+	            <div class="feedback-export">
+	              <a id="feedback-download-link" class="record-link-button" href="/feedback/download" download="反馈包.zip">导出反馈包</a>
+	              <p class="record-help">默认不含论文原文或修复稿，用于反馈任务失败和环境问题。</p>
+	            </div>
+	          </div>
+	          <div class="pane records-main-stack">
+	            <div class="recent-jobs records-recent-card glass-card" aria-label="最近任务">
+	              <div class="recent-jobs-head">
+	                <h3>最近任务</h3>
+	                <button type="button" id="refresh-jobs-button">刷新</button>
+	              </div>
+	              <div id="recent-job-list" class="recent-job-list">
+	                <div class="recent-job-card recent-job-skeleton glass-card" aria-hidden="true">
+	                  <span class="recent-job-main skeleton-stack">
+	                    <span class="loading-skeleton skeleton-line" style="--skeleton-width: 68%; --skeleton-height: 16px;"></span>
+	                    <span class="loading-skeleton skeleton-line" style="--skeleton-width: 42%; --skeleton-height: 12px;"></span>
+	                    <span class="loading-skeleton skeleton-line" style="--skeleton-width: 78%; --skeleton-height: 11px;"></span>
+	                  </span>
+	                  <span class="loading-skeleton skeleton-line" style="--skeleton-width: 58px; --skeleton-height: 24px;"></span>
+	                </div>
+	              </div>
+	            </div>
+	            <div id="record-placeholder" class="record-placeholder glass-card">
+	              <div>
+	                <strong>输入任务编号后查看完整记录</strong>
+	                <p>最近任务会按当前窗口宽度自动铺开；选择其中一项后，这里会显示状态、审查报告和对应文件。</p>
+	              </div>
+	            </div>
+		            <div id="record-result" class="record-result" hidden>
+		              <div class="report record-result-card glass-card status-glass-panel">
+	                <div class="report-section record-section-card is-primary">
+	                  <p class="report-label">任务状态</p>
+	                  <div id="job-detail" class="record-detail"></div>
+	                </div>
+	                <div class="report-section record-section-card">
+	                  <p class="report-label">审查报告</p>
+	                  <div id="job-result" class="record-output"></div>
+	                </div>
+	                <div class="report-section record-section-card">
+	                  <p class="report-label">对应文件</p>
+	                  <div id="job-files" class="record-file-list"></div>
                 </div>
               </div>
             </div>
@@ -1074,7 +2273,6 @@
     const state = { sourcePath: '', sourceDisplayName: '', uploaded: null, lastApplyOutput: '', lastPlanScopes: [], lastRenderPayload: null, selectedWorkflowMode: 'default_user', candidate_mode: 'fast_candidate', pollTimer: null, previousView: 'paper' };
     const SCOPES = [['page','页面'],['abstract','摘要'],['toc','目录'],['headings','标题'],['body_paragraphs','正文'],['figures_tables','图表'],['references','参考文献'],['acknowledgement','致谢'],['appendix','附录']];
     const STEP_IDS = ['preflight', 'plan', 'apply', 'verify', 'render'];
-    const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];
     const STEP_INFO = {
       preflight: ['预检', '野生文档风险'],
       plan: ['方案', '拆解修复范围'],
@@ -1095,6 +2293,51 @@
     const OPERATION_LABELS = { audit:'审查', plan:'生成计划', verify:'复查', apply:'修复', normalize:'规范化', 'render-verify':'PDF 复审' };
     const OUTPUT_DIR = '/Users/apple/Desktop/论文格式修复输出';
     const LOCAL_APP_URL = 'http://127.0.0.1:8000/';
+    const THEME_STORAGE_KEY = 'article-console-theme';
+
+    function systemThemePreference() {
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    function storedThemePreference() {
+      try {
+        const value = localStorage.getItem(THEME_STORAGE_KEY);
+        return value === 'light' || value === 'dark' ? value : '';
+      } catch (_ignored) {
+        return '';
+      }
+    }
+    function updateThemeToggle(theme) {
+      const button = document.getElementById('theme-toggle-button');
+      if (!button) return;
+      const isDark = theme === 'dark';
+      button.textContent = isDark ? '浅色' : '深色';
+      button.title = isDark ? '切换到浅色模式' : '切换到深色模式';
+      button.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+    }
+    function applyTheme(theme) {
+      const resolved = theme === 'light' || theme === 'dark' ? theme : systemThemePreference();
+      document.documentElement.dataset.theme = resolved;
+      updateThemeToggle(resolved);
+    }
+    function toggleTheme() {
+      const current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+      const next = current === 'dark' ? 'light' : 'dark';
+      try {
+        localStorage.setItem(THEME_STORAGE_KEY, next);
+      } catch (_ignored) {}
+      applyTheme(next);
+    }
+    function initThemeToggle() {
+      applyTheme(storedThemePreference());
+      const button = document.getElementById('theme-toggle-button');
+      if (button) button.addEventListener('click', toggleTheme);
+      if (window.matchMedia) {
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        mediaQuery.addEventListener('change', () => {
+          if (!storedThemePreference()) applyTheme('');
+        });
+      }
+    }
 
     function isFileMode() {
       return window.location.protocol === 'file:';
@@ -1111,6 +2354,10 @@
       if (pdfHint) pdfHint.textContent = '请从本地服务页面上传 PDF。';
       document.getElementById('source-badge').textContent = '文件预览';
       document.getElementById('source-badge').className = 'source-chip failed';
+      const recentList = document.getElementById('recent-job-list');
+      if (recentList) {
+        recentList.innerHTML = `<p class="recent-job-empty">当前是 file:// 文件预览，不能读取最近任务。请打开 <b>${LOCAL_APP_URL}</b>。</p>`;
+      }
     }
 
     async function getJson(url, options) {
@@ -1118,8 +2365,50 @@
         throw new Error(`当前页面是 file:// 文件预览，不能连接本地处理服务。请打开 ${LOCAL_APP_URL}`);
       }
       const response = await fetch(url, options);
-      if (!response.ok) throw new Error(await response.text() || `${response.status}`);
+      if (!response.ok) {
+        const responseText = await response.text();
+        let parsedPayload = null;
+        if (responseText) {
+          try { parsedPayload = JSON.parse(responseText); } catch (_ignored) {}
+        }
+        const friendlyMessage = parsedPayload ? userFacingError({ payload: parsedPayload }) : '';
+        const error = new Error(friendlyMessage || responseText || `${response.status}`);
+        error.status = response.status;
+        error.payload = parsedPayload;
+        throw error;
+      }
       return response.json();
+    }
+    function renderUpdateCheckMessage(payload) {
+      if (!payload || payload.status === 'not_configured') {
+        return '手动检查 GitHub Release 新版本尚未配置。只检查软件版本，不上传论文。';
+      }
+      if (payload.status === 'error') {
+        return payload.next_action || '无法连接 GitHub，请稍后重试或手动打开 Release 页面。';
+      }
+      if (payload.update_available) {
+        const version = payload.latest_version || payload.latest_tag || '新版本';
+        return `发现新版本：${version}，请前往 GitHub Release 手动下载；不会自动下载或安装更新。`;
+      }
+      return '当前已是最新版本。只检查软件版本，不上传论文。';
+    }
+    async function manualUpdateCheck() {
+      const button = document.getElementById('update-check-button');
+      const note = document.getElementById('update-check-note');
+      if (!button || !note) return;
+      button.disabled = true;
+      note.textContent = '正在手动检查 GitHub Release 新版本；只检查软件版本，不上传论文。';
+      try {
+        const payload = await getJson('/updates/latest');
+        note.textContent = renderUpdateCheckMessage(payload);
+        if (payload.release_url && payload.update_available) {
+          button.title = payload.release_url;
+        }
+      } catch (error) {
+        note.textContent = `检查失败：${userFacingError(error) || '无法连接 GitHub，请稍后重试。'}`;
+      } finally {
+        button.disabled = false;
+      }
     }
     function labelStatus(value) { return STATUS_LABELS[value] || value || '-'; }
     function labelOperation(value) { return OPERATION_LABELS[value] || value || '-'; }
@@ -1149,6 +2438,66 @@
       });
       if (!isBusy) updateAgentCandidateAvailability();
     }
+    function scopeMeta(value) {
+      const fallback = [value, value];
+      const pair = SCOPES.find(([scopeValue]) => scopeValue === value) || fallback;
+      return { value: pair[0], label: pair[1] };
+    }
+    function clearScopeSelection() {
+      state.lastPlanScopes = [];
+      const panel = document.getElementById('scope-selection-panel');
+      const list = document.querySelector('[data-scope-list]');
+      const count = document.getElementById('scope-selection-count');
+      if (panel) panel.hidden = true;
+      if (list) list.innerHTML = '';
+      if (count) count.textContent = '未生成方案';
+    }
+    function renderScopeSelection(scopes) {
+      const panel = document.getElementById('scope-selection-panel');
+      const list = document.querySelector('[data-scope-list]');
+      const count = document.getElementById('scope-selection-count');
+      if (!panel || !list || !count) return;
+      const planScopes = Array.isArray(scopes) ? scopes : [];
+      const failedIds = planScopes.filter((item) => (item.failed_count || 0) > 0).map((item) => item.id);
+      const selectedIds = new Set(failedIds.length ? failedIds : SCOPES.map(([value]) => value));
+      const planById = new Map(planScopes.map((item) => [item.id, item]));
+      list.innerHTML = SCOPES.map(([value]) => {
+        const plan = planById.get(value) || {};
+        const label = plan.title || scopeMeta(value).label;
+        const failedCount = plan.failed_count || 0;
+        const checked = selectedIds.has(value) ? ' checked' : '';
+        const badge = failedCount > 0 ? `<small>未通过 ${failedCount}</small>` : '<small>可跳过</small>';
+        return `
+          <label class="scope-option">
+            <input type="checkbox" data-scope-checkbox value="${escapeHtml(value)}"${checked}>
+            <span>${escapeHtml(label)}</span>
+            ${badge}
+          </label>
+        `;
+      }).join('');
+      panel.hidden = false;
+      updateScopeSelectionCount();
+      list.querySelectorAll('[data-scope-checkbox]').forEach((input) => {
+        input.addEventListener('change', updateScopeSelectionCount);
+      });
+    }
+    function selectedScopes() {
+      const panel = document.getElementById('scope-selection-panel');
+      const checked = Array.from(document.querySelectorAll('[data-scope-checkbox]:checked')).map((input) => input.value);
+      if (checked.length) return checked;
+      if (panel && !panel.hidden) throw new Error('至少选择一个修复范围。');
+      return SCOPES.map(([value]) => value);
+    }
+    function updateScopeSelectionCount() {
+      const count = document.getElementById('scope-selection-count');
+      if (!count) return;
+      const selectedCount = document.querySelectorAll('[data-scope-checkbox]:checked').length;
+      if (!selectedCount) {
+        count.textContent = '未选择范围';
+        return;
+      }
+      count.textContent = selectedCount === SCOPES.length ? '已选择全部范围' : `已选择 ${selectedCount} 个范围`;
+    }
     function selectWorkflowMode(mode) {
       state.selectedWorkflowMode = mode;
       document.querySelectorAll('[data-workflow-mode]').forEach((card) => {
@@ -1156,15 +2505,45 @@
       });
     }
     function userFacingError(error) {
+      function cleanErrorText(text) {
+        return String(text || '').replace(/^Error:\s*/i, '').replace(/(\\n|\n)/g, ' ').trim();
+      }
+      function detailText(detail) {
+        if (!detail) return '';
+        if (typeof detail === 'string') return detail;
+        if (typeof detail === 'object') {
+          const parts = [];
+          if (detail.user_message) parts.push(String(detail.user_message));
+          if (detail.next_action) parts.push(String(detail.next_action));
+          if (!parts.length && detail.message) parts.push(String(detail.message));
+          return parts.join(' ');
+        }
+        return String(detail);
+      }
+      if (error && error.payload && error.payload.detail) {
+        const fromPayload = detailText(error.payload.detail);
+        if (fromPayload) return cleanErrorText(fromPayload);
+      }
       let text = String(error || '');
+      if (error && typeof error === 'object' && error.message) text = String(error.message);
       const jsonStart = text.indexOf('{');
       if (jsonStart >= 0) {
         try {
           const parsed = JSON.parse(text.slice(jsonStart));
-          if (parsed && parsed.detail) text = String(parsed.detail);
+          if (parsed && parsed.detail) text = detailText(parsed.detail);
         } catch (_ignored) {}
       }
-      return text.replace(/^Error:\s*/i, '').replace(/\\n/g, ' ').trim();
+      return cleanErrorText(text);
+    }
+    function jobErrorText(error) {
+      if (!error) return '';
+      if (typeof error === 'object') {
+        const parts = [];
+        if (error.user_message) parts.push(String(error.user_message));
+        if (error.next_action) parts.push(String(error.next_action));
+        if (parts.length) return parts.join(' ');
+      }
+      return userFacingError(error);
     }
     function setProgress({ title, value, items, currentIndex, visible = true }) {
       const panel = document.getElementById('report-progress');
@@ -1186,7 +2565,7 @@
         list.appendChild(li);
       });
     }
-    function setReport({ conclusion, issues, next, output, outputLabel, action }) {
+    function setReport({ conclusion, issues, next, output, outputLabel, outputHref, action }) {
       const reportCard = document.getElementById('report-card');
       document.getElementById('report-conclusion').textContent = conclusion || '等待处理。';
       const issueList = document.getElementById('report-issues');
@@ -1213,10 +2592,18 @@
         const summary = String(outputLabel || '').startsWith('预计') ? plannedVersionSummary(output) : outputSummary(output);
         outputLink.textContent = `${outputLabel || '输出文件'}: ${summary}`;
         outputLink.title = output;
-        outputLink.removeAttribute('href');
+        if (outputHref) {
+          outputLink.href = outputHref;
+          outputLink.setAttribute('download', '');
+        } else {
+          outputLink.removeAttribute('href');
+          outputLink.removeAttribute('download');
+        }
       } else {
         outputLink.hidden = true;
         outputLink.removeAttribute('title');
+        outputLink.removeAttribute('href');
+        outputLink.removeAttribute('download');
       }
       pulseElement(reportCard, 'report-updated');
     }
@@ -1275,13 +2662,6 @@
           if (statusText === '已完成') payload.summary = '后端任务已经完成，页面正在整理下一版 DOCX 结果。';
           return;
         }
-        if (line.startsWith('阶段:')) {
-          const phaseText = candidatePhaseLabel(line.replace('阶段:', '').trim());
-          payload.badge = phaseText;
-          payload.progress = phaseText;
-          if (phaseText === '等待结果整理') payload.summary = '后端任务已经结束，页面正在整理最终结果。';
-          return;
-        }
         if (line.startsWith('预计下一版路径:') || line.startsWith('预计候选稿路径:')) {
           payload.output = candidateStatusOutputSummary(line.replace(/^预计下一版路径:|^预计候选稿路径:/, '').trim());
           if (payload.badge !== '生成失败' && payload.progress !== '等待结果整理') {
@@ -1305,14 +2685,6 @@
           payload.progress = '请重试';
           payload.summary = '后端任务已返回失败结果，本次没有产出可用新版本。';
           payload.notes.push(`失败原因：${line.replace('失败原因:', '').trim()}`);
-          return;
-        }
-        if (line.startsWith('心跳间隔:')) {
-          payload.notes.push(`最近一次状态更新：${line.replace('心跳间隔:', '').trim()}前`);
-          return;
-        }
-        if (line.startsWith('超时阈值:')) {
-          payload.notes.push(`超时保护：${line.replace('超时阈值:', '').trim()}`);
           return;
         }
         if (line.includes('不是页面卡死')) {
@@ -1451,6 +2823,99 @@
     function outputSummary(path) {
       return `${displayFileName(path)}（保存到${outputFolderLabel(path)}）`;
     }
+    function compactJobId(jobId) {
+      const value = String(jobId || '');
+      if (value.length <= 14) return value || '-';
+      return `${value.slice(0, 8)}...${value.slice(-6)}`;
+    }
+    function recentJobTone(status) {
+      if (status === 'succeeded') return 'ok';
+      if (status === 'failed') return 'failed';
+      if (status === 'queued' || status === 'running') return 'running';
+      return '';
+    }
+    function recentJobDocumentName(job) {
+      const summary = job.summary || {};
+      const runtime = job.runtime || {};
+      const result = job.result || {};
+      const document = result.document || {};
+      return (
+        summary.document_name
+        || fileNameFromPath(summary.input_path || runtime.source_file_path || runtime.input_path || document.path || '')
+        || document.name
+        || '未记录文档'
+      );
+    }
+    function recentJobOperationLabel(job) {
+      const summary = job.summary || {};
+      const mode = summary.candidate_mode ? ` · ${candidateModeLabel(summary.candidate_mode)}` : '';
+      return `${labelOperation(job.operation)}${mode}`;
+    }
+    function recentJobMeta(job) {
+      const summary = job.summary || {};
+      const runtime = job.runtime || {};
+      const output = summary.output_path || runtime.output_path || '';
+      const pieces = [
+        job.created_at ? job.created_at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') : '',
+        output ? `输出: ${displayFileName(output)}` : '',
+      ];
+      return pieces.filter(Boolean).join(' · ');
+    }
+    function renderRecentJobs(jobs) {
+      const list = document.getElementById('recent-job-list');
+      if (!list) return;
+      if (!jobs.length) {
+        list.innerHTML = '<p class="recent-job-empty">暂无最近任务。生成下一版 DOCX 后会出现在这里。</p>';
+        return;
+      }
+      list.innerHTML = jobs.map((job) => `
+	        <button type="button" class="recent-job-card glass-card interactive-glass" data-job-id="${escapeHtml(job.job_id || '')}" title="${escapeHtml(job.job_id || '')}">
+          <span class="recent-job-main">
+            <span class="recent-job-document">${escapeHtml(displayFileName(recentJobDocumentName(job)))}</span>
+            <span class="recent-job-operation">${escapeHtml(recentJobOperationLabel(job))}</span>
+            <span class="recent-job-id">任务编号: ${escapeHtml(compactJobId(job.job_id))}</span>
+            <span class="recent-job-meta">${escapeHtml(recentJobMeta(job) || '点击查看任务详情和对应文件')}</span>
+          </span>
+          <span class="recent-job-status ${recentJobTone(job.status)}">${escapeHtml(labelStatus(job.status))}</span>
+        </button>
+      `).join('');
+      list.querySelectorAll('[data-job-id]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const jobId = button.dataset.jobId || '';
+          document.getElementById('job-id-input').value = jobId;
+          loadJob(jobId, true);
+        });
+      });
+    }
+    function renderRecentJobsLoading() {
+      const list = document.getElementById('recent-job-list');
+      if (!list) return;
+      list.innerHTML = [0, 1, 2].map((index) => `
+        <div class="recent-job-card recent-job-skeleton glass-card" aria-hidden="true">
+          <span class="recent-job-main skeleton-stack">
+            <span class="loading-skeleton skeleton-line" style="--skeleton-width: ${index === 0 ? '68%' : '54%'}; --skeleton-height: 16px;"></span>
+            <span class="loading-skeleton skeleton-line" style="--skeleton-width: ${index === 2 ? '48%' : '42%'}; --skeleton-height: 12px;"></span>
+            <span class="loading-skeleton skeleton-line" style="--skeleton-width: ${index === 1 ? '82%' : '74%'}; --skeleton-height: 11px;"></span>
+          </span>
+          <span class="loading-skeleton skeleton-line" style="--skeleton-width: 58px; --skeleton-height: 24px;"></span>
+        </div>
+      `).join('');
+    }
+    async function refreshRecentJobs() {
+      const list = document.getElementById('recent-job-list');
+      if (!list) return;
+      if (isFileMode()) {
+        showFileModeNotice();
+        return;
+      }
+      renderRecentJobsLoading();
+      try {
+        const jobs = await getJson('/jobs?limit=10');
+        renderRecentJobs(jobs || []);
+      } catch (error) {
+        list.innerHTML = `<p class="recent-job-empty">最近任务读取失败：${escapeHtml(userFacingError(error))}</p>`;
+      }
+    }
     function plannedVersionSummary(path) {
       return `将自动生成版本号（保存到${outputFolderLabel(path)}）`;
     }
@@ -1492,7 +2957,6 @@
         </details>
       `;
     }
-    function selectedScopes() { return SCOPES.map(([value]) => value); }
     function sourcePathForStep(preferOutput = false) {
       if (preferOutput && state.lastApplyOutput) return state.lastApplyOutput;
       return document.getElementById('paper-path').value.trim() || state.sourcePath;
@@ -1500,7 +2964,7 @@
     function requestBase(preferOutput = false) {
       const filePath = sourcePathForStep(preferOutput);
       if (!filePath) throw new Error('请先选择 Word 论文或填写本机路径。');
-      return { file_path: filePath, source_display_name: sourceDisplayName(), profile: 'lnu', scopes: selectedScopes() };
+      return { file_path: filePath, source_display_name: sourceDisplayName(), scopes: selectedScopes() };
     }
     function candidateModeMeta(mode = state.candidate_mode) {
       if (mode === 'compact_candidate') {
@@ -1531,13 +2995,7 @@
     }
     function candidateRuntimeLines(source = {}) {
       const lines = [];
-      const phase = source.phase || source.runtime_phase;
-      const heartbeatAge = source.heartbeat_age_seconds;
-      const timeoutSeconds = source.timeout_seconds;
       const degradeReason = source.degrade_reason;
-      if (phase) lines.push(`阶段: ${phase}`);
-      if (heartbeatAge != null) lines.push(`心跳间隔: ${heartbeatAge} 秒`);
-      if (timeoutSeconds != null) lines.push(`超时阈值: ${timeoutSeconds} 秒`);
       if (degradeReason) lines.push(`降级原因: ${degradeReason}`);
       return lines;
     }
@@ -1707,24 +3165,27 @@
     function summarizePlan(payload) {
       const scopes = Array.isArray(payload.scopes) ? payload.scopes : [];
       state.lastPlanScopes = scopes;
+      renderScopeSelection(scopes);
       setMetric('metric-failed', scopes.reduce((sum, item) => sum + (item.failed_count || 0), 0));
       setMetric('metric-manual', scopes.reduce((sum, item) => sum + (item.manual_review_count || 0), 0));
       const failedScopes = scopes.filter((item) => (item.failed_count || 0) > 0).slice(0, 5);
       setReport({
         conclusion: `方案已生成: ${scopes.length} 个范围`,
         issues: failedScopes.length ? failedScopes.map((item) => `${item.title || item.id}: 未通过 ${item.failed_count || 0}`) : ['当前范围未发现明显问题'],
-        next: '继续执行修复。',
-        action: { label: '执行修复', step: 'apply' },
+        next: '确认或调整修复范围后继续。',
+        action: { label: '按所选范围修复', step: 'apply' },
       });
       setProgress({
         title: '方案已准备好',
         value: 45,
-        items: failedScopes.length ? failedScopes.map((item) => `待修复: ${item.title || item.id}（未通过 ${item.failed_count || 0}）`) : ['当前范围未发现明显问题', '可以继续执行修复，系统会生成新的 Word 文件'],
+        items: failedScopes.length ? failedScopes.map((item) => `待修复: ${item.title || item.id}（未通过 ${item.failed_count || 0}）`) : ['当前范围未发现明显问题', '可按需调整范围后生成新的 Word 文件'],
       });
       return [`修复方案: ${scopes.length} 个范围`, '', ...scopes.map((item) => `${item.title || item.id}: ${labelStatus(item.status)}，未通过 ${item.failed_count || 0}`)].join('\n');
     }
     function summarizeApply(payload) {
       state.lastApplyOutput = ((payload.output || {}).path || '');
+      const jobId = payload.job_id || '';
+      const outputHref = jobId ? `/jobs/${encodeURIComponent(jobId)}/artifacts/output/download` : '';
       const summary = ((payload.verification || {}).summary || {});
       setMetric('metric-failed', summary.failed_rules); setMetric('metric-manual', summary.manual_review_rules);
       setReport({
@@ -1734,8 +3195,10 @@
           `未通过规则: ${summary.failed_rules ?? '-'}`,
           `人工复核项: ${summary.manual_review_rules ?? '-'}`,
         ],
-        next: '继续复查结构，然后导出 PDF。',
+        next: '先下载修复稿，用 Word/WPS 打开确认后再导出 PDF。',
         output: state.lastApplyOutput,
+        outputLabel: jobId ? '下载修复稿' : '输出文件',
+        outputHref,
         action: { label: '复查结构', step: 'verify' },
       });
       setProgress({
@@ -1749,6 +3212,72 @@
         ],
       });
       return [`修复结论: ${labelStatus(payload.readiness)}`, `输出文件: ${state.lastApplyOutput ? outputSummary(state.lastApplyOutput) : '-'}`, `未通过规则: ${summary.failed_rules ?? '-'}`, `人工复核项: ${summary.manual_review_rules ?? '-'}`, '', ...(payload.post_verify_notices || ['修复已完成，建议继续导出 PDF 复审。']).map((item) => `- ${item}`)].join('\n');
+    }
+    function applyJobOutputPath(payload) {
+      const summary = payload.summary || {};
+      const runtime = payload.runtime || {};
+      const result = payload.result || {};
+      return summary.output_path || runtime.output_path || ((result.output || {}).path || '');
+    }
+    async function pollApplyJob(jobId) {
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        const detail = await getJson(`/jobs/${jobId}`);
+        const status = detail.status;
+        if (status === 'queued' || status === 'running') {
+          const outputPath = applyJobOutputPath(detail);
+          setReport({
+            conclusion: status === 'queued' ? '修复任务已排队。' : '正在生成修复稿。',
+            issues: [
+              `任务编号: ${jobId}`,
+              `后端状态: ${labelStatus(status)}`,
+              outputPath ? `预计输出: ${outputSummary(outputPath)}` : '正在准备输出文件',
+            ],
+            next: '后端正在写出修复稿，完成后会出现下载入口。',
+            output: outputPath,
+            outputLabel: '预计输出',
+            action: null,
+          });
+          setProgress({
+            title: status === 'queued' ? '修复任务排队中' : '修复任务运行中',
+            value: status === 'queued' ? 58 : 68,
+            items: ['提交修复任务', '写出修复稿', '准备下载入口'],
+            currentIndex: 1,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          continue;
+        }
+        if (status === 'failed') {
+          const message = jobErrorText(detail.error || detail) || '修复任务失败';
+          throw new Error(message);
+        }
+        return getJson(`/jobs/${jobId}/result`);
+      }
+      throw new Error('修复任务仍在后端执行，页面轮询已超时。请到“任务查询”输入任务编号查看。');
+    }
+    async function runApplyJob(payload) {
+      const basePayload = { ...payload, stage_input: true };
+      const endpoint = state.uploaded && state.uploaded.upload_id
+        ? `/uploads/${encodeURIComponent(state.uploaded.upload_id)}/jobs/apply`
+        : '/jobs/apply';
+      const jobPayload = { ...basePayload };
+      if (endpoint !== '/jobs/apply') {
+        delete jobPayload.file_path;
+        delete jobPayload.source_display_name;
+      }
+      const job = await getJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(jobPayload) });
+      const jobId = job.job_id;
+      if (!jobId) throw new Error('后端没有返回修复任务编号。');
+      setReport({
+        conclusion: '修复任务已提交。',
+        issues: [`任务编号: ${jobId}`, '正在生成修复稿', '原文不会被覆盖'],
+        next: '任务完成后会显示“下载修复稿”。',
+        output: (job.summary || {}).output_path || (job.runtime || {}).output_path || '',
+        outputLabel: '预计输出',
+        action: null,
+      });
+      const resultPayload = await pollApplyJob(jobId);
+      const result = resultPayload.result || {};
+      return { ...result, job_id: jobId, artifacts: resultPayload.artifacts || [] };
     }
     function summarizeVerify(payload) {
       const summary = payload.summary || {};
@@ -1834,9 +3363,8 @@
       if (phase === 'running' && isDefault) {
         return [
           '已读取用户填写的 PDF 路径',
-          '后端正在检查 PDF 是否存在',
-          '正在把 PDF 转成页面图片',
-          '正在分析页数、空白页、图表挤页和标题孤页',
+          '正在转换 PDF 页面；30 页左右可能需要 1-3 分钟，不是页面卡住',
+          '转换完成后会自动分析页数、空白页、图表挤页和标题孤页',
         ];
       }
       if (phase === 'success') {
@@ -1921,12 +3449,12 @@
       const modeLabel = mode === 'default_user' ? 'PDF 复审' : 'PDF 复审';
       const runningItems = renderWorkflowStatusItems(mode, 'running');
       setReport({
-        conclusion: `${modeLabel}中`,
+        conclusion: '正在转换 PDF 页面',
         issues: runningItems,
-        next: '请稍等。',
+        next: '页数越多这一步越慢，完成后会自动更新结果，请不要重复点击。',
         action: null,
       });
-      setProgress({ title: `${modeLabel}中`, value: 55, items: runningItems, currentIndex: 1 });
+      setProgress({ title: '正在转换 PDF 页面', value: 62, items: runningItems, currentIndex: 1 });
       setBusy(true);
       const result = await getJson('/render-verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       state.lastRenderPayload = result;
@@ -1965,7 +3493,7 @@
           continue;
         }
         if (status === 'failed') {
-          const message = ((detail.error || {}).message || '下一版 DOCX 生成失败');
+          const message = jobErrorText(detail.error || detail) || '下一版 DOCX 生成失败';
           const error = new Error(message);
           error.jobId = jobId;
           error.outputPath = candidateOutputPath(detail);
@@ -2096,13 +3624,14 @@
       document.getElementById('source-badge').className = 'source-chip ok';
       document.getElementById('upload-hint').textContent = '已选择。';
       updateSafeNote({ fileName: displayName, source: '已上传', path: payload.stored_path });
+      clearScopeSelection();
       setReport({
         conclusion: 'DOCX 已选择。',
         issues: ['原文不会被覆盖'],
-        next: '点击“一键生成修复稿”。',
+        next: '点击“生成修复方案”。',
         output: estimateOutputPath(payload.stored_path, displayName),
         outputLabel: '预计输出',
-        action: { label: '一键生成修复稿', step: 'runAll' },
+        action: { label: '生成修复方案', step: 'runAll' },
       });
       setProgress({ visible: false });
       resetSteps();
@@ -2129,7 +3658,9 @@
       document.getElementById('source-badge').className = 'source-chip running';
       showRunningReport(id, payload);
       setBusy(true);
-      const result = await getJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const result = id === 'apply'
+        ? await runApplyJob(payload)
+        : await getJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       setBusy(false);
       setStep(id, 'done');
       document.getElementById('source-badge').textContent = '已处理';
@@ -2144,13 +3675,14 @@
     async function guardedRun(id) {
       try { await runSingleStep(id); }
       catch (error) {
+        const friendly = userFacingError(error);
         setBusy(false);
         setStep(id, 'failed');
         document.getElementById('source-badge').textContent = '处理失败';
         document.getElementById('source-badge').className = 'source-chip failed';
-        setReport({ conclusion: '处理失败', issues: [String(error)], next: '请检查文件后重试。' });
-        setProgress({ title: '处理失败', value: 100, items: [`失败步骤: ${STEP_INFO[id]?.[0] || id}`, String(error)] });
-        setSummary(`处理失败\n${String(error)}`);
+        setReport({ conclusion: '处理失败', issues: [friendly], next: '请检查文件后重试。' });
+        setProgress({ title: '处理失败', value: 100, items: [`失败步骤: ${STEP_INFO[id]?.[0] || id}`, friendly] });
+        setSummary(`处理失败\n${friendly}`);
       }
     }
     async function guardedRenderWorkflow(mode) {
@@ -2191,16 +3723,17 @@
     }
     async function runAll() {
       resetSteps();
-      for (const id of PIPELINE_STEP_IDS) {
+      for (const id of ['preflight', 'plan']) {
         try { await runSingleStep(id); }
         catch (error) {
+          const friendly = userFacingError(error);
           setBusy(false);
           setStep(id, 'failed');
           document.getElementById('source-badge').textContent = '处理失败';
           document.getElementById('source-badge').className = 'source-chip failed';
-          setReport({ conclusion: `流程停在「${STEP_INFO[id][0]}」`, issues: [String(error)], next: '请检查文件后重试。' });
-          setProgress({ title: `流程停在「${STEP_INFO[id][0]}」`, value: 100, items: [`失败步骤: ${STEP_INFO[id][0]}`, String(error)] });
-          setSummary(`流程停在「${STEP_INFO[id][0]}」\n${String(error)}`);
+          setReport({ conclusion: `流程停在「${STEP_INFO[id][0]}」`, issues: [friendly], next: '请检查文件后重试。' });
+          setProgress({ title: `流程停在「${STEP_INFO[id][0]}」`, value: 100, items: [`失败步骤: ${STEP_INFO[id][0]}`, friendly] });
+          setSummary(`流程停在「${STEP_INFO[id][0]}」\n${friendly}`);
           break;
         }
       }
@@ -2220,20 +3753,41 @@
       const health = await getJson('/health');
       document.getElementById('health-line').textContent = `本地服务正常 · ${health.version}`;
     }
-    function scrollToElement(id) {
-      const target = document.getElementById(id);
-      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-    function syncTopbarState() {
-      const topbar = document.querySelector('.topbar');
-      const active = document.querySelector('.page.active');
-      const activeName = active && active.id ? active.id.replace(/^view-/, '') : 'paper';
-      const activeBrand = window.scrollY > 16 || activeName !== 'paper';
-      if (topbar) topbar.className = activeBrand ? 'topbar compact brand-active' : 'topbar';
-    }
-    function initAppleMotion() {
-      syncTopbarState();
-      window.addEventListener('scroll', syncTopbarState, { passive: true });
+	    function scrollToElement(id) {
+	      const target = document.getElementById(id);
+	      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	    }
+	    function showBrandPulse() {
+	      const topbar = document.querySelector('.topbar');
+	      const mark = document.querySelector('.brand-mark');
+	      if (!topbar || !mark) return;
+	      topbar.classList.add('brand-pulse');
+	      mark.classList.remove('brand-mark-reveal');
+	      void mark.offsetWidth;
+	      mark.classList.add('brand-mark-reveal');
+	      window.setTimeout(() => {
+	        topbar.classList.remove('brand-pulse');
+	        mark.classList.remove('brand-mark-reveal');
+	      }, 1300);
+	    }
+	    function syncTopbarState() {
+	      const topbar = document.querySelector('.topbar');
+	      const active = document.querySelector('.page.active');
+	      const activeName = active && active.id ? active.id.replace(/^view-/, '') : 'paper';
+	      const activeBrand = window.scrollY > 16 || activeName !== 'paper';
+	      if (topbar) {
+	        topbar.classList.toggle('compact', activeBrand);
+	        topbar.classList.toggle('brand-active', activeBrand);
+	      }
+	    }
+	    function initAppleMotion() {
+	      syncTopbarState();
+	      const brandMark = document.querySelector('.brand-mark');
+	      if (brandMark) {
+	        brandMark.addEventListener('animationend', () => brandMark.classList.remove('brand-mark-reveal'));
+	      }
+	      showBrandPulse();
+	      window.addEventListener('scroll', syncTopbarState, { passive: true });
 
       const revealItems = Array.from(document.querySelectorAll('.motion-reveal'));
       const revealVisibleItems = () => {
@@ -2283,49 +3837,190 @@
     function showView(name) {
       const active = document.querySelector('.page.active');
       if (active && active.id) state.previousView = active.id.replace(/^view-/, '');
-      document.querySelectorAll('.page').forEach((view) => view.classList.remove('active'));
-      document.getElementById(`view-${name}`).classList.add('active');
-      document.querySelectorAll('[data-view-button]').forEach((button) => button.classList.toggle('active', button.dataset.viewButton === name));
-      syncTopbarState();
-    }
-    function summarizeJobDetail(detail) {
+	      document.querySelectorAll('.page').forEach((view) => view.classList.remove('active'));
+	      document.getElementById(`view-${name}`).classList.add('active');
+	      document.querySelectorAll('[data-view-button]').forEach((button) => button.classList.toggle('active', button.dataset.viewButton === name));
+	      syncTopbarState();
+	      if (name === 'records') {
+	        showBrandPulse();
+	        refreshRecentJobs();
+	      }
+	    }
+    function jobInputPath(detail) {
       const summary = detail.summary || {};
       const runtime = detail.runtime || {};
-      return [
-        `任务编号: ${detail.job_id || '-'}`,
-        `任务类型: ${labelOperation(detail.operation)}`,
-        `当前状态: ${labelStatus(detail.status)}`,
-        `创建时间: ${detail.created_at || '-'}`,
-        `完成时间: ${detail.finished_at || '-'}`,
-        summary.document_name ? `输入名称: ${summary.document_name}` : '',
-        (summary.input_path || runtime.input_path) ? `输入路径: ${summary.input_path || runtime.input_path}` : '',
-        (summary.output_path || runtime.output_path) ? `输出文件: ${summary.output_path || runtime.output_path}` : '',
-        runtime.candidate_mode || summary.candidate_mode ? `优化模式: ${candidateModeLabel(runtime.candidate_mode || summary.candidate_mode)}` : '',
-        runtime.candidate_request_mode || summary.candidate_request_mode ? `请求模式: ${candidateModeLabel(runtime.candidate_request_mode || summary.candidate_request_mode)}` : '',
-        (runtime.degraded_from_compact || summary.degraded_from_compact) ? '已从慢速紧凑优化降级为快速生成' : '',
-        runtime.degrade_reason || summary.degrade_reason ? `降级原因: ${runtime.degrade_reason || summary.degrade_reason}` : '',
-        runtime.phase ? `阶段: ${candidatePhaseLabel(runtime.phase)}` : '',
-        runtime.heartbeat_age_seconds != null ? `心跳间隔: ${runtime.heartbeat_age_seconds} 秒` : '',
-        runtime.timeout_seconds != null ? `超时阈值: ${runtime.timeout_seconds} 秒` : '',
-        (detail.error || {}).message ? `错误信息: ${detail.error.message}` : '',
-      ].filter(Boolean).join('\n');
+      const result = detail.result || {};
+      const document = result.document || {};
+      return summary.input_path || runtime.source_file_path || runtime.input_path || document.path || summary.document_name || document.name || '';
     }
-    function summarizeJobResult(payload) {
+    function jobOutputPath(payload) {
       const summary = payload.summary || {};
-      return [
-        `任务编号: ${payload.job_id || '-'}`,
-        `最终状态: ${labelStatus(payload.status)}`,
-        summary.output_path ? `输出文件: ${summary.output_path}` : '',
-        summary.output_dir ? `输出目录: ${summary.output_dir}` : '',
-        summary.candidate_mode ? `优化模式: ${candidateModeLabel(summary.candidate_mode)}` : '',
-        summary.candidate_request_mode ? `请求模式: ${candidateModeLabel(summary.candidate_request_mode)}` : '',
-        summary.degraded_from_compact ? '已从慢速紧凑优化降级为快速生成' : '',
-        summary.degrade_reason ? `降级原因: ${summary.degrade_reason}` : '',
-        summary.phase ? `阶段: ${candidatePhaseLabel(summary.phase)}` : '',
-        summary.heartbeat_age_seconds != null ? `心跳间隔: ${summary.heartbeat_age_seconds} 秒` : '',
-        summary.timeout_seconds != null ? `超时阈值: ${summary.timeout_seconds} 秒` : '',
-        payload.error && payload.error.message ? `错误信息: ${payload.error.message}` : '',
-      ].filter(Boolean).join('\n');
+      const runtime = payload.runtime || {};
+      return summary.output_path || runtime.output_path || '';
+    }
+    function jobReportPath(payload) {
+      const summary = payload.summary || {};
+      const result = payload.result || {};
+      return renderReportPath(result) || summary.report_path || result.report_path || '';
+    }
+    function jobArtifact(payload, role) {
+      const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
+      return artifacts.find((item) => item.role === role) || {};
+    }
+    function jobBusinessLabel(payload) {
+      const summary = payload.summary || {};
+      return labelStatus(summary.business_status || summary.readiness || payload.status);
+    }
+    function jobIssueItems(payload) {
+      const summary = payload.summary || {};
+      const result = payload.result || {};
+      const items = [];
+      if (payload.status === 'failed' && payload.error && payload.error.message) {
+        items.push(`失败原因: ${jobErrorText(payload.error || payload)}`);
+      }
+      if (payload.operation === 'verify') {
+        if (summary.failed_rules != null) items.push(`未通过规则: ${summary.failed_rules}`);
+        if (Array.isArray(result.scopes)) {
+          result.scopes
+            .filter((scope) => (scope.failed_count || 0) > 0)
+            .slice(0, 5)
+            .forEach((scope) => items.push(`${scope.title || scope.id}: 未通过 ${scope.failed_count || 0}`));
+        }
+      } else if (payload.operation === 'apply') {
+        const verifySummary = ((result.verification || {}).summary || {});
+        if (verifySummary.failed_rules != null) items.push(`未通过规则: ${verifySummary.failed_rules}`);
+        if (verifySummary.manual_review_rules != null) items.push(`人工复核项: ${verifySummary.manual_review_rules}`);
+        if (summary.post_verify_notice_count != null) items.push(`修复后提示: ${summary.post_verify_notice_count}`);
+        if (summary.guard_blocked) items.push('修复保护已拦截本次写出。');
+        if (summary.readiness) items.push(`复查结论: ${labelStatus(summary.readiness)}`);
+      } else if (payload.operation === 'normalize') {
+        if (summary.changed != null) items.push(summary.changed ? '已完成结构整理。' : '结构整理未发现需要写出的改动。');
+        if (summary.operation_count != null) items.push(`整理动作: ${summary.operation_count}`);
+      }
+      if (!items.length && summary.business_status) items.push(`业务结论: ${labelStatus(summary.business_status)}`);
+      if (!items.length) items.push('任务已返回，可按下方文件继续追溯。');
+      return items.slice(0, 6);
+    }
+    function renderJobStatusCard(detail) {
+      const summary = detail.summary || {};
+      const createdAt = detail.created_at ? detail.created_at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') : '-';
+      const finishedAt = detail.finished_at ? detail.finished_at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') : '未完成';
+      const documentName = summary.document_name || fileNameFromPath(jobInputPath(detail)) || '未记录';
+      const modeText = summary.candidate_mode ? ` · ${candidateModeLabel(summary.candidate_mode)}` : '';
+      return `
+        <div class="record-detail-hero">
+          <div class="record-card-head">
+            <div>
+              <p class="record-kicker">${escapeHtml(labelOperation(detail.operation))}${escapeHtml(modeText)}</p>
+              <p class="record-title-main">${escapeHtml(documentName)}</p>
+              <p class="record-job-id">任务编号: ${escapeHtml(detail.job_id || '-')}</p>
+            </div>
+            <span class="recent-job-status ${recentJobTone(detail.status)}">${escapeHtml(labelStatus(detail.status))}</span>
+          </div>
+          <p class="record-subtitle">${escapeHtml(labelOperation(detail.operation))} · ${escapeHtml(labelStatus(detail.status))}</p>
+        </div>
+        <div class="record-pill-grid">
+          <div class="record-pill"><b>创建时间</b><span>${escapeHtml(createdAt)}</span></div>
+          <div class="record-pill"><b>完成时间</b><span>${escapeHtml(finishedAt)}</span></div>
+          <div class="record-pill"><b>处理类型</b><span>${escapeHtml(labelOperation(detail.operation))}</span></div>
+          <div class="record-pill"><b>当前状态</b><span>${escapeHtml(labelStatus(detail.status))}</span></div>
+        </div>
+      `;
+    }
+    function renderJobReportTrace(payload) {
+      if (payload.status === 'queued' || payload.status === 'running') {
+        return '<p class="record-trace-copy">任务仍在执行中，完成后这里会显示审查报告和对应文件。</p>';
+      }
+      const reportPath = jobReportPath(payload);
+      const reportArtifact = jobArtifact(payload, 'report');
+      const issues = jobIssueItems(payload);
+      const reportAction = reportArtifact.available === true
+        ? `<button type="button" class="record-link-button" data-report-download="/jobs/${encodeURIComponent(payload.job_id || '')}/artifacts/report/download" title="${escapeHtml(reportArtifact.path || reportPath)}">查看审查报告</button>`
+        : reportPath
+          ? `<button type="button" class="record-link-button" title="${escapeHtml(reportPath)}" data-copy-path="${escapeHtml(reportPath)}">复制报告路径</button><span class="record-muted">报告文件已清理，点击后复制原路径。</span>`
+        : '<span class="record-muted">本次任务没有单独报告文件，摘要如下。</span>';
+      return `
+        <p class="record-trace-copy">任务结论: ${escapeHtml(jobBusinessLabel(payload))}</p>
+        <ul class="record-issue-list">${issues.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
+        <div class="record-actions">${reportAction}</div>
+        <p class="record-action-note" aria-live="polite"></p>
+        <pre class="record-report-preview" hidden></pre>
+      `;
+    }
+    async function openReportPreview(button) {
+      const url = button.dataset.reportDownload || '';
+      const panel = button.closest('#job-result') || document.getElementById('job-result');
+      const note = panel ? panel.querySelector('.record-action-note') : null;
+      const preview = panel ? panel.querySelector('.record-report-preview') : null;
+      if (!url || !preview) return;
+      button.disabled = true;
+      if (note) note.textContent = '正在读取审查报告...';
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(await response.text() || `${response.status}`);
+        preview.textContent = await response.text();
+        preview.hidden = false;
+        if (note) note.textContent = '审查报告已在下方展开。';
+      } catch (error) {
+        if (note) note.textContent = `审查报告读取失败：${userFacingError(error)}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+    function renderRecordFileItem(label, path, extra = '') {
+      if (!path) return '';
+      return `
+        <div class="record-file-item">
+          <b>${escapeHtml(label)}</b>
+          <span>${escapeHtml(displayFileName(path))}${extra ? ` · ${escapeHtml(extra)}` : ''}</span>
+          <code>${escapeHtml(path)}</code>
+        </div>
+      `;
+    }
+    function renderJobFileTrace(payload) {
+      const inputArtifact = jobArtifact(payload, 'input');
+      const outputArtifact = jobArtifact(payload, 'output');
+      const inputPath = jobInputPath(payload) || (inputArtifact.source_path || '');
+      const outputPath = jobOutputPath(payload) || outputArtifact.path || '';
+      const outputAvailable = Boolean(outputArtifact.path && outputArtifact.written !== false && outputArtifact.available === true);
+      const inputHtml = renderRecordFileItem('输入文件', inputPath, '用于本次处理');
+      const outputHtml = renderRecordFileItem('输出文件', outputPath, outputAvailable ? '可下载' : '文件已清理，不能直接下载');
+      const download = outputAvailable
+        ? `<a class="record-link-button" href="/jobs/${encodeURIComponent(payload.job_id || '')}/artifacts/output/download">下载输出文件</a>`
+        : '';
+      const empty = !inputHtml && !outputHtml ? '<p class="record-trace-copy">这个任务没有留下可追溯文件记录。</p>' : '';
+      return `${inputHtml}${outputHtml}${empty}${download ? `<div class="record-actions">${download}</div>` : ''}`;
+    }
+    function bindRecordPathCopies(container) {
+      container.querySelectorAll('[data-copy-path]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          const path = event.currentTarget.dataset.copyPath || '';
+          const panel = event.currentTarget.closest('#job-result') || container;
+          const note = panel.querySelector('.record-action-note');
+          const fallback = path ? `报告文件已清理，已复制原路径。${path}` : '报告文件已清理，未记录原路径。';
+          if (navigator.clipboard && path) {
+            navigator.clipboard.writeText(path)
+              .then(() => {
+                if (note) note.textContent = '报告文件已清理，已复制原路径。';
+              })
+              .catch(() => {
+                if (note) note.textContent = fallback;
+              });
+          } else if (note) {
+            note.textContent = fallback;
+          }
+        });
+      });
+    }
+    function bindRecordReportActions(container) {
+      bindRecordPathCopies(container);
+      container.querySelectorAll('[data-report-download]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          openReportPreview(event.currentTarget);
+        });
+      });
     }
     function setRecordStatus(label, tone = '') {
       const badge = document.getElementById('record-status-badge');
@@ -2333,32 +4028,82 @@
       badge.className = `source-chip ${tone}`.trim();
     }
     function showRecordResult() {
-      document.getElementById('record-result').hidden = false;
+	      const placeholder = document.getElementById('record-placeholder');
+	      const result = document.getElementById('record-result');
+	      if (placeholder) placeholder.hidden = true;
+	      result.hidden = false;
+	      result.classList.remove('is-visible');
+	      requestAnimationFrame(() => result.classList.add('is-visible'));
+	    }
+    function renderRecordLoading(jobId) {
+      document.getElementById('job-detail').innerHTML = `
+        <div class="record-detail-hero record-section-skeleton" aria-hidden="true">
+          <div class="record-card-head">
+            <div class="skeleton-stack">
+              <span class="loading-skeleton skeleton-line" style="--skeleton-width: 96px; --skeleton-height: 17px;"></span>
+              <span class="loading-skeleton skeleton-line" style="--skeleton-width: 72%; --skeleton-height: 34px;"></span>
+              <span class="loading-skeleton skeleton-line" style="--skeleton-width: 86%; --skeleton-height: 14px;"></span>
+            </div>
+            <span class="loading-skeleton skeleton-line" style="--skeleton-width: 66px; --skeleton-height: 26px;"></span>
+          </div>
+          <span class="loading-skeleton skeleton-line" style="--skeleton-width: 42%; --skeleton-height: 16px; margin-top: 16px;"></span>
+        </div>
+        <div class="record-skeleton-grid" aria-hidden="true">
+          ${[0, 1, 2, 3].map((index) => `
+            <div class="record-skeleton-pill">
+              <span class="loading-skeleton skeleton-line" style="--skeleton-width: ${index % 2 ? '52%' : '44%'}; --skeleton-height: 14px;"></span>
+              <span class="loading-skeleton skeleton-line" style="--skeleton-width: ${index % 2 ? '78%' : '64%'}; --skeleton-height: 20px; margin-top: 12px;"></span>
+            </div>
+          `).join('')}
+        </div>
+        <span class="record-muted">正在读取任务 ${escapeHtml(compactJobId(jobId))}...</span>
+      `;
+      document.getElementById('job-result').innerHTML = `
+        <div class="skeleton-stack record-section-skeleton" aria-hidden="true">
+          <span class="loading-skeleton skeleton-line" style="--skeleton-width: 44%; --skeleton-height: 17px;"></span>
+          <span class="loading-skeleton skeleton-line" style="--skeleton-width: 92%; --skeleton-height: 14px;"></span>
+          <span class="loading-skeleton skeleton-line" style="--skeleton-width: 76%; --skeleton-height: 14px;"></span>
+          <span class="loading-skeleton skeleton-line" style="--skeleton-width: 132px; --skeleton-height: 34px;"></span>
+        </div>
+      `;
+      document.getElementById('job-files').innerHTML = `
+        <div class="record-file-item record-section-skeleton" aria-hidden="true">
+          <span class="loading-skeleton skeleton-line" style="--skeleton-width: 35%; --skeleton-height: 17px;"></span>
+          <span class="loading-skeleton skeleton-line" style="--skeleton-width: 62%; --skeleton-height: 14px;"></span>
+          <span class="loading-skeleton skeleton-line" style="--skeleton-width: 88%; --skeleton-height: 13px;"></span>
+        </div>
+      `;
     }
     async function loadJob(jobId, poll = false) {
       if (state.pollTimer) clearTimeout(state.pollTimer);
       showRecordResult();
       setRecordStatus('查询中', 'running');
-      document.getElementById('job-detail').textContent = `任务编号: ${jobId}`;
-      document.getElementById('job-result').textContent = '正在读取任务状态...';
+      renderRecordLoading(jobId);
       try {
         const detail = await getJson(`/jobs/${jobId}`);
-        document.getElementById('job-detail').textContent = summarizeJobDetail(detail);
+        document.getElementById('job-detail').innerHTML = renderJobStatusCard(detail);
         if (detail.status === 'queued' || detail.status === 'running') {
           setRecordStatus(labelStatus(detail.status), 'running');
-          document.getElementById('job-result').textContent = `任务仍在执行中...\n当前状态: ${labelStatus(detail.status)}`;
+          document.getElementById('job-result').innerHTML = renderJobReportTrace(detail);
+          document.getElementById('job-files').innerHTML = renderJobFileTrace(detail);
           if (poll) state.pollTimer = setTimeout(() => loadJob(jobId, true), 1500);
           return;
         }
         setRecordStatus(labelStatus(detail.status), detail.status === 'failed' ? 'failed' : 'ok');
-        document.getElementById('job-result').textContent = summarizeJobResult(await getJson(`/jobs/${jobId}/result`));
+        const resultPayload = await getJson(`/jobs/${jobId}/result`);
+        document.getElementById('job-result').innerHTML = renderJobReportTrace(resultPayload);
+        document.getElementById('job-files').innerHTML = renderJobFileTrace(resultPayload);
+        bindRecordReportActions(document.getElementById('record-result'));
       } catch (error) {
         setRecordStatus('查询失败', 'failed');
-        document.getElementById('job-result').textContent = `读取任务失败\n${String(error)}`;
+        document.getElementById('job-result').innerHTML = `<p class="record-trace-copy">读取任务失败：${escapeHtml(userFacingError(error))}</p>`;
+        document.getElementById('job-files').innerHTML = '<p class="record-trace-copy">无法读取对应文件。</p>';
       }
     }
 
+    initThemeToggle();
     initAppleMotion();
+    document.getElementById('update-check-button').addEventListener('click', manualUpdateCheck);
     document.querySelectorAll('[data-view-button]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.viewButton)));
     document.querySelectorAll('[data-scroll-target]').forEach((button) => button.addEventListener('click', () => openPaperAndScroll(button.dataset.scrollTarget)));
     document.getElementById('paper-file').addEventListener('change', (event) => {
@@ -2369,7 +4114,7 @@
       }
       const file = event.target.files && event.target.files[0];
       if (file) uploadSelectedFile(file).catch((error) => {
-        document.getElementById('upload-hint').textContent = `上传失败: ${String(error)}`;
+        document.getElementById('upload-hint').textContent = `上传失败: ${userFacingError(error)}`;
       });
     });
     const docxUploadZone = document.querySelector('.upload');
@@ -2382,7 +4127,7 @@
         }
         const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
         if (file) uploadSelectedFile(file).catch((error) => {
-          document.getElementById('upload-hint').textContent = `上传失败: ${String(error)}`;
+          document.getElementById('upload-hint').textContent = `上传失败: ${userFacingError(error)}`;
         });
       });
     }
@@ -2430,13 +4175,14 @@
       document.getElementById('source-badge').textContent = '本机路径';
       document.getElementById('source-badge').className = 'source-chip ok';
       updateSafeNote({ fileName: displayName, source: '本机文件', path: value });
+      clearScopeSelection();
       setReport({
         conclusion: '已填写论文路径，可以开始处理。',
         issues: ['原文不会被覆盖', '修复结果会写入新的 Word 文件'],
-        next: '点击“一键生成修复稿”。',
+        next: '点击“生成修复方案”。',
         output: estimateOutputPath(value, displayName),
         outputLabel: '预计输出',
-        action: { label: '一键生成修复稿', step: 'runAll' },
+        action: { label: '生成修复方案', step: 'runAll' },
       });
       setProgress({ visible: false });
       resetSteps();
@@ -2466,6 +4212,7 @@
       if (jobId) loadJob(jobId, false);
       else document.getElementById('job-id-input').focus();
     });
+    document.getElementById('refresh-jobs-button').addEventListener('click', refreshRecentJobs);
     document.getElementById('job-id-input').addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return;
       const jobId = event.currentTarget.value.trim();
@@ -2477,7 +4224,7 @@
     if (isFileMode()) {
       showFileModeNotice();
     } else {
-      Promise.all([refreshOverview()]).catch((error) => {
+      Promise.all([refreshOverview(), refreshRecentJobs()]).catch((error) => {
         document.getElementById('health-line').textContent = `服务连接失败`;
         setReport({ conclusion: '服务连接失败', issues: [String(error)], next: `确认本地服务已启动后打开 ${LOCAL_APP_URL}` });
         setSummary(`加载失败\n${String(error)}`);

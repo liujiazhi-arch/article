@@ -45,20 +45,20 @@ def _make_body_context(paragraph: ET.Element) -> dict:
 
 
 def test_build_audit_runtime_keeps_profile_rules_isolated():
-    default_runtime = audit_thesis.build_audit_runtime()
+    baseline_runtime = audit_thesis.build_audit_runtime("cn-common")
     lnu_runtime = audit_thesis.build_audit_runtime("lnu")
-    fresh_default_runtime = audit_thesis.build_audit_runtime()
+    fresh_baseline_runtime = audit_thesis.build_audit_runtime("cn-common")
 
-    default_rule_ids = {rule_id for rule_id, _, _ in default_runtime.rule_definitions}
+    baseline_rule_ids = {rule_id for rule_id, _, _ in baseline_runtime.rule_definitions}
     lnu_rule_ids = {rule_id for rule_id, _, _ in lnu_runtime.rule_definitions}
-    fresh_default_rule_ids = {rule_id for rule_id, _, _ in fresh_default_runtime.rule_definitions}
+    fresh_baseline_rule_ids = {rule_id for rule_id, _, _ in fresh_baseline_runtime.rule_definitions}
 
-    assert "LNU_ABS01" not in default_rule_ids
+    assert "LNU_ABS01" not in baseline_rule_ids
     assert "LNU_ABS01" in lnu_rule_ids
-    assert "LNU_ABS01" not in fresh_default_rule_ids
-    assert "LNU_ACK01" not in default_rule_ids
+    assert "LNU_ABS01" not in fresh_baseline_rule_ids
+    assert "LNU_ACK01" not in baseline_rule_ids
     assert "LNU_ACK01" in lnu_rule_ids
-    assert "LNU_ACK01" not in fresh_default_rule_ids
+    assert "LNU_ACK01" not in fresh_baseline_rule_ids
 
 
 def test_build_audit_runtime_applies_disabled_rules_without_global_mutation(tmp_path):
@@ -74,15 +74,15 @@ disabled_rules:
     )
 
     custom_runtime = audit_thesis.build_audit_runtime(str(profile_path))
-    fresh_default_runtime = audit_thesis.build_audit_runtime()
+    fresh_lnu_runtime = audit_thesis.build_audit_runtime()
 
     custom_rule_ids = {rule_id for rule_id, _, _ in custom_runtime.rule_definitions}
-    default_rule_ids = {rule_id for rule_id, _, _ in fresh_default_runtime.rule_definitions}
+    lnu_rule_ids = {rule_id for rule_id, _, _ in fresh_lnu_runtime.rule_definitions}
 
     assert "T01" not in custom_rule_ids
     assert "H02" not in custom_rule_ids
-    assert "T01" in default_rule_ids
-    assert "H02" in default_rule_ids
+    assert "T01" in lnu_rule_ids
+    assert "H02" in lnu_rule_ids
 
 
 def test_check_c03_flags_adjacent_and_uncompressed_superscript_citations():
@@ -184,7 +184,7 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["caption_number_sep"] == "."
         assert cfg["eq_number_sep"] == "."
         assert cfg["ref_hanging"] == 420
-        assert cfg["ref_use_tab"] is False
+        assert cfg["ref_use_tab"] is True
         assert cfg["ref_font_size"] == 21
         assert cfg["ref_line_spacing"] == 360
         assert cfg["ref_terminal_punct"] == "."
@@ -194,19 +194,17 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["frontmatter_page_number_wrap"] == "plain"
         assert cfg["body_page_number_format"] == "decimal"
         assert cfg["body_page_number_wrap"] == "hyphen_wrap"
-        assert cfg.get("ref_number_trailing_space", False) is True
+        assert cfg.get("ref_number_trailing_space", True) is False
         assert cfg.get("acknowledgement_required", True) is True
         assert cfg["check_snap_to_grid"] is True
 
 
 def test_capability_matrix_matches_current_audit_runtime_rules():
     capabilities = load_rule_capabilities()
-    default_rule_ids = {rule_id for rule_id, _, _ in audit_thesis.build_audit_runtime().rule_definitions}
     lnu_rule_ids = {rule_id for rule_id, _, _ in audit_thesis.build_audit_runtime("lnu").rule_definitions}
-    runtime_rule_ids = default_rule_ids | lnu_rule_ids
 
-    missing = sorted(rule_id for rule_id in runtime_rule_ids if rule_id not in capabilities)
-    extra = sorted(rule_id for rule_id in capabilities if rule_id not in runtime_rule_ids)
+    missing = sorted(rule_id for rule_id in lnu_rule_ids if rule_id not in capabilities)
+    extra = sorted(rule_id for rule_id in capabilities if rule_id not in lnu_rule_ids)
 
     assert missing == []
     assert extra == []
@@ -216,9 +214,9 @@ def test_lnu_profile_active_additions_match_runtime_extensions():
     profile_path = Path(PROFILE_ALIASES["lnu"])
     profile_data = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
 
-    default_rule_ids = {rule_id for rule_id, _, _ in audit_thesis.build_audit_runtime().rule_definitions}
+    baseline_rule_ids = {rule_id for rule_id, _, _ in audit_thesis.build_audit_runtime("cn-common").rule_definitions}
     lnu_rule_ids = {rule_id for rule_id, _, _ in audit_thesis.build_audit_runtime("lnu").rule_definitions}
-    runtime_lnu_extensions = {rule_id for rule_id in lnu_rule_ids - default_rule_ids if rule_id.startswith("LNU_")}
+    runtime_lnu_extensions = {rule_id for rule_id in lnu_rule_ids - baseline_rule_ids if rule_id.startswith("LNU_")}
     profile_lnu_extensions = {item["id"] for item in profile_data.get("additions") or []}
 
     assert profile_lnu_extensions == runtime_lnu_extensions
@@ -266,7 +264,7 @@ def test_build_audit_runtime_defaults_to_strict_for_explicit_profile():
 def test_build_audit_runtime_can_explicitly_allow_profile_fallback():
     runtime = audit_thesis.build_audit_runtime("missing-profile.yaml", strict_profile=False)
 
-    assert runtime.profile_id == "cn-common"
+    assert runtime.profile_id == "lnu-checker-2026"
     assert runtime.fallback_used is True
     assert runtime.requested_profile == "missing-profile.yaml"
 
@@ -277,7 +275,6 @@ def test_runtime_rule_counts_match_readme_and_claude_docs():
     claude = (project_root / "CLAUDE.md").read_text(encoding="utf-8")
 
     actual_counts = {
-        "cn-common": len(audit_thesis.build_audit_runtime().rule_definitions),
         "lnu-checker-2026": len(audit_thesis.build_audit_runtime("lnu").rule_definitions),
     }
 

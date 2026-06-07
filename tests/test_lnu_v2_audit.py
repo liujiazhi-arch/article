@@ -968,17 +968,29 @@ def test_lnu_ref01_rejects_fullwidth_reference_punctuation():
     assert issues
 
 
-def test_lnu_ref02_rejects_tab_after_reference_number():
+def test_lnu_ref02_accepts_tab_after_reference_number_with_matching_tab_stop():
     title = _make_paragraph("参考文献")
     ref = _make_paragraph("[1]\t郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.")
+    p_pr = ET.SubElement(ref, _w("pPr"))
+    ind = ET.SubElement(p_pr, _w("ind"))
+    ind.set(_w("left"), "420")
+    ind.set(_w("hanging"), "420")
+    tabs = ET.SubElement(p_pr, _w("tabs"))
+    tab = ET.SubElement(tabs, _w("tab"))
+    tab.set(_w("val"), "left")
+    tab.set(_w("pos"), "420")
     contexts = [
         _ctx(1, title, "参考文献", "h1", "backmatter"),
         _ctx(2, ref, "[1]\t郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.", "reference", "backmatter"),
     ]
 
-    passed, issues, _ = audit_thesis.check_lnu_ref02(_doc_with_paragraphs(title, ref), contexts, {}, {})
-    assert not passed
-    assert any("Tab" in msg for msg in issues)
+    passed, issues, _ = audit_thesis.check_lnu_ref02(
+        _doc_with_paragraphs(title, ref),
+        contexts,
+        {},
+        {"ref_use_tab": True, "ref_hanging": 420, "ref_tab_min": 420},
+    )
+    assert passed, issues
 
 
 def test_lnu_ref02_rejects_leading_zero_reference_number():
@@ -994,17 +1006,22 @@ def test_lnu_ref02_rejects_leading_zero_reference_number():
     assert any("编号补零" in msg for msg in issues)
 
 
-def test_lnu_ref02_rejects_multiple_spaces_after_reference_number():
+def test_lnu_ref02_rejects_space_after_reference_number_when_tab_alignment_required():
     title = _make_paragraph("参考文献")
-    ref = _make_paragraph("[1]  郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.")
+    ref = _make_paragraph("[1] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.")
     contexts = [
         _ctx(1, title, "参考文献", "h1", "backmatter"),
-        _ctx(2, ref, "[1]  郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.", "reference", "backmatter"),
+        _ctx(2, ref, "[1] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.", "reference", "backmatter"),
     ]
 
-    passed, issues, _ = audit_thesis.check_lnu_ref02(_doc_with_paragraphs(title, ref), contexts, {}, {})
+    passed, issues, _ = audit_thesis.check_lnu_ref02(
+        _doc_with_paragraphs(title, ref),
+        contexts,
+        {},
+        {"ref_use_tab": True, "ref_hanging": 420, "ref_tab_min": 420},
+    )
     assert not passed
-    assert any("格式异常" in msg for msg in issues)
+    assert any("制表符" in msg for msg in issues)
 
 
 def test_lnu_ref03_rejects_nonzero_paragraph_spacing():

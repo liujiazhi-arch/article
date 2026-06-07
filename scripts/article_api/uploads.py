@@ -4,6 +4,7 @@ import base64
 import io
 import os
 import shutil
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -17,6 +18,7 @@ RUNTIME_DIR_NAME = ".article_runtime"
 RUNTIME_ROOT_ENV_VAR = "ARTICLE_API_RUNTIME_ROOT"
 UPLOADED_DOCX_NAME_RE = re.compile(r"^(?P<upload_id>[0-9a-f]{32})_(?P<file_name>.+\.docx)$", re.IGNORECASE)
 UPLOADED_PDF_NAME_RE = re.compile(r"^(?P<upload_id>[0-9a-f]{32})_(?P<file_name>.+\.pdf)$", re.IGNORECASE)
+REQUIRED_DOCX_PACKAGE_PARTS = ("[Content_Types].xml", "_rels/.rels", "word/document.xml")
 
 
 @dataclass(frozen=True)
@@ -162,6 +164,21 @@ def _read_upload_bytes_with_extension(upload: Any, *, extension: str) -> tuple[s
     return file_name, bytes(payload)
 
 
+def validate_docx_package(file_path: str | Path) -> str:
+    path = audit_thesis.validate_docx_path(str(file_path))
+    try:
+        with zipfile.ZipFile(path, "r") as docx_file:
+            names = {name for name in docx_file.namelist() if not name.endswith("/")}
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"不是有效的 .docx 压缩包：{path}") from exc
+
+    for part_name in REQUIRED_DOCX_PACKAGE_PARTS:
+        if part_name not in names:
+            raise ValueError(f"不是有效的 .docx 文件，缺少核心部件 {part_name}：{path}")
+    audit_thesis.load_docx_xml(path)
+    return path
+
+
 def store_uploaded_docx(upload: Any, *, runtime_root: str | Path | None = None) -> UploadedDocument:
     file_name, payload = _read_upload_bytes(upload)
     if not payload:
@@ -171,8 +188,14 @@ def store_uploaded_docx(upload: Any, *, runtime_root: str | Path | None = None) 
     uploads_dir.mkdir(parents=True, exist_ok=True)
     upload_id = uuid4().hex
     stored_path = uploads_dir / f"{upload_id}_{file_name}"
-    with stored_path.open("wb") as handle:
-        shutil.copyfileobj(io.BytesIO(payload), handle)
+    temp_path = uploads_dir / f".tmp_{upload_id}_{file_name}"
+    try:
+        with temp_path.open("wb") as handle:
+            shutil.copyfileobj(io.BytesIO(payload), handle)
+        validate_docx_package(temp_path)
+        temp_path.replace(stored_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
     return UploadedDocument(
         upload_id=upload_id,
         stored_path=str(stored_path),
@@ -186,13 +209,20 @@ def store_uploaded_pdf(upload: Any, *, runtime_root: str | Path | None = None) -
     file_name, payload = _read_upload_bytes_with_extension(upload, extension=".pdf")
     if not payload:
         raise ValueError("Uploaded .pdf file is empty")
+    if not payload.startswith(b"%PDF-"):
+        raise ValueError("不是有效的 .pdf 文件")
     root = resolve_runtime_root(runtime_root)
     uploads_dir = root / "uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
     upload_id = uuid4().hex
     stored_path = uploads_dir / f"{upload_id}_{file_name}"
-    with stored_path.open("wb") as handle:
-        shutil.copyfileobj(io.BytesIO(payload), handle)
+    temp_path = uploads_dir / f".tmp_{upload_id}_{file_name}"
+    try:
+        with temp_path.open("wb") as handle:
+            shutil.copyfileobj(io.BytesIO(payload), handle)
+        temp_path.replace(stored_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
     return UploadedFile(
         upload_id=upload_id,
         stored_path=str(stored_path),

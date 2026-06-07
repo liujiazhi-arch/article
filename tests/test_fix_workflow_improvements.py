@@ -434,7 +434,7 @@ def test_heading_style_prepass_identifies_and_repairs_heading_like_paragraphs(tm
         scopes=["headings"],
     )
 
-    h02_status = audit_rule_status(fixed_path, "H02")
+    h02_status = audit_rule_status(fixed_path, "H02", profile_path="cn-common")
     assert h02_status["rule"]["passed"], h02_status["rule"]["issues"]
 
     preview_after = build_scoped_fix_preview(
@@ -1192,10 +1192,11 @@ def test_scoped_fix_normalizes_inline_citation_groups_and_reference_layout(tmp_p
     ref_paragraph = next(
         p_elem
         for p_elem in root.findall(".//w:body/w:p", ns)
-        if "".join(t.text or "" for t in p_elem.findall(".//w:t", ns)).startswith("[1] ")
+        if "".join(t.text or "" for t in p_elem.findall(".//w:t", ns)).startswith("[1]")
     )
     p_pr = ref_paragraph.find("w:pPr", ns)
     assert p_pr is not None
+    assert ref_paragraph.find(".//w:tab", ns) is not None
     jc = p_pr.find("w:jc", ns)
     spacing = p_pr.find("w:spacing", ns)
     assert jc is not None and jc.get(qn("w:val")) == "both"

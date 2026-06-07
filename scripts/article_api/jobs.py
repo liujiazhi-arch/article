@@ -16,6 +16,7 @@ import audit_thesis
 from article_engine import apply_fix, normalize_document, verify_document
 from article_engine.service import _default_output_path
 from article_api import storage
+from article_api import errors as api_errors
 from article_api import job_artifacts, job_execution
 from article_api import job_payloads
 from article_api.uploads import build_job_workspace, stage_job_input_docx
@@ -98,6 +99,57 @@ def _inspection_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return job_payloads.inspection_from_payload(payload, finished_statuses=_FINISHED_STATUSES)
 
 
+def _list_item_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return job_payloads.list_item_from_payload(payload, finished_statuses=_FINISHED_STATUSES)
+
+
+def _with_current_artifact_availability(payload: dict[str, Any]) -> dict[str, Any]:
+    refreshed = _clone_dict(payload)
+    refreshed["artifacts"] = job_artifacts.refresh_artifact_availability(refreshed.get("artifacts"))
+    return refreshed
+
+
+def _ensure_finished_report_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if payload.get("status") not in _FINISHED_STATUSES:
+        return payload
+    if payload.get("operation") not in {"apply", "normalize"}:
+        return payload
+    report_artifact = next(
+        ((artifact or {}) for artifact in payload.get("artifacts") or [] if (artifact or {}).get("role") == job_artifacts.REPORT_ARTIFACT_ROLE),
+        None,
+    )
+    if (
+        report_artifact
+        and report_artifact.get("report_version") == job_artifacts.REPORT_SCHEMA_VERSION
+        and report_artifact.get("path")
+        and os.path.exists(report_artifact["path"])
+    ):
+        return payload
+
+    includes_result = "result" in payload
+    stored_payload = storage.get_job(payload["job_id"], include_result=True) or payload
+    persisted = _clone_dict(stored_payload)
+    persisted["artifacts"] = job_artifacts.ensure_report_artifact(
+        persisted.get("artifacts"),
+        job_id=persisted["job_id"],
+        operation=persisted["operation"],
+        status=persisted["status"],
+        created_at=persisted["created_at"],
+        started_at=persisted.get("started_at"),
+        finished_at=persisted.get("finished_at"),
+        summary=persisted.get("summary"),
+        resolved_request=persisted.get("resolved_request"),
+        runtime=persisted.get("runtime"),
+        error=persisted.get("error"),
+    )
+    storage.upsert_job(persisted)
+    if includes_result:
+        return persisted
+    without_result = _clone_dict(persisted)
+    without_result.pop("result", None)
+    return without_result
+
+
 def _get_handler(operation: str) -> Callable[..., dict[str, Any]]:
     try:
         return _JOB_HANDLERS[operation]
@@ -120,6 +172,10 @@ def _result_summary(operation: str, result: dict[str, Any], resolved_request: di
 
 def _failure_summary(operation: str, resolved_request: dict[str, Any], error: dict[str, Any]) -> dict[str, Any]:
     return job_payloads.build_failure_summary(operation, resolved_request, error)
+
+
+def _normalize_error_payload(error: dict[str, Any]) -> dict[str, Any]:
+    return api_errors.normalize_error_payload(error)
 
 
 def _merge_recovery_summary(
@@ -549,7 +605,7 @@ def runtime_snapshot() -> dict[str, Any]:
 def list_jobs() -> list[dict[str, Any]]:
     _reconcile_incomplete_jobs()
     payloads = storage.list_jobs(include_result=False)
-    return [_inspection_from_payload(payload) for payload in payloads]
+    return [_list_item_from_payload(_with_current_artifact_availability(_ensure_finished_report_artifact_payload(payload))) for payload in payloads]
 
 
 def _resolved_path(path_value: str | None) -> Path | None:
@@ -668,6 +724,19 @@ def _finalize_record(record: JobRecord) -> None:
         record.runtime = _finalize_runtime_metadata(record.runtime)
     record.finished_at = _utcnow()
     record.updated_at = record.finished_at
+    record.artifacts = job_artifacts.ensure_report_artifact(
+        record.artifacts,
+        job_id=record.job_id,
+        operation=record.operation,
+        status=record.status,
+        created_at=record.created_at,
+        started_at=record.started_at,
+        finished_at=record.finished_at,
+        summary=record.summary,
+        resolved_request=record.resolved_request,
+        runtime=record.runtime,
+        error=record.error,
+    )
     storage.upsert_job(_serialize_job(record, include_result=True))
 
 
@@ -753,7 +822,7 @@ def _run_job(job_id: str) -> None:
                 attempt_payload = _execute_job_attempt_with_callbacks(
                     record.operation,
                     record.resolved_request,
-                    on_heartbeat=lambda: _persist_attempt_runtime_heartbeat(record, attempt_lock),
+                    on_heartbeat=lambda: _persist_attempt_runtime_heartbeat(record, attempt_lock=attempt_lock),
                     on_phase=lambda phase: _persist_attempt_runtime_phase(record, attempt_lock, phase),
                 )
             finally:
@@ -794,7 +863,9 @@ def _run_job(job_id: str) -> None:
                 )
                 break
 
-            error = deepcopy(attempt_payload.get("error") or _transient_internal_error_payload("Unknown job runner failure"))
+            error = _normalize_error_payload(
+                deepcopy(attempt_payload.get("error") or _transient_internal_error_payload("Unknown job runner failure"))
+            )
             _append_attempt(record.runtime, attempt=attempt, status="failed", error=error)
             _append_runtime_event(
                 record.runtime,
@@ -968,6 +1039,8 @@ def get_job(job_id: str) -> dict[str, Any]:
     payload = storage.get_job(job_id, include_result=False)
     if payload is None:
         raise LookupError(f"Job not found: {job_id}")
+    payload = _ensure_finished_report_artifact_payload(payload)
+    payload = _with_current_artifact_availability(payload)
     if payload["status"] in _FINISHED_STATUSES:
         return payload
     runtime = payload.get("runtime") or {}
@@ -991,6 +1064,8 @@ def get_job_result(job_id: str) -> dict[str, Any]:
     payload = storage.get_job(job_id, include_result=True)
     if payload is None:
         raise LookupError(f"Job not found: {job_id}")
+    payload = _ensure_finished_report_artifact_payload(payload)
+    payload = _with_current_artifact_availability(payload)
     if payload["status"] not in _FINISHED_STATUSES:
         raise RuntimeError(f"Job result is not ready yet: {job_id}")
     return payload

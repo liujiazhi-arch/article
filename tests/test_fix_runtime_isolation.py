@@ -29,23 +29,23 @@ def test_fix_docx_profile_runtime_isolation_between_calls(tmp_docx, tmp_path):
 
     assert _audit_rule(lnu_fixed, "H02", profile_path="lnu")["passed"]
 
-    # Second call without profile must not inherit LNU runtime state.
-    default_source = tmp_docx(make_violating_doc, filename="h02_default_source.docx", rule_id="H02")
-    default_fixed = Path(tmp_path) / "h02_default_fixed.docx"
-    apply_scoped_fix(str(default_source), str(default_fixed), profile_path=None, scopes=["headings"])
+    # Second call under the internal baseline must not inherit LNU runtime state.
+    baseline_source = tmp_docx(make_violating_doc, filename="h02_baseline_source.docx", rule_id="H02")
+    baseline_fixed = Path(tmp_path) / "h02_baseline_fixed.docx"
+    apply_scoped_fix(str(baseline_source), str(baseline_fixed), profile_path="cn-common", scopes=["headings"])
 
-    default_h02 = _audit_rule(default_fixed, "H02", profile_path=None)
-    lnu_h02 = _audit_rule(default_fixed, "H02", profile_path="lnu")
+    default_h02 = _audit_rule(baseline_fixed, "H02", profile_path="cn-common")
+    lnu_h02 = _audit_rule(baseline_fixed, "H02", profile_path="lnu")
     assert default_h02["passed"], default_h02["issues"]
     assert not lnu_h02["passed"]
 
 
 def test_fix_docx_profile_runtime_isolation_under_alternating_profiles(tmp_docx, tmp_path):
-    first_source = tmp_docx(make_violating_doc, filename="h02_default_first_source.docx", rule_id="H02")
-    first_fixed = Path(tmp_path) / "h02_default_first_fixed.docx"
-    apply_scoped_fix(str(first_source), str(first_fixed), profile_path=None, scopes=["headings"])
+    first_source = tmp_docx(make_violating_doc, filename="h02_baseline_first_source.docx", rule_id="H02")
+    first_fixed = Path(tmp_path) / "h02_baseline_first_fixed.docx"
+    apply_scoped_fix(str(first_source), str(first_fixed), profile_path="cn-common", scopes=["headings"])
 
-    first_default_h02 = _audit_rule(first_fixed, "H02", profile_path=None)
+    first_default_h02 = _audit_rule(first_fixed, "H02", profile_path="cn-common")
     first_lnu_h02 = _audit_rule(first_fixed, "H02", profile_path="lnu")
     assert first_default_h02["passed"], first_default_h02["issues"]
     assert not first_lnu_h02["passed"]
@@ -57,11 +57,11 @@ def test_fix_docx_profile_runtime_isolation_under_alternating_profiles(tmp_docx,
     second_lnu_h02 = _audit_rule(second_fixed, "H02", profile_path="lnu")
     assert second_lnu_h02["passed"], second_lnu_h02["issues"]
 
-    third_source = tmp_docx(make_violating_doc, filename="h02_default_third_source.docx", rule_id="H02")
-    third_fixed = Path(tmp_path) / "h02_default_third_fixed.docx"
-    apply_scoped_fix(str(third_source), str(third_fixed), profile_path=None, scopes=["headings"])
+    third_source = tmp_docx(make_violating_doc, filename="h02_baseline_third_source.docx", rule_id="H02")
+    third_fixed = Path(tmp_path) / "h02_baseline_third_fixed.docx"
+    apply_scoped_fix(str(third_source), str(third_fixed), profile_path="cn-common", scopes=["headings"])
 
-    third_default_h02 = _audit_rule(third_fixed, "H02", profile_path=None)
+    third_default_h02 = _audit_rule(third_fixed, "H02", profile_path="cn-common")
     third_lnu_h02 = _audit_rule(third_fixed, "H02", profile_path="lnu")
     assert third_default_h02["passed"], third_default_h02["issues"]
     assert not third_lnu_h02["passed"]

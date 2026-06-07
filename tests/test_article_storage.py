@@ -330,8 +330,14 @@ def test_stale_running_job_preserves_frozen_snapshot_when_reconciled(monkeypatch
     assert recovered["status"] == "failed"
     assert recovered["summary"]["error_code"] == "worker_recovery_failed"
     assert recovered["summary"]["business_status"] == "verified"
+    stored_artifacts = {item["role"]: item for item in stored["artifacts"]}
+
     assert stored["result"] == payload["result"]
-    assert stored["artifacts"] == payload["artifacts"]
+    assert stored_artifacts["output"]["path"] == payload["artifacts"][0]["path"]
+    assert stored_artifacts["output"]["exists_at_completion"] is True
+    assert stored_artifacts["output"]["available"] is False
+    assert stored_artifacts["report"]["download_name"] == "job_report.md"
+    assert stored_artifacts["report"]["available"] is True
     assert stored["error"]["code"] == "worker_recovery_failed"
     assert stored["finished_at"] is not None
 
@@ -436,10 +442,14 @@ def test_stale_running_job_rebuilds_missing_artifacts_from_frozen_result(monkeyp
 
     assert recovered["status"] == "failed"
     assert stored["status"] == "failed"
-    assert len(stored["artifacts"]) == 1
-    assert stored["artifacts"][0]["role"] == "output"
-    assert stored["artifacts"][0]["result_mode"] == "write"
-    assert stored["artifacts"][0]["written"] is True
+    stored_artifacts = {item["role"]: item for item in stored["artifacts"]}
+
+    assert set(stored_artifacts) == {"output", "report"}
+    assert stored_artifacts["output"]["result_mode"] == "write"
+    assert stored_artifacts["output"]["written"] is True
+    assert stored_artifacts["output"]["available"] is False
+    assert stored_artifacts["report"]["download_name"] == "job_report.md"
+    assert stored_artifacts["report"]["available"] is True
     assert stored["summary"]["business_status"] == "verified"
 
 

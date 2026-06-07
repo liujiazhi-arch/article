@@ -164,16 +164,17 @@ def test_scope_verify_can_focus_on_selected_scope(tmp_docx, tmp_path):
     apply_scoped_fix(
         str(source_path),
         str(fixed_path),
+        profile_path="cn-common",
         scopes=["body_paragraphs"],
     )
 
-    body_verify = build_scope_verify(str(fixed_path), scopes=["body_paragraphs"])
+    body_verify = build_scope_verify(str(fixed_path), profile_path="cn-common", scopes=["body_paragraphs"])
     assert body_verify["overall_status"] == "verified"
     assert body_verify["readiness"] == "structure-ready"
     assert body_verify["failed_count"] == 0
     assert body_verify["selected_scopes"] == ["body_paragraphs"]
 
-    headings_verify = build_scope_verify(str(fixed_path), scopes=["headings"])
+    headings_verify = build_scope_verify(str(fixed_path), profile_path="cn-common", scopes=["headings"])
     assert headings_verify["overall_status"] in {"needs_fix", "unsupported"}
     assert headings_verify["readiness"] == "needs-fix"
     assert headings_verify["failed_count"] >= 1
@@ -295,8 +296,8 @@ def test_headings_scope_also_repairs_acknowledgement_titles(tmp_docx, tmp_path):
     doc.add_paragraph("感谢内容")
     doc.save(source_path)
 
-    before_h01 = audit_rule_status(source_path, "H01")
-    before_h02 = audit_rule_status(source_path, "H02")
+    before_h01 = audit_rule_status(source_path, "H01", profile_path="cn-common")
+    before_h02 = audit_rule_status(source_path, "H02", profile_path="cn-common")
     assert not before_h01["rule"]["passed"]
     assert not before_h02["rule"]["passed"]
 
@@ -308,8 +309,8 @@ def test_headings_scope_also_repairs_acknowledgement_titles(tmp_docx, tmp_path):
         scopes=["headings"],
     )
 
-    after_h01 = audit_rule_status(fixed_path, "H01")
-    after_h02 = audit_rule_status(fixed_path, "H02")
+    after_h01 = audit_rule_status(fixed_path, "H01", profile_path="cn-common")
+    after_h02 = audit_rule_status(fixed_path, "H02", profile_path="cn-common")
     assert after_h01["rule"]["passed"], after_h01["rule"]["issues"]
     assert after_h02["rule"]["passed"], after_h02["rule"]["issues"]
 

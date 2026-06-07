@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+import re
 from typing import Any, Callable
+import urllib.parse
+import urllib.request
 
 from article_api import storage
 from article_api.jobs import runtime_snapshot
@@ -11,6 +15,12 @@ from article_api.uploads import resolve_runtime_root
 
 
 _RUNTIME_DIR_NAMES = ("jobs", "uploads", "staging")
+UPDATE_RELEASE_API_URL_ENV = "ARTICLE_LOCAL_RELEASE_API_URL"
+UPDATE_RELEASE_TIMEOUT_SECONDS_ENV = "ARTICLE_LOCAL_RELEASE_TIMEOUT_SECONDS"
+UPDATE_CHECK_MODE = "manual"
+UPDATE_PRIVACY = "只检查软件版本，不上传论文、修复稿、任务记录、本地路径或日志。"
+UPDATE_ASSET_NAME = "article-local-windows.zip"
+_DEFAULT_UPDATE_TIMEOUT_SECONDS = 5.0
 
 
 def build_health_payload() -> dict[str, Any]:
@@ -29,7 +39,169 @@ def build_version_payload() -> dict[str, Any]:
         "stage": SERVICE_STAGE,
         "version": SERVICE_VERSION,
         "api_version": API_VERSION,
+        "update_check": build_update_check_metadata(),
     }
+
+
+def build_update_check_metadata() -> dict[str, Any]:
+    return {
+        "mode": UPDATE_CHECK_MODE,
+        "configured": bool(_configured_release_api_url()),
+        "auto_update": False,
+        "privacy": UPDATE_PRIVACY,
+        "next_action": "点击“检查新版本”后，只会请求 GitHub Release 元数据；发现新版也需要手动下载 zip。",
+    }
+
+
+def fetch_latest_release_payload(url: str, *, timeout_seconds: float) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "article-local-version-check",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def build_latest_update_payload(
+    *,
+    fetch_release_fn: Callable[..., dict[str, Any]] | None = None,
+    current_version: str | None = None,
+) -> dict[str, Any]:
+    version = current_version or SERVICE_VERSION
+    configured_url = _configured_release_api_url()
+    base_payload = {
+        "service": SERVICE_NAME,
+        "stage": SERVICE_STAGE,
+        "mode": UPDATE_CHECK_MODE,
+        "current_version": version,
+        "configured": bool(configured_url),
+        "auto_update": False,
+        "privacy": UPDATE_PRIVACY,
+    }
+    if not configured_url:
+        return {
+            **base_payload,
+            "status": "not_configured",
+            "latest_version": None,
+            "latest_tag": None,
+            "update_available": False,
+            "release_url": None,
+            "download_url": None,
+            "next_action": f"设置 {UPDATE_RELEASE_API_URL_ENV}=https://api.github.com/repos/<owner>/<repo>/releases/latest 后再手动检查。",
+        }
+    if not _is_github_latest_release_api_url(configured_url):
+        return {
+            **base_payload,
+            "status": "invalid_config",
+            "configured": False,
+            "latest_version": None,
+            "latest_tag": None,
+            "update_available": False,
+            "release_url": None,
+            "download_url": None,
+            "next_action": f"{UPDATE_RELEASE_API_URL_ENV} 必须形如 https://api.github.com/repos/<owner>/<repo>/releases/latest。",
+        }
+
+    fetcher = fetch_release_fn or fetch_latest_release_payload
+    try:
+        release_payload = fetcher(configured_url, timeout_seconds=_release_timeout_seconds())
+        if not isinstance(release_payload, dict):
+            raise ValueError("GitHub Release response must be a JSON object")
+        latest_tag = str(release_payload.get("tag_name") or release_payload.get("name") or "").strip()
+        latest_version = _release_version(latest_tag)
+        download_url = _release_asset_download_url(release_payload, UPDATE_ASSET_NAME)
+        update_available = _is_newer_version(latest_version, version)
+    except Exception as exc:
+        return {
+            **base_payload,
+            "status": "error",
+            "latest_version": None,
+            "latest_tag": None,
+            "update_available": False,
+            "release_url": None,
+            "download_url": None,
+            "error": str(exc),
+            "next_action": "无法连接 GitHub Release，请稍后重试或手动打开 Release 页面。",
+        }
+
+    return {
+        **base_payload,
+        "status": "ok",
+        "latest_version": latest_version,
+        "latest_tag": latest_tag,
+        "update_available": update_available,
+        "release_url": str(release_payload.get("html_url") or ""),
+        "download_url": download_url,
+        "asset_name": UPDATE_ASSET_NAME if download_url else None,
+        "published_at": release_payload.get("published_at"),
+        "next_action": "发现新版本时，请前往 GitHub Release 手动下载新版 zip；本工具不会自动下载或安装更新。"
+        if update_available
+        else "当前已是最新版本，或未发现更高版本。",
+    }
+
+
+def _configured_release_api_url() -> str:
+    return os.environ.get(UPDATE_RELEASE_API_URL_ENV, "").strip()
+
+
+def _is_github_latest_release_api_url(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.netloc.lower() != "api.github.com":
+        return False
+    parts = [part for part in parsed.path.split("/") if part]
+    return len(parts) == 5 and parts[0] == "repos" and parts[3] == "releases" and parts[4] == "latest"
+
+
+def _release_timeout_seconds() -> float:
+    raw = os.environ.get(UPDATE_RELEASE_TIMEOUT_SECONDS_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_UPDATE_TIMEOUT_SECONDS
+    value = float(raw)
+    if value <= 0:
+        raise ValueError(f"{UPDATE_RELEASE_TIMEOUT_SECONDS_ENV} must be > 0")
+    return value
+
+
+def _release_version(tag: str) -> str:
+    return tag[1:] if tag.lower().startswith("v") else tag
+
+
+def _release_asset_download_url(release_payload: dict[str, Any], asset_name: str) -> str | None:
+    assets = release_payload.get("assets")
+    if not isinstance(assets, list):
+        return None
+    for item in assets:
+        if isinstance(item, dict) and item.get("name") == asset_name:
+            return str(item.get("browser_download_url") or "")
+    for item in assets:
+        if isinstance(item, dict) and str(item.get("name") or "").lower().endswith(".zip"):
+            return str(item.get("browser_download_url") or "")
+    return None
+
+
+def _is_newer_version(latest_version: str, current_version: str) -> bool:
+    latest = _numeric_version_parts(latest_version)
+    current = _numeric_version_parts(current_version)
+    if not latest or not current:
+        return False
+    width = max(len(latest), len(current))
+    return latest + (0,) * (width - len(latest)) > current + (0,) * (width - len(current))
+
+
+def _numeric_version_parts(version: str) -> tuple[int, ...]:
+    cleaned = str(version or "").strip().lstrip("vV").split("+", 1)[0].split("-", 1)[0]
+    parts: list[int] = []
+    for piece in cleaned.split("."):
+        if not piece:
+            continue
+        match = re.match(r"\d+", piece)
+        if match is None:
+            return ()
+        parts.append(int(match.group(0)))
+    return tuple(parts)
 
 
 def build_readiness_payload() -> dict[str, Any]:

@@ -15,7 +15,7 @@ import fix_docx_io
 import fix_output_parts
 from docx import Document
 from reorder_references_by_appearance import reorder_references_in_document
-from _profile_utils import PROFILE_ALIASES, format_profile_resolution, load_profile_bundle, resolve_template_profile_id
+from _profile_utils import DEFAULT_PROFILE_ID, PROFILE_ALIASES, format_profile_resolution, load_profile_bundle, resolve_template_profile_id
 from backmatter_title_utils import (
     is_abstract_cn_title,
     is_abstract_en_title,
@@ -64,6 +64,7 @@ from sections._xml_helpers import (
     set_attr,
 )
 from thesis_tool.scopes import list_scope_definitions, normalize_scope_names
+from thesis_fix.dependencies import configure as configure_thesis_fix_dependencies
 
 M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 MNSMAP = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main", "m": M_NS}
@@ -137,6 +138,78 @@ _HALF_WIDTH_PUNCT_MAPPING = {
     ":": "：",
     ".": "。",
 }
+
+
+def _configure_thesis_fix_dependencies():
+    configure_thesis_fix_dependencies(
+        {
+            "CAPTION_EN_MODULES": CAPTION_EN_MODULES,
+            "CAPTION_NOTE_MODULES": CAPTION_NOTE_MODULES,
+            "CONTENT_TYPES_NS": CONTENT_TYPES_NS,
+            "FOOTER_REL_TYPES": FOOTER_REL_TYPES,
+            "NAMESPACES": NAMESPACES,
+            "NSMAP": NSMAP,
+            "PACKAGE_REL_NS": PACKAGE_REL_NS,
+            "REL_NS": REL_NS,
+            "W_NS": W_NS,
+            "_caption_reference_candidates": _caption_reference_candidates,
+            "_cleanup_docx_hidden_page_number_artifacts": _cleanup_docx_hidden_page_number_artifacts,
+            "_get_paragraph_spacing_twips": _get_paragraph_spacing_twips,
+            "_is_any_keywords_text": _is_any_keywords_text,
+            "_is_frontmatter_title_text": _is_frontmatter_title_text,
+            "_is_generic_caption_lead_text": _is_generic_caption_lead_text,
+            "_paragraph_outline_level": _paragraph_outline_level,
+            "_set_paragraph_pagination_flags": _set_paragraph_pagination_flags,
+            "_set_paragraph_spacing_attrs": _set_paragraph_spacing_attrs,
+            "_set_table_row_cant_split": _set_table_row_cant_split,
+            "_toc_level_from_style_id": _toc_level_from_style_id,
+            "_toc_title_for_runtime": _toc_title_for_runtime,
+            "build_document_model": build_document_model,
+            "build_settings_with_update_fields": build_settings_with_update_fields,
+            "classify_paragraph": classify_paragraph,
+            "collect_figure_blocks": collect_figure_blocks,
+            "collect_table_blocks": collect_table_blocks,
+            "detect_backmatter_bucket": detect_backmatter_bucket,
+            "ensure_ppr": ensure_ppr,
+            "ensure_rfonts": ensure_rfonts,
+            "ensure_rpr": ensure_rpr,
+            "ensure_size": ensure_size,
+            "fix_lnu_abs01": fix_lnu_abs01,
+            "fix_lnu_abs02": fix_lnu_abs02,
+            "fix_lnu_abs03": fix_lnu_abs03,
+            "fix_lnu_ack01": fix_lnu_ack01,
+            "fix_lnu_conc01": fix_lnu_conc01,
+            "fix_lnu_ref01": fix_lnu_ref01,
+            "fix_lnu_ref02": fix_lnu_ref02,
+            "fix_lnu_ref04": fix_lnu_ref04,
+            "fix_lnu_s03": fix_lnu_s03,
+            "fix_lnu_tb03": fix_lnu_tb03,
+            "fix_lnu_title01": fix_lnu_title01,
+            "get_or_create": get_or_create,
+            "get_paragraph_text": get_paragraph_text,
+            "get_run_text": get_run_text,
+            "insert_missing_caption_reference_leads": insert_missing_caption_reference_leads,
+            "is_lnu_profile": is_lnu_profile,
+            "is_scope_enabled": is_scope_enabled,
+            "match_heading_by_text": match_heading_by_text,
+            "normalize_lnu_figure_block_layout": normalize_lnu_figure_block_layout,
+            "normalize_lnu_table_block_layout": normalize_lnu_table_block_layout,
+            "normalize_toc_entry_paragraphs": normalize_toc_entry_paragraphs,
+            "normalize_toc_title_paragraph": normalize_toc_title_paragraph,
+            "promote_post_caption_reference_blocks": promote_post_caption_reference_blocks,
+            "protect_object_blocks_from_pagination": protect_object_blocks_from_pagination,
+            "rebalance_figure_blocks_for_layout": rebalance_figure_blocks_for_layout,
+            "rebalance_table_blocks_for_layout": rebalance_table_blocks_for_layout,
+            "remove_duplicate_body_toc_title": remove_duplicate_body_toc_title,
+            "remove_existing_toc_artifacts": remove_existing_toc_artifacts,
+            "remove_synthetic_caption_reference_leads": remove_synthetic_caption_reference_leads,
+            "renumber_lnu_captions": renumber_lnu_captions,
+            "reorder_references_in_document": reorder_references_in_document,
+            "repair_misplaced_abstract_keywords": repair_misplaced_abstract_keywords,
+            "resolve_fix_cfg": resolve_fix_cfg,
+            "set_attr": set_attr,
+        }
+    )
 _HALF_WIDTH_PUNCT_CJK_RE = r"[\u4e00-\u9fff\u3400-\u4dbf]"
 _HALF_WIDTH_PUNCT_PATTERN = re.compile(
     rf"(?<={_HALF_WIDTH_PUNCT_CJK_RE})[,;:]|[,;:](?={_HALF_WIDTH_PUNCT_CJK_RE})|"
@@ -263,7 +336,7 @@ def resolve_fix_cfg(cfg=None, runtime=None):
 def resolve_fix_profile_id(runtime=None):
     if runtime is not None:
         return runtime.profile_id
-    return "cn-common"
+    return DEFAULT_PROFILE_ID
 
 
 def resolve_fix_heading_style_ids(heading_style_ids=None, runtime=None):
@@ -1651,178 +1724,16 @@ def remove_synthetic_caption_reference_leads(document_root, style_map=None):
 
 
 def rebalance_figure_blocks_for_layout(document_root, style_map=None, cfg=None, runtime=None):
-    """按同小节内已有图号引用，前移图块以减少跨页大空白。
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.tables_figures import rebalance_figure_blocks_for_layout as _impl
 
-    这是显式开启的启发式流程，只处理正文图块，默认关闭。
-    """
-    if runtime is not None and not runtime.layout_rebalance:
-        return 0
-
-    body = document_root.find("w:body", NSMAP)
-    if body is None:
-        return 0
-
-    paragraph_tag = f"{{{W_NS}}}p"
-    changed = 0
-
-    while True:
-        moved = False
-        model = build_document_model(document_root, style_map or {})
-        node_by_id = {id(node.elem): node for node in model.paragraphs}
-        body_children = list(body)
-        child_index = {id(elem): idx for idx, elem in enumerate(body_children)}
-
-        for block in collect_figure_blocks(document_root, style_map or {}):
-            if block.get("section") != "body":
-                continue
-
-            caption_text = (block["caption"].text or "").strip()
-            match = re.match(r"^(图)\s*(\d+(?:[.\-]\d+)*)", caption_text)
-            if match is None:
-                continue
-
-            prefix, number = match.groups()
-            candidates = _caption_reference_candidates(prefix, number)
-            image_elem = block["image"]
-            caption_elem = block["caption"].elem
-            last_elem = block["last_elem"]
-            image_idx = child_index.get(id(image_elem))
-            end_idx = child_index.get(id(last_elem))
-            if image_idx is None or end_idx is None:
-                continue
-
-            anchor_elem = None
-            scan_idx = image_idx - 1
-            while scan_idx >= 0:
-                candidate_elem = body_children[scan_idx]
-                if candidate_elem.tag != paragraph_tag:
-                    scan_idx -= 1
-                    continue
-                candidate_node = node_by_id.get(id(candidate_elem))
-                candidate_text = get_paragraph_text(candidate_elem).strip()
-                if not candidate_text:
-                    scan_idx -= 1
-                    continue
-                compact_text = re.sub(r"[\s\u3000]+", "", candidate_text)
-                matched_reference = any(token in compact_text for token in candidates)
-                if matched_reference:
-                    if not _is_generic_caption_lead_text(candidate_text, prefix, number):
-                        anchor_elem = candidate_elem
-                outline_lvl = _paragraph_outline_level(candidate_elem, style_map or {})
-                if outline_lvl in {0, 1} and not matched_reference:
-                    break
-                scan_idx -= 1
-
-            if anchor_elem is None:
-                continue
-
-            anchor_idx = child_index[id(anchor_elem)]
-            if anchor_idx + 1 >= image_idx:
-                continue
-
-            block_elems = body_children[image_idx : end_idx + 1]
-            for elem in block_elems:
-                body.remove(elem)
-            body_children = list(body)
-            anchor_idx = body_children.index(anchor_elem)
-            insert_idx = anchor_idx + 1
-            for offset, elem in enumerate(block_elems):
-                body.insert(insert_idx + offset, elem)
-
-            changed += 1
-            moved = True
-            break
-
-        if not moved:
-            break
-
-    return changed
-
+    return _impl(document_root, style_map, cfg, runtime)
 
 def rebalance_table_blocks_for_layout(document_root, style_map=None, cfg=None, runtime=None):
-    """按同小节内已有表号引用，前移表块以减少跨页大空白。"""
-    if runtime is not None and not runtime.layout_rebalance:
-        return 0
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.tables_figures import rebalance_table_blocks_for_layout as _impl
 
-    body = document_root.find("w:body", NSMAP)
-    if body is None:
-        return 0
-
-    paragraph_tag = f"{{{W_NS}}}p"
-    changed = 0
-
-    while True:
-        moved = False
-        model = build_document_model(document_root, style_map or {})
-        node_by_id = {id(node.elem): node for node in model.paragraphs}
-        body_children = list(body)
-        child_index = {id(elem): idx for idx, elem in enumerate(body_children)}
-
-        for block in collect_table_blocks(document_root, style_map or {}):
-            if block.get("section") != "body":
-                continue
-
-            caption_text = (block["caption"].text or "").strip()
-            match = re.match(r"^(表)\s*(\d+(?:[.\-]\d+)*)", caption_text)
-            if match is None:
-                continue
-
-            prefix, number = match.groups()
-            candidates = _caption_reference_candidates(prefix, number)
-            caption_elem = block["caption"].elem
-            last_elem = block["last_elem"]
-            caption_idx = child_index.get(id(caption_elem))
-            end_idx = child_index.get(id(last_elem))
-            if caption_idx is None or end_idx is None:
-                continue
-
-            anchor_elem = None
-            scan_idx = caption_idx - 1
-            while scan_idx >= 0:
-                candidate_elem = body_children[scan_idx]
-                if candidate_elem.tag != paragraph_tag:
-                    scan_idx -= 1
-                    continue
-                candidate_node = node_by_id.get(id(candidate_elem))
-                candidate_text = get_paragraph_text(candidate_elem).strip()
-                if not candidate_text:
-                    scan_idx -= 1
-                    continue
-                compact_text = re.sub(r"[\s\u3000]+", "", candidate_text)
-                matched_reference = any(token in compact_text for token in candidates)
-                if matched_reference:
-                    if not _is_generic_caption_lead_text(candidate_text, prefix, number):
-                        anchor_elem = candidate_elem
-                outline_lvl = _paragraph_outline_level(candidate_elem, style_map or {})
-                if outline_lvl in {0, 1} and not matched_reference:
-                    break
-                scan_idx -= 1
-
-            if anchor_elem is None:
-                continue
-
-            anchor_idx = child_index[id(anchor_elem)]
-            if anchor_idx + 1 >= caption_idx:
-                continue
-
-            block_elems = body_children[caption_idx : end_idx + 1]
-            for elem in block_elems:
-                body.remove(elem)
-            body_children = list(body)
-            anchor_idx = body_children.index(anchor_elem)
-            insert_idx = anchor_idx + 1
-            for offset, elem in enumerate(block_elems):
-                body.insert(insert_idx + offset, elem)
-
-            changed += 1
-            moved = True
-            break
-
-        if not moved:
-            break
-
-    return changed
-
+    return _impl(document_root, style_map, cfg, runtime)
 
 def promote_post_caption_reference_blocks(document_root, cfg=None, style_map=None, runtime=None):
     """将图后已有的说明性正文整体前移到图块前，避免生成生硬的独立“见图/见表”段。"""
@@ -2070,41 +1981,10 @@ def fix_soft_line_breaks(document_root, cfg=None, runtime=None):
 
 
 def normalize_object_wrapping(document_root, cfg=None, runtime=None):
-    """统一对象定位：图片改为嵌入型，表格移除浮动环绕。"""
-    wp_ns = NAMESPACES["wp"]
-    changed = 0
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.tables_figures import normalize_object_wrapping as _impl
 
-    for drawing in document_root.findall(".//w:drawing", NSMAP):
-        anchor = drawing.find(f"{{{wp_ns}}}anchor")
-        if anchor is None:
-            continue
-        inline = ET.Element(f"{{{wp_ns}}}inline")
-        for attr_name in ("distT", "distB", "distL", "distR"):
-            inline.set(attr_name, anchor.get(attr_name, "0"))
-        for child_name in ("extent", "effectExtent", "docPr", "cNvGraphicFramePr"):
-            child = anchor.find(f"{{{wp_ns}}}{child_name}")
-            if child is not None:
-                inline.append(copy.deepcopy(child))
-        graphic = anchor.find(f"{{{NAMESPACES['a']}}}graphic")
-        if graphic is not None:
-            inline.append(copy.deepcopy(graphic))
-        anchor_idx = list(drawing).index(anchor)
-        drawing.remove(anchor)
-        drawing.insert(anchor_idx, inline)
-        changed += 1
-
-    for table in document_root.findall(".//w:tbl", NSMAP):
-        tbl_pr = table.find("w:tblPr", NSMAP)
-        if tbl_pr is None:
-            continue
-        tblp_pr = tbl_pr.find("w:tblpPr", NSMAP)
-        if tblp_pr is None:
-            continue
-        tbl_pr.remove(tblp_pr)
-        changed += 1
-
-    return changed
-
+    return _impl(document_root, cfg, runtime)
 
 def fix_page_margins(document_root, cfg=None, runtime=None):
     cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
@@ -2967,193 +2847,10 @@ def ensure_visible_toc(document_root, cfg=None, style_map=None, runtime=None):
 
 
 def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair_keywords=True):
-    """
-    在文档顶部插入辽大格式目录。
-    目录标题：黑体，三号（32 half-pts），居中。
-    目录条目：宋体，小四（24 half-pts），H1不缩进，H2缩进2字符，H3缩进4字符。
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.toc import fix_insert_toc as _impl
 
-    返回值：dict，key为docx内文件路径，value为bytes（用于写入settings.xml的updateFields）。
-    如果 cfg 为 None 或 toc_auto 为 False，返回空 dict。
-    """
-    if cfg is None or not cfg.get("toc_auto"):
-        return {}
-
-    body = document_root.find("w:body", NSMAP)
-    if body is None:
-        return {}
-
-    if repair_keywords:
-        repair_misplaced_abstract_keywords(document_root, style_map=style_map)
-    remove_existing_toc_artifacts(document_root)
-
-    has_heading = False
-
-    for p_elem in body.findall("w:p", NSMAP):
-        level = None
-        if style_map is not None:
-            paragraph_type = classify_paragraph(p_elem, style_map)
-            if paragraph_type in {"h1", "h2", "h3"}:
-                level = int(paragraph_type[1])
-
-        if level is None:
-            p_pr = p_elem.find("w:pPr", NSMAP)
-            if p_pr is None:
-                p_pr = None
-            else:
-                outline_lvl = p_pr.find("w:outlineLvl", NSMAP)
-                if outline_lvl is not None:
-                    lvl_val = outline_lvl.get(f"{{{W_NS}}}val")
-                    if lvl_val in {"0", "1", "2"}:
-                        level = int(lvl_val) + 1
-
-                if level is None:
-                    p_style = p_pr.find("w:pStyle", NSMAP)
-                    style_val = p_style.get(f"{{{W_NS}}}val", "") if p_style is not None else ""
-                    level = _toc_level_from_style_id(style_val)
-
-        text = get_paragraph_text(p_elem).strip()
-        if level is None:
-            text_level = match_heading_by_text(text)
-            if text_level in {1, 2, 3}:
-                level = text_level
-        if level is None:
-            continue
-        if text:
-            has_heading = True
-            break
-
-    if not has_heading:
-        return {}
-
-    max_level = max(1, min(int(cfg.get("toc_max_level", 3) or 3), 3))
-    toc_title = _toc_title_for_runtime(cfg, runtime=runtime)
-
-    def add_run(parent, text=None, east_asia="宋体", ascii_font="Times New Roman", size="24", bold=False):
-        run_elem = ET.SubElement(parent, f"{{{W_NS}}}r")
-        r_pr = ET.SubElement(run_elem, f"{{{W_NS}}}rPr")
-        r_fonts = ET.SubElement(r_pr, f"{{{W_NS}}}rFonts")
-        set_attr(r_fonts, "eastAsia", east_asia)
-        set_attr(r_fonts, "ascii", ascii_font)
-        set_attr(r_fonts, "hAnsi", ascii_font)
-        sz = ET.SubElement(r_pr, f"{{{W_NS}}}sz")
-        set_attr(sz, "val", size)
-        sz_cs = ET.SubElement(r_pr, f"{{{W_NS}}}szCs")
-        set_attr(sz_cs, "val", size)
-        if bold:
-            b_elem = ET.SubElement(r_pr, f"{{{W_NS}}}b")
-            set_attr(b_elem, "val", "1")
-        if text is not None:
-            text_elem = ET.SubElement(run_elem, f"{{{W_NS}}}t")
-            text_elem.text = text
-            if text.startswith(" ") or text.endswith(" "):
-                text_elem.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-        return run_elem
-
-    def make_toc_title_para():
-        p_elem = ET.Element(f"{{{W_NS}}}p")
-        p_pr = ET.SubElement(p_elem, f"{{{W_NS}}}pPr")
-        p_style = ET.SubElement(p_pr, f"{{{W_NS}}}pStyle")
-        set_attr(p_style, "val", "TOCHeading")
-        page_break_before = ET.SubElement(p_pr, f"{{{W_NS}}}pageBreakBefore")
-        set_attr(page_break_before, "val", "1")
-        jc = ET.SubElement(p_pr, f"{{{W_NS}}}jc")
-        set_attr(jc, "val", "center")
-        spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
-        set_attr(spacing, "before", "0")
-        set_attr(spacing, "after", "0")
-        add_run(
-            p_elem,
-            text=toc_title,
-            east_asia=str(cfg.get("toc_title_font", "黑体") or "黑体"),
-            size=str(cfg.get("toc_title_size", 32) or 32),
-        )
-        return p_elem
-
-    def make_toc_field_begin():
-        p_elem = ET.Element(f"{{{W_NS}}}p")
-        p_pr = ET.SubElement(p_elem, f"{{{W_NS}}}pPr")
-        p_style = ET.SubElement(p_pr, f"{{{W_NS}}}pStyle")
-        set_attr(p_style, "val", "TOCField")
-        spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
-        set_attr(spacing, "before", "0")
-        set_attr(spacing, "after", "0")
-
-        run_begin = ET.SubElement(p_elem, f"{{{W_NS}}}r")
-        fld_begin = ET.SubElement(run_begin, f"{{{W_NS}}}fldChar")
-        set_attr(fld_begin, "fldCharType", "begin")
-        set_attr(fld_begin, "dirty", "true")
-
-        run_instr = ET.SubElement(p_elem, f"{{{W_NS}}}r")
-        instr_text = ET.SubElement(run_instr, f"{{{W_NS}}}instrText")
-        instr_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-        instr_text.text = f' TOC \\o "1-{max_level}" \\h \\z \\u '
-
-        run_sep = ET.SubElement(p_elem, f"{{{W_NS}}}r")
-        fld_sep = ET.SubElement(run_sep, f"{{{W_NS}}}fldChar")
-        set_attr(fld_sep, "fldCharType", "separate")
-        return p_elem
-
-    def make_toc_field_end():
-        p_elem = ET.Element(f"{{{W_NS}}}p")
-        p_pr = ET.SubElement(p_elem, f"{{{W_NS}}}pPr")
-        p_style = ET.SubElement(p_pr, f"{{{W_NS}}}pStyle")
-        set_attr(p_style, "val", "TOCEnd")
-        spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
-        set_attr(spacing, "before", "0")
-        set_attr(spacing, "after", "0")
-        run_end = ET.SubElement(p_elem, f"{{{W_NS}}}r")
-        fld_end = ET.SubElement(run_end, f"{{{W_NS}}}fldChar")
-        set_attr(fld_end, "fldCharType", "end")
-        return p_elem
-
-    def make_page_break_para():
-        p_elem = ET.Element(f"{{{W_NS}}}p")
-        p_pr = ET.SubElement(p_elem, f"{{{W_NS}}}pPr")
-        p_style = ET.SubElement(p_pr, f"{{{W_NS}}}pStyle")
-        set_attr(p_style, "val", "TOCPageBreak")
-        spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
-        set_attr(spacing, "before", "0")
-        set_attr(spacing, "after", "0")
-        run_elem = ET.SubElement(p_elem, f"{{{W_NS}}}r")
-        br_elem = ET.SubElement(run_elem, f"{{{W_NS}}}br")
-        set_attr(br_elem, "type", "page")
-        return p_elem
-
-    new_paragraphs = [
-        make_toc_title_para(),
-        make_toc_field_begin(),
-        make_toc_field_end(),
-        make_page_break_para(),
-    ]
-
-    body_children = list(body)
-    insert_index = None
-
-    for idx, child in enumerate(body_children):
-        if child.tag != f"{{{W_NS}}}p":
-            continue
-        text = get_paragraph_text(child).strip()
-        if not text:
-            continue
-        if _is_any_keywords_text(text):
-            continue
-        if classify_paragraph(child, style_map or {}) != "h1":
-            continue
-        if _is_frontmatter_title_text(text):
-            continue
-        if detect_backmatter_bucket(text, "h1") is not None:
-            continue
-        insert_index = idx
-        break
-    if insert_index is None:
-        sect_pr = body.find("w:sectPr", NSMAP)
-        insert_index = list(body).index(sect_pr) if sect_pr is not None else len(body_children)
-
-    for offset, para in enumerate(new_paragraphs):
-        body.insert(insert_index + offset, para)
-
-    return {"word/settings.xml": build_settings_with_update_fields()}
-
+    return _impl(document_root, cfg, style_map, runtime, repair_keywords)
 
 def _split_keyword_label_boundary(p_elem, label_len):
     if label_len <= 0:
@@ -3516,286 +3213,16 @@ def _set_paragraph_spacing_attrs(p_elem, *, before=None, after=None, line=None):
 
 
 def normalize_lnu_figure_block_layout(document_root, style_map=None, cfg=None, runtime=None):
-    """统一图块上下留白与图名/图注行距，避免主链修复后仍出现图前后空白不一致。"""
-    cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
-    body = document_root.find("w:body", NSMAP)
-    if body is None:
-        return 0
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.tables_figures import normalize_lnu_figure_block_layout as _impl
 
-    gap_twips = int(cfg.get("figure_blank_line_twips", cfg.get("body_line", 360) or 360))
-    body_paragraph_tag = f"{{{W_NS}}}p"
-
-    def _has_drawing(p_elem):
-        return p_elem.find(".//w:drawing", NSMAP) is not None
-
-    def _is_blank_paragraph(p_elem):
-        return not _has_drawing(p_elem) and not get_paragraph_text(p_elem).strip()
-
-    changed = 0
-    while True:
-        model = build_document_model(document_root, style_map or {})
-        body_paragraphs = [child for child in list(body) if child.tag == body_paragraph_tag]
-        paragraph_index = {id(p_elem): idx for idx, p_elem in enumerate(body_paragraphs)}
-        node_by_elem_id = {id(node.elem): node for node in model.paragraphs}
-        blocks = []
-
-        for p_elem in body_paragraphs:
-            node = node_by_elem_id.get(id(p_elem))
-            if node is None or node.module not in {"body_caption", "appendix_caption"}:
-                continue
-            caption_idx = paragraph_index[id(p_elem)]
-            anchor_idx = caption_idx
-            if caption_idx > 0 and _has_drawing(body_paragraphs[caption_idx - 1]):
-                anchor_idx = caption_idx - 1
-
-            end_idx = caption_idx
-            note_indices = []
-            scan_idx = caption_idx + 1
-            while scan_idx < len(body_paragraphs):
-                next_node = node_by_elem_id.get(id(body_paragraphs[scan_idx]))
-                if next_node is None or next_node.module not in CAPTION_EN_MODULES | CAPTION_NOTE_MODULES:
-                    break
-                note_indices.append(scan_idx)
-                end_idx = scan_idx
-                scan_idx += 1
-
-            blocks.append(
-                {
-                    "caption_idx": caption_idx,
-                    "anchor_idx": anchor_idx,
-                    "end_idx": end_idx,
-                    "note_indices": note_indices,
-                }
-            )
-
-        if not blocks:
-            break
-
-        moved = False
-        for block in sorted(blocks, key=lambda item: item["anchor_idx"], reverse=True):
-            anchor_idx = block["anchor_idx"]
-            caption_idx = block["caption_idx"]
-            end_idx = block["end_idx"]
-
-            while anchor_idx > 0 and _is_blank_paragraph(body_paragraphs[anchor_idx - 1]):
-                body.remove(body_paragraphs[anchor_idx - 1])
-                del body_paragraphs[anchor_idx - 1]
-                anchor_idx -= 1
-                caption_idx -= 1
-                end_idx -= 1
-                changed += 1
-                moved = True
-
-            while end_idx + 1 < len(body_paragraphs) and _is_blank_paragraph(body_paragraphs[end_idx + 1]):
-                body.remove(body_paragraphs[end_idx + 1])
-                del body_paragraphs[end_idx + 1]
-                changed += 1
-                moved = True
-
-            prev_idx = anchor_idx - 1
-            while prev_idx >= 0 and _is_blank_paragraph(body_paragraphs[prev_idx]):
-                prev_idx -= 1
-            next_idx = end_idx + 1
-            while next_idx < len(body_paragraphs) and _is_blank_paragraph(body_paragraphs[next_idx]):
-                next_idx += 1
-
-            anchor_elem = body_paragraphs[anchor_idx]
-            caption_elem = body_paragraphs[caption_idx]
-            end_elem = body_paragraphs[end_idx]
-
-            prev_after = _get_paragraph_spacing_twips(body_paragraphs[prev_idx], "after") if prev_idx >= 0 else 0
-            next_before = _get_paragraph_spacing_twips(body_paragraphs[next_idx], "before") if next_idx < len(body_paragraphs) else 0
-            target_before = max(0, gap_twips - prev_after) if prev_idx >= 0 else 0
-            target_after = max(0, gap_twips - next_before) if next_idx < len(body_paragraphs) else 0
-
-            current_before = _get_paragraph_spacing_twips(anchor_elem, "before")
-            if current_before != target_before:
-                _set_paragraph_spacing_attrs(anchor_elem, before=target_before)
-                changed += 1
-
-            current_anchor_after = _get_paragraph_spacing_twips(anchor_elem, "after")
-            if current_anchor_after != 0:
-                _set_paragraph_spacing_attrs(anchor_elem, after=0)
-                changed += 1
-
-            current_caption_before = _get_paragraph_spacing_twips(caption_elem, "before")
-            current_caption_after = _get_paragraph_spacing_twips(caption_elem, "after")
-            if current_caption_before != 0 or (caption_elem is not end_elem and current_caption_after != 0):
-                _set_paragraph_spacing_attrs(caption_elem, before=0, after=0 if caption_elem is not end_elem else None)
-                changed += 1
-
-            if caption_elem is end_elem and current_caption_after != target_after:
-                _set_paragraph_spacing_attrs(caption_elem, after=target_after)
-                changed += 1
-
-            if end_elem is not caption_elem:
-                current_end_after = _get_paragraph_spacing_twips(end_elem, "after")
-                if current_end_after != target_after:
-                    _set_paragraph_spacing_attrs(end_elem, after=target_after)
-                    changed += 1
-
-            note_scan_idx = caption_idx + 1
-            while note_scan_idx <= end_idx:
-                note_elem = body_paragraphs[note_scan_idx]
-                note_before = _get_paragraph_spacing_twips(note_elem, "before")
-                desired_after = target_after if note_scan_idx == end_idx else 0
-                note_after = _get_paragraph_spacing_twips(note_elem, "after")
-                if note_before != 0 or note_after != desired_after:
-                    _set_paragraph_spacing_attrs(note_elem, before=0, after=desired_after)
-                    changed += 1
-                note_scan_idx += 1
-
-        if not moved:
-            break
-
-    return changed
-
+    return _impl(document_root, style_map, cfg, runtime)
 
 def normalize_lnu_table_block_layout(document_root, style_map=None, cfg=None, runtime=None):
-    """统一表块上下留白，并保证表题紧贴表体。"""
-    cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
-    body = document_root.find("w:body", NSMAP)
-    if body is None:
-        return 0
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.tables_figures import normalize_lnu_table_block_layout as _impl
 
-    gap_twips = int(
-        cfg.get("table_blank_line_twips", cfg.get("figure_blank_line_twips", cfg.get("body_line", 360) or 360))
-    )
-    blank_line_mode = str(cfg.get("table_blank_line_mode", "spacing") or "spacing")
-    paragraph_tag = f"{{{W_NS}}}p"
-    changed = 0
-
-    def _is_blank_paragraph(elem):
-        return (
-            elem.tag == paragraph_tag
-            and elem.find(".//w:drawing", NSMAP) is None
-            and not get_paragraph_text(elem).strip()
-        )
-
-    def _make_blank_gap_paragraph():
-        p_elem = ET.Element(paragraph_tag)
-        p_pr = ensure_ppr(p_elem)
-        spacing = get_or_create(p_pr, "w:spacing")
-        set_attr(spacing, "before", "0")
-        set_attr(spacing, "after", "0")
-        set_attr(spacing, "line", str(gap_twips))
-        set_attr(spacing, "lineRule", "auto")
-        return p_elem
-
-    while True:
-        blocks = [block for block in collect_table_blocks(document_root, style_map or {}) if block.get("section") == "body"]
-        if not blocks:
-            break
-
-        moved = False
-        for block in reversed(blocks):
-            body_children = list(body)
-            child_index = {id(elem): idx for idx, elem in enumerate(body_children)}
-            caption_elem = block["caption"].elem
-            table_elem = block["table"]
-            last_elem = block["last_elem"]
-            caption_idx = child_index.get(id(caption_elem))
-            table_idx = child_index.get(id(table_elem))
-            end_idx = child_index.get(id(last_elem))
-            if caption_idx is None or table_idx is None or end_idx is None:
-                continue
-
-            while caption_idx > 0 and _is_blank_paragraph(body_children[caption_idx - 1]):
-                body.remove(body_children[caption_idx - 1])
-                del body_children[caption_idx - 1]
-                caption_idx -= 1
-                table_idx -= 1
-                end_idx -= 1
-                changed += 1
-                moved = True
-
-            while caption_idx + 1 < table_idx and _is_blank_paragraph(body_children[caption_idx + 1]):
-                body.remove(body_children[caption_idx + 1])
-                del body_children[caption_idx + 1]
-                table_idx -= 1
-                end_idx -= 1
-                changed += 1
-                moved = True
-
-            if blank_line_mode == "blank_paragraph":
-                blank_after_count = 0
-                scan_idx = end_idx + 1
-                while scan_idx < len(body_children) and _is_blank_paragraph(body_children[scan_idx]):
-                    blank_after_count += 1
-                    scan_idx += 1
-                while blank_after_count > 1:
-                    body.remove(body_children[end_idx + 2])
-                    del body_children[end_idx + 2]
-                    blank_after_count -= 1
-                    changed += 1
-                    moved = True
-            else:
-                while end_idx + 1 < len(body_children) and _is_blank_paragraph(body_children[end_idx + 1]):
-                    body.remove(body_children[end_idx + 1])
-                    del body_children[end_idx + 1]
-                    changed += 1
-                    moved = True
-
-            prev_idx = caption_idx - 1
-            while prev_idx >= 0 and _is_blank_paragraph(body_children[prev_idx]):
-                prev_idx -= 1
-            next_idx = end_idx + 1
-            if blank_line_mode != "blank_paragraph":
-                while next_idx < len(body_children) and _is_blank_paragraph(body_children[next_idx]):
-                    next_idx += 1
-
-            prev_elem = body_children[prev_idx] if prev_idx >= 0 else None
-            next_elem = body_children[next_idx] if next_idx < len(body_children) else None
-
-            prev_after = _get_paragraph_spacing_twips(prev_elem, "after") if prev_elem is not None and prev_elem.tag == paragraph_tag else 0
-            target_before = max(0, gap_twips - prev_after) if prev_elem is not None else 0
-
-            current_caption_before = _get_paragraph_spacing_twips(caption_elem, "before")
-            current_caption_after = _get_paragraph_spacing_twips(caption_elem, "after")
-            if current_caption_before != target_before or current_caption_after != 0:
-                _set_paragraph_spacing_attrs(caption_elem, before=target_before, after=0)
-                changed += 1
-
-            if block["notes"]:
-                next_before = (
-                    _get_paragraph_spacing_twips(next_elem, "before")
-                    if next_elem is not None and next_elem.tag == paragraph_tag
-                    else 0
-                )
-                target_note_after = max(0, gap_twips - next_before) if next_elem is not None else 0
-                for offset, note in enumerate(block["notes"]):
-                    note_elem = note.elem
-                    desired_after = target_note_after if offset == len(block["notes"]) - 1 else 0
-                    note_before = _get_paragraph_spacing_twips(note_elem, "before")
-                    note_after = _get_paragraph_spacing_twips(note_elem, "after")
-                    if note_before != 0 or note_after != desired_after:
-                        _set_paragraph_spacing_attrs(note_elem, before=0, after=desired_after)
-                        changed += 1
-            elif next_elem is not None and next_elem.tag == paragraph_tag:
-                next_before = _get_paragraph_spacing_twips(next_elem, "before")
-                if blank_line_mode == "blank_paragraph":
-                    if _is_blank_paragraph(next_elem):
-                        gap_spacing = next_elem.find("w:pPr/w:spacing", NSMAP)
-                        gap_line = gap_spacing.get(f"{{{W_NS}}}line") if gap_spacing is not None else None
-                        if gap_line != str(gap_twips):
-                            _set_paragraph_spacing_attrs(next_elem, before=0, after=0, line=gap_twips)
-                            changed += 1
-                    else:
-                        body.insert(next_idx, _make_blank_gap_paragraph())
-                        changed += 1
-                        moved = True
-                        break
-                else:
-                    desired_before = max(next_before, gap_twips)
-                    if next_before != desired_before:
-                        _set_paragraph_spacing_attrs(next_elem, before=desired_before)
-                        changed += 1
-
-        if not moved:
-            break
-
-    return changed
-
+    return _impl(document_root, style_map, cfg, runtime)
 
 def _set_onoff_property(parent_elem, tag_name: str, enabled: bool) -> int:
     elem = parent_elem.find(f"w:{tag_name}", NSMAP)
@@ -3825,197 +3252,16 @@ def _set_table_row_cant_split(tr_elem, enabled: bool = True) -> int:
 
 
 def protect_object_blocks_from_pagination(document_root, style_map=None, cfg=None, runtime=None):
-    """为普通图块和短表块补齐分页保护属性，尽量避免题注与对象或短表主体跨页拆开。"""
-    cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
-    changed = 0
-    continuation_min_rows = int(cfg.get("table_continuation_min_rows", 6) or 6)
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.tables_figures import protect_object_blocks_from_pagination as _impl
 
-    for block in collect_figure_blocks(document_root, style_map or {}):
-        if block.get("section") not in {"body", "appendix"}:
-            continue
-        block_paragraphs = [
-            block["image"],
-            block["caption"].elem,
-            *[caption.elem for caption in block.get("english_captions", [])],
-            *[note.elem for note in block["notes"]],
-        ]
-        for idx, p_elem in enumerate(block_paragraphs):
-            changed += _set_paragraph_pagination_flags(
-                p_elem,
-                keep_next=idx < len(block_paragraphs) - 1,
-                keep_lines=True,
-                page_break_before=False,
-            )
-
-    for block in collect_table_blocks(document_root, style_map or {}):
-        if block.get("section") not in {"body", "appendix"}:
-            continue
-        caption_chain = [block["caption"].elem, *[caption.elem for caption in block.get("english_captions", [])]]
-        for p_elem in caption_chain:
-            changed += _set_paragraph_pagination_flags(
-                p_elem,
-                keep_next=True,
-                keep_lines=True,
-                page_break_before=False,
-            )
-        row_elems = block["table"].findall("w:tr", NSMAP)
-        short_table = len(row_elems) < continuation_min_rows
-        for row_idx, tr_elem in enumerate(row_elems):
-            changed += _set_table_row_cant_split(tr_elem, True)
-            row_paragraphs = tr_elem.findall(".//w:p", NSMAP)
-            row_keep_next = short_table and (row_idx < len(row_elems) - 1 or bool(block["notes"]))
-            for p_elem in row_paragraphs:
-                changed += _set_paragraph_pagination_flags(
-                    p_elem,
-                    keep_next=row_keep_next,
-                    keep_lines=True,
-                    page_break_before=False,
-                )
-        note_paragraphs = [note.elem for note in block["notes"]]
-        for idx, p_elem in enumerate(note_paragraphs):
-            changed += _set_paragraph_pagination_flags(
-                p_elem,
-                keep_next=idx < len(note_paragraphs) - 1,
-                keep_lines=True,
-                page_break_before=False,
-            )
-
-    return changed
-
+    return _impl(document_root, style_map, cfg, runtime)
 
 def rebalance_lnu_result_object_flow(document_root, style_map=None, cfg=None, runtime=None):
-    """按同小节内已存在的图表引用，前移对象块以减少跨页留白。默认关闭，仅显式启用。"""
-    body = document_root.find("w:body", NSMAP)
-    if body is None:
-        return 0
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.tables_figures import rebalance_lnu_result_object_flow as _impl
 
-    paragraph_tag = f"{{{W_NS}}}p"
-    table_tag = f"{{{W_NS}}}tbl"
-    caption_pattern = re.compile(r"^(图|表)\s*(\d+(?:[.\-]\d+)+)")
-    heading_kinds = {"h1", "h2", "h3", "h4"}
-    changed = 0
-
-    def _caption_candidates(text: str) -> set[str]:
-        match = caption_pattern.match((text or "").strip())
-        if match is None:
-            return set()
-        prefix, number = match.groups()
-        return _caption_reference_candidates(prefix, number)
-
-    def _paragraph_is_heading(elem, node_by_elem_id) -> bool:
-        node = node_by_elem_id.get(id(elem))
-        return bool(node is not None and node.section == "body" and node.kind in heading_kinds)
-
-    def _paragraph_is_body(elem, node_by_elem_id) -> bool:
-        node = node_by_elem_id.get(id(elem))
-        return bool(node is not None and node.section == "body" and node.kind == "body")
-
-    def _collect_blocks(current_style_map):
-        body_children = list(body)
-        child_index = {id(elem): idx for idx, elem in enumerate(body_children)}
-        figure_blocks = []
-        for block in collect_figure_blocks(document_root, current_style_map):
-            if block.get("section") != "body":
-                continue
-            start_idx = child_index.get(id(block["image"]))
-            end_idx = child_index.get(id(block["last_elem"]))
-            if start_idx is None or end_idx is None:
-                continue
-            candidates = _caption_candidates(block["caption"].text)
-            if not candidates:
-                continue
-            figure_blocks.append(
-                {
-                    "kind": "figure",
-                    "start_idx": start_idx,
-                    "end_idx": end_idx,
-                    "caption_text": block["caption"].text,
-                    "candidates": candidates,
-                }
-            )
-        table_blocks = []
-        for block in collect_table_blocks(document_root, current_style_map):
-            if block.get("section") != "body":
-                continue
-            start_idx = child_index.get(id(block["caption"].elem))
-            end_idx = child_index.get(id(block["last_elem"]))
-            if start_idx is None or end_idx is None:
-                continue
-            candidates = _caption_candidates(block["caption"].text)
-            if not candidates:
-                continue
-            table_blocks.append(
-                {
-                    "kind": "table",
-                    "start_idx": start_idx,
-                    "end_idx": end_idx,
-                    "caption_text": block["caption"].text,
-                    "candidates": candidates,
-                }
-            )
-        return sorted(figure_blocks + table_blocks, key=lambda item: item["start_idx"])
-
-    while True:
-        model = build_document_model(document_root, style_map or {})
-        node_by_elem_id = {id(node.elem): node for node in model.paragraphs}
-        body_children = list(body)
-        blocks = _collect_blocks(style_map or {})
-        moved = False
-
-        for block in blocks:
-            start_idx = block["start_idx"]
-            end_idx = block["end_idx"]
-            candidates = block["candidates"]
-
-            section_start = 0
-            for idx in range(start_idx - 1, -1, -1):
-                elem = body_children[idx]
-                if elem.tag == paragraph_tag and _paragraph_is_heading(elem, node_by_elem_id):
-                    section_start = idx + 1
-                    break
-
-            section_end = len(body_children)
-            for idx in range(end_idx + 1, len(body_children)):
-                elem = body_children[idx]
-                if elem.tag == paragraph_tag and _paragraph_is_heading(elem, node_by_elem_id):
-                    section_end = idx
-                    break
-
-            last_ref_idx = None
-            for idx in range(section_start, start_idx):
-                elem = body_children[idx]
-                if elem.tag != paragraph_tag or not _paragraph_is_body(elem, node_by_elem_id):
-                    continue
-                node = node_by_elem_id.get(id(elem))
-                compact_text = getattr(node, "compact_text", re.sub(r"[\s\u3000]+", "", get_paragraph_text(elem)))
-                if any(candidate in compact_text for candidate in candidates):
-                    last_ref_idx = idx
-
-            if last_ref_idx is None or last_ref_idx + 1 >= start_idx:
-                continue
-
-            intervening = body_children[last_ref_idx + 1 : start_idx]
-            if not any(elem.tag == table_tag or (elem.tag == paragraph_tag and elem.find(".//w:drawing", NSMAP) is not None) for elem in intervening):
-                continue
-
-            move_slice = body_children[start_idx : end_idx + 1]
-            anchor_elem = body_children[last_ref_idx]
-            for elem in move_slice:
-                body.remove(elem)
-
-            insert_pos = list(body).index(anchor_elem) + 1
-            for offset, elem in enumerate(move_slice):
-                body.insert(insert_pos + offset, elem)
-
-            changed += 1
-            moved = True
-            break
-
-        if not moved:
-            break
-
-    return changed
-
+    return _impl(document_root, style_map, cfg, runtime)
 
 def fix_heading4(p_elem, cfg=None, heading_style_ids=None, runtime=None):
     cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
@@ -4843,7 +4089,7 @@ def fix_ref_punctuation(p_elem):
 
 
 def fix_ref_numbering_space(p_elem):
-    """LNU_REF02 legacy: 将参考文献编号后的 Tab 替换为一个半角空格。"""
+    """Legacy helper: 将参考文献编号后的 Tab 替换为一个半角空格。"""
     for run_elem in p_elem.findall(".//w:r", NSMAP):
         text_elem = run_elem.find("w:t", NSMAP)
         if text_elem is None or text_elem.text is None:
@@ -5127,19 +4373,12 @@ def fix_lnu_ref02(document_root, cfg):
         get_paragraph_text=get_paragraph_text,
         skip_empty=True,
     ):
-        _remove_tab_after_ref_number(p)
-        normalize_reference_number_leading_zeros(p)
-        expect_space = bool(cfg.get("ref_number_trailing_space", cfg.get("ref_use_tab", False)))
-        for run in p.findall(".//w:r", NSMAP):
-            t = run.find("w:t", NSMAP)
-            if t is None or t.text is None:
-                continue
-            updated = re.sub(r"^\[(\d+)\]\s*", (r"[\1] " if expect_space else r"[\1]"), t.text, count=1)
-            if updated != t.text:
-                t.text = updated
-                t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-                fixed += 1
-            break
+        before = get_paragraph_text(p)
+        had_tab = paragraph_has_reference_tab(p)
+        fix_reference_paragraph(p, cfg=cfg)
+        after = get_paragraph_text(p)
+        if after != before or paragraph_has_reference_tab(p) != had_tab:
+            fixed += 1
     return fixed
 
 
@@ -5267,484 +4506,10 @@ def default_normalize_output_path(input_path):
 
 
 def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
-    active_cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
-    cfg = active_cfg
-    rels_path = os.path.join(temp_dir, "word", "_rels", "document.xml.rels")
-    content_types_path = os.path.join(temp_dir, "[Content_Types].xml")
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.page_footer import fix_footer_page_number as _impl
 
-    def _page_wrap_chars(active_cfg):
-        page_style = (active_cfg or {}).get("pg01_format")
-        if page_style == "hyphen_wrap":
-            return "-", "-"
-        if page_style == "em_dash":
-            return "—", "—"
-        return None, None
-
-    def _apply_page_number_run_style(run_elem, *, hidden=False):
-        r_pr = ensure_rpr(run_elem)
-        if hidden:
-            vanish = get_or_create(r_pr, "w:vanish")
-            set_attr(vanish, "val", "1")
-        expected_font = cfg.get("page_number_font")
-        expected_size = cfg.get("page_number_size")
-        if expected_font:
-            r_fonts = ensure_rfonts(run_elem)
-            set_attr(r_fonts, "eastAsia", expected_font)
-            set_attr(r_fonts, "ascii", "Times New Roman")
-            set_attr(r_fonts, "hAnsi", "Times New Roman")
-        if expected_size is not None:
-            ensure_size(run_elem, str(expected_size))
-
-    def build_footer_xml(cfg=None):
-        footer_root = ET.Element(f"{{{W_NS}}}ftr")
-        footer_p = ET.SubElement(footer_root, f"{{{W_NS}}}p")
-        footer_ppr = ET.SubElement(footer_p, f"{{{W_NS}}}pPr")
-        footer_jc = ET.SubElement(footer_ppr, f"{{{W_NS}}}jc")
-        set_attr(footer_jc, "val", "center")
-
-        def append_page_run(text=None, field_type=None, instr=None):
-            run_elem = ET.SubElement(footer_p, f"{{{W_NS}}}r")
-            _apply_page_number_run_style(run_elem)
-
-            if text is not None:
-                text_elem = ET.SubElement(run_elem, f"{{{W_NS}}}t")
-                text_elem.text = text
-            elif field_type is not None:
-                fld_char = ET.SubElement(run_elem, f"{{{W_NS}}}fldChar")
-                set_attr(fld_char, "fldCharType", field_type)
-            else:
-                instr_text = ET.SubElement(run_elem, f"{{{W_NS}}}instrText")
-                instr_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-                instr_text.text = instr
-
-        left_wrap, right_wrap = _page_wrap_chars(cfg)
-        if left_wrap is not None:
-            append_page_run(text=left_wrap)
-            append_page_run(field_type="begin")
-            append_page_run(instr=" PAGE ")
-            append_page_run(field_type="end")
-            append_page_run(text=right_wrap)
-        else:
-            append_page_run(field_type="begin")
-            append_page_run(instr=" PAGE ")
-            append_page_run(field_type="end")
-
-        return ET.tostring(footer_root, encoding="utf-8", xml_declaration=True)
-
-    def append_hidden_page_field_marker():
-        body = document_root.find("w:body", NSMAP)
-        if body is None:
-            raise ValueError("document.xml missing w:body")
-
-        target_p = None
-        for paragraph in body.findall("w:p", NSMAP):
-            has_hidden_page_field = any(
-                "PAGE" in (instr_text.text or "").upper()
-                and any(
-                    run.find("w:rPr/w:vanish", NSMAP) is not None
-                    for run in paragraph.findall(".//w:r", NSMAP)
-                )
-                for instr_text in paragraph.findall(".//w:instrText", NSMAP)
-            )
-            if has_hidden_page_field:
-                target_p = paragraph
-                break
-        if target_p is None:
-            target_p = ET.Element(f"{{{W_NS}}}p")
-            sect_pr = body.find("w:sectPr", NSMAP)
-            if sect_pr is None:
-                body.append(target_p)
-            else:
-                body.insert(list(body).index(sect_pr), target_p)
-
-        target_p_pr = ensure_ppr(target_p)
-        target_spacing = get_or_create(target_p_pr, "w:spacing")
-        set_attr(target_spacing, "line", str(active_cfg.get("body_line", 360)))
-        set_attr(target_spacing, "lineRule", "auto")
-        target_ind = get_or_create(target_p_pr, "w:ind")
-        set_attr(target_ind, "firstLine", "480")
-        target_jc = get_or_create(target_p_pr, "w:jc")
-        set_attr(target_jc, "val", "both")
-        target_auto_de = get_or_create(target_p_pr, "w:autoSpaceDE")
-        set_attr(target_auto_de, "val", "0")
-        target_auto_dn = get_or_create(target_p_pr, "w:autoSpaceDN")
-        set_attr(target_auto_dn, "val", "0")
-        target_snap = target_p_pr.find("w:snapToGrid", NSMAP)
-        if target_snap is None:
-            target_snap = ET.SubElement(target_p_pr, f"{{{W_NS}}}snapToGrid")
-        target_snap.set(f"{{{W_NS}}}val", "0")
-
-        has_page_field = any(
-            "PAGE" in (instr_text.text or "").upper()
-            for instr_text in document_root.findall(".//w:instrText", NSMAP)
-        )
-        left_wrap, right_wrap = _page_wrap_chars(cfg)
-        needs_wrap = left_wrap is not None
-        has_wrap = any((left_wrap or "") in (text_elem.text or "") for text_elem in document_root.findall(".//w:t", NSMAP))
-
-        def new_hidden_run():
-            run_elem = ET.SubElement(target_p, f"{{{W_NS}}}r")
-            _apply_page_number_run_style(run_elem, hidden=True)
-            return run_elem
-
-        if has_page_field and (not needs_wrap or has_wrap):
-            return
-
-        if needs_wrap and not has_wrap:
-            run_left_dash = new_hidden_run()
-            text_left_dash = ET.SubElement(run_left_dash, f"{{{W_NS}}}t")
-            text_left_dash.text = left_wrap
-
-        if has_page_field:
-            if needs_wrap and not has_wrap:
-                run_right_dash = new_hidden_run()
-                text_right_dash = ET.SubElement(run_right_dash, f"{{{W_NS}}}t")
-                text_right_dash.text = right_wrap
-            return
-
-        run_begin = new_hidden_run()
-        fld_begin = ET.SubElement(run_begin, f"{{{W_NS}}}fldChar")
-        set_attr(fld_begin, "fldCharType", "begin")
-
-        run_instr = new_hidden_run()
-        instr_text = ET.SubElement(run_instr, f"{{{W_NS}}}instrText")
-        instr_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-        instr_text.text = " PAGE "
-
-        run_end = new_hidden_run()
-        fld_end = ET.SubElement(run_end, f"{{{W_NS}}}fldChar")
-        set_attr(fld_end, "fldCharType", "end")
-
-        if needs_wrap:
-            run_right_dash = new_hidden_run()
-            text_right_dash = ET.SubElement(run_right_dash, f"{{{W_NS}}}t")
-            text_right_dash.text = right_wrap
-
-    def center_existing_footer_page_numbers(rels_root):
-        def make_text_run(text, template_run=None):
-            run_elem = ET.Element(f"{{{W_NS}}}r")
-            if template_run is not None:
-                r_pr = template_run.find("w:rPr", NSMAP)
-                if r_pr is not None:
-                    run_elem.append(copy.deepcopy(r_pr))
-            _apply_page_number_run_style(run_elem)
-            text_elem = ET.SubElement(run_elem, f"{{{W_NS}}}t")
-            text_elem.text = text
-            return run_elem
-
-        def ensure_em_dash_wrapper(paragraph):
-            left_wrap, right_wrap = _page_wrap_chars(cfg)
-
-            direct_runs = [child for child in list(paragraph) if child.tag == f"{{{W_NS}}}r"]
-            if not direct_runs:
-                return False
-
-            changed = False
-            while direct_runs:
-                first_text = get_run_text(direct_runs[0])
-                if first_text not in {"-", "—"}:
-                    break
-                paragraph.remove(direct_runs[0])
-                direct_runs = [child for child in list(paragraph) if child.tag == f"{{{W_NS}}}r"]
-                changed = True
-            while direct_runs:
-                last_text = get_run_text(direct_runs[-1])
-                if last_text not in {"-", "—"}:
-                    break
-                paragraph.remove(direct_runs[-1])
-                direct_runs = [child for child in list(paragraph) if child.tag == f"{{{W_NS}}}r"]
-                changed = True
-            if not direct_runs:
-                return changed
-            if left_wrap is None:
-                return changed
-
-            begin_run = None
-            end_run = None
-            for run_elem in direct_runs:
-                fld_char = run_elem.find("w:fldChar", NSMAP)
-                if fld_char is not None and fld_char.get(f"{{{W_NS}}}fldCharType") == "begin":
-                    begin_run = run_elem
-                    break
-            for run_elem in reversed(direct_runs):
-                fld_char = run_elem.find("w:fldChar", NSMAP)
-                if fld_char is not None and fld_char.get(f"{{{W_NS}}}fldCharType") == "end":
-                    end_run = run_elem
-                    break
-            if begin_run is None or end_run is None:
-                return changed
-
-            children = list(paragraph)
-            paragraph.insert(children.index(begin_run), make_text_run(left_wrap, template_run=direct_runs[0]))
-            children = list(paragraph)
-            paragraph.insert(children.index(end_run) + 1, make_text_run(right_wrap, template_run=end_run))
-            return True
-
-        updated = {}
-        footer_rels = [
-            rel for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
-            if rel.get("Type") in FOOTER_REL_TYPES
-        ]
-        for rel in footer_rels:
-            target = rel.get("Target") or ""
-            footer_rel_path = os.path.normpath(os.path.join(temp_dir, "word", "_rels", target))
-            footer_path = os.path.normpath(os.path.join(temp_dir, "word", target))
-            if not footer_path.startswith(os.path.join(temp_dir, "word")):
-                continue
-            if target.startswith("/"):
-                footer_rel_path = os.path.normpath(os.path.join(temp_dir, target.lstrip("/")))
-                footer_path = footer_rel_path
-            if not os.path.exists(footer_path):
-                continue
-            footer_root = ET.parse(footer_path).getroot()
-            changed = False
-            for paragraph in footer_root.findall(".//w:p", NSMAP):
-                has_page_field = any(
-                    "PAGE" in (instr_text.text or "").upper()
-                    for instr_text in paragraph.findall(".//w:instrText", NSMAP)
-                )
-                if not has_page_field:
-                    continue
-                p_pr = paragraph.find("w:pPr", NSMAP)
-                if p_pr is None:
-                    p_pr = ET.Element(f"{{{W_NS}}}pPr")
-                    paragraph.insert(0, p_pr)
-                jc = p_pr.find("w:jc", NSMAP)
-                if jc is None:
-                    jc = ET.SubElement(p_pr, f"{{{W_NS}}}jc")
-                if jc.get(f"{{{W_NS}}}val") != "center":
-                    jc.set(f"{{{W_NS}}}val", "center")
-                    changed = True
-                for run_elem in paragraph.findall(".//w:r", NSMAP):
-                    if not (
-                        run_elem.find("w:fldChar", NSMAP) is not None
-                        or run_elem.find("w:instrText", NSMAP) is not None
-                        or get_run_text(run_elem).strip()
-                    ):
-                        continue
-                    before = ET.tostring(run_elem, encoding="unicode")
-                    _apply_page_number_run_style(run_elem)
-                    after = ET.tostring(run_elem, encoding="unicode")
-                    if before != after:
-                        changed = True
-                if ensure_em_dash_wrapper(paragraph):
-                    changed = True
-            if changed:
-                rel_dir = os.path.dirname(rels_path)
-                part_name = os.path.relpath(footer_path, temp_dir).replace(os.sep, "/")
-                updated[part_name] = ET.tostring(footer_root, encoding="utf-8", xml_declaration=True)
-        return updated
-
-    def configure_lnu_section_page_footers(rels_root):
-        section_page_numbering_enabled = (
-            active_cfg.get("cover_page_number", True) is False
-            or (
-                active_cfg.get("pg01_format") == "hyphen_wrap"
-                and active_cfg.get("page_number_font") == "宋体"
-            )
-        )
-        if not section_page_numbering_enabled:
-            return None
-        body = document_root.find("w:body", NSMAP)
-        if body is None:
-            return None
-        paragraphs = body.findall("w:p", NSMAP)
-        body_sect_pr = body.find("w:sectPr", NSMAP)
-        if body_sect_pr is None:
-            return None
-
-        def collect_inline_sections():
-            sections = []
-            for idx, paragraph in enumerate(paragraphs):
-                sect_pr = paragraph.find("w:pPr/w:sectPr", NSMAP)
-                if sect_pr is not None:
-                    sections.append((idx, paragraph, sect_pr))
-            return sections
-
-        def remove_footer_references(sect_pr):
-            for footer_reference in list(sect_pr.findall("w:footerReference", NSMAP)):
-                sect_pr.remove(footer_reference)
-
-        def remove_page_number_type(sect_pr):
-            pg_num_type = sect_pr.find("w:pgNumType", NSMAP)
-            if pg_num_type is not None:
-                sect_pr.remove(pg_num_type)
-
-        def ensure_cover_section_break(inline_sections):
-            if active_cfg.get("cover_page_number", True) is not False:
-                return False
-            if len(inline_sections) != 1:
-                return False
-
-            frontmatter_end_idx, _frontmatter_end_para, frontmatter_end_sect_pr = inline_sections[0]
-            first_frontmatter_idx = None
-            for idx, paragraph in enumerate(paragraphs[: frontmatter_end_idx + 1]):
-                if _is_frontmatter_title_text(get_paragraph_text(paragraph).strip()):
-                    first_frontmatter_idx = idx
-                    break
-            if first_frontmatter_idx is None or first_frontmatter_idx <= 0:
-                return False
-
-            cover_break_para = paragraphs[first_frontmatter_idx - 1]
-            cover_break_p_pr = ensure_ppr(cover_break_para)
-            if cover_break_p_pr.find("w:sectPr", NSMAP) is not None:
-                return False
-
-            cover_sect_pr = copy.deepcopy(frontmatter_end_sect_pr)
-            remove_footer_references(cover_sect_pr)
-            remove_page_number_type(cover_sect_pr)
-            cover_break_p_pr.append(cover_sect_pr)
-            return True
-
-        inline_sections = collect_inline_sections()
-        if len(inline_sections) < 2 and ensure_cover_section_break(inline_sections):
-            inline_sections = collect_inline_sections()
-        if len(inline_sections) < 2:
-            return None
-        inline_sects = [sect_pr for _idx, _paragraph, sect_pr in inline_sections]
-
-        content_types_root = ET.parse(content_types_path).getroot()
-        updated = {}
-        existing_rel_ids = {
-            rel.get("Id")
-            for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
-        }
-        existing_targets = {
-            rel.get("Target")
-            for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
-        }
-
-        def next_rel_id():
-            suffix = 1
-            while f"rIdFooter{suffix}" in existing_rel_ids:
-                suffix += 1
-            rel_id = f"rIdFooter{suffix}"
-            existing_rel_ids.add(rel_id)
-            return rel_id
-
-        def next_footer_target():
-            suffix = 1
-            while f"footer{suffix}.xml" in existing_targets:
-                suffix += 1
-            target = f"footer{suffix}.xml"
-            existing_targets.add(target)
-            return target
-
-        def ensure_footer_content_type(target):
-            part_name = f"/word/{target}"
-            has_override = any(
-                override.get("PartName") == part_name
-                for override in content_types_root.findall(f"{{{CONTENT_TYPES_NS}}}Override")
-            )
-            if has_override:
-                return
-            footer_override = ET.SubElement(content_types_root, f"{{{CONTENT_TYPES_NS}}}Override")
-            footer_override.set("PartName", part_name)
-            footer_override.set(
-                "ContentType",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml",
-            )
-
-        def attach_footer(sect_pr, *, footer_cfg):
-            remove_footer_references(sect_pr)
-            rel_id = next_rel_id()
-            target = next_footer_target()
-            footer_rel = ET.SubElement(rels_root, f"{{{PACKAGE_REL_NS}}}Relationship")
-            footer_rel.set("Id", rel_id)
-            footer_rel.set("Type", f"{REL_NS}/footer")
-            footer_rel.set("Target", target)
-
-            footer_reference = ET.SubElement(sect_pr, f"{{{W_NS}}}footerReference")
-            set_attr(footer_reference, "type", "default")
-            footer_reference.set(f"{{{REL_NS}}}id", rel_id)
-            ensure_footer_content_type(target)
-            updated[f"word/{target}"] = build_footer_xml(footer_cfg)
-
-        cover_sect_pr = inline_sects[0]
-        frontmatter_sect_pr = inline_sects[-1]
-        remove_footer_references(cover_sect_pr)
-
-        front_pg_num_type = get_or_create(frontmatter_sect_pr, "w:pgNumType")
-        set_attr(front_pg_num_type, "fmt", str(active_cfg.get("frontmatter_page_number_format") or "upperRoman"))
-        set_attr(front_pg_num_type, "start", str(active_cfg.get("frontmatter_page_number_start") or 1))
-        body_pg_num_type = get_or_create(body_sect_pr, "w:pgNumType")
-        set_attr(body_pg_num_type, "fmt", str(active_cfg.get("body_page_number_format") or "decimal"))
-        set_attr(body_pg_num_type, "start", str(active_cfg.get("body_page_number_start") or 1))
-
-        front_cfg = dict(active_cfg)
-        front_cfg["pg01_format"] = str(active_cfg.get("frontmatter_page_number_wrap") or "plain")
-        body_cfg = dict(active_cfg)
-        body_cfg["pg01_format"] = str(active_cfg.get("body_page_number_wrap") or active_cfg.get("pg01_format") or "plain")
-        attach_footer(frontmatter_sect_pr, footer_cfg=front_cfg)
-        attach_footer(body_sect_pr, footer_cfg=body_cfg)
-        updated["word/_rels/document.xml.rels"] = ET.tostring(rels_root, encoding="utf-8", xml_declaration=True)
-        updated["[Content_Types].xml"] = ET.tostring(content_types_root, encoding="utf-8", xml_declaration=True)
-        return updated
-
-    rels_root = ET.parse(rels_path).getroot()
-    section_footer_parts = configure_lnu_section_page_footers(rels_root)
-    if section_footer_parts is not None:
-        return section_footer_parts
-
-    sect_pr = document_root.find("w:body/w:sectPr", NSMAP)
-    if sect_pr is None:
-        sect_pr_list = document_root.findall(".//w:sectPr", NSMAP)
-        sect_pr = sect_pr_list[-1] if sect_pr_list else None
-    if sect_pr is None:
-        body = document_root.find("w:body", NSMAP)
-        if body is None:
-            raise ValueError("document.xml missing w:body")
-        sect_pr = ET.SubElement(body, f"{{{W_NS}}}sectPr")
-
-    has_footer_reference = sect_pr.find("w:footerReference", NSMAP) is not None
-    has_footer_relationship = any(
-        rel.get("Type") in FOOTER_REL_TYPES
-        for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
-    )
-    if has_footer_reference or has_footer_relationship:
-        updated_footer_parts = center_existing_footer_page_numbers(rels_root)
-        append_hidden_page_field_marker()
-        return updated_footer_parts
-
-    footer_rel_id = "rIdFooter1"
-    existing_rel_ids = {rel.get("Id") for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")}
-    if footer_rel_id in existing_rel_ids:
-        suffix = 2
-        while f"rIdFooter{suffix}" in existing_rel_ids:
-            suffix += 1
-        footer_rel_id = f"rIdFooter{suffix}"
-
-    footer_rel = ET.SubElement(rels_root, f"{{{PACKAGE_REL_NS}}}Relationship")
-    footer_rel.set("Id", footer_rel_id)
-    footer_rel.set("Type", f"{REL_NS}/footer")
-    footer_rel.set("Target", "footer1.xml")
-
-    footer_reference = ET.SubElement(sect_pr, f"{{{W_NS}}}footerReference")
-    set_attr(footer_reference, "type", "default")
-    footer_reference.set(f"{{{REL_NS}}}id", footer_rel_id)
-
-    content_types_root = ET.parse(content_types_path).getroot()
-    footer_override_part = "/word/footer1.xml"
-    has_footer_override = any(
-        override.get("PartName") == footer_override_part
-        for override in content_types_root.findall(f"{{{CONTENT_TYPES_NS}}}Override")
-    )
-    if not has_footer_override:
-        footer_override = ET.SubElement(content_types_root, f"{{{CONTENT_TYPES_NS}}}Override")
-        footer_override.set("PartName", footer_override_part)
-        footer_override.set(
-            "ContentType",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml",
-        )
-
-    append_hidden_page_field_marker()
-
-    return {
-        "word/footer1.xml": build_footer_xml(active_cfg),
-        "word/_rels/document.xml.rels": ET.tostring(rels_root, encoding="utf-8", xml_declaration=True),
-        "[Content_Types].xml": ET.tostring(content_types_root, encoding="utf-8", xml_declaration=True),
-    }
-
+    return _impl(temp_dir, document_root, cfg, runtime)
 
 def inject_template_components(temp_dir, profile_id):
     fix_docx_io.TOOL_ROOT = TOOL_ROOT
@@ -6128,90 +4893,10 @@ def _apply_table_passes(ctx: FixExecutionContext):
 
 
 def _apply_lnu_postpasses(ctx: FixExecutionContext):
-    if not is_lnu_profile(ctx.runtime):
-        return
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.lnu_postpasses import _apply_lnu_postpasses as _impl
 
-    title_targets = None
-    s03_targets = None
-    if ctx.runtime.requested_scopes is not None:
-        title_targets = set()
-        s03_targets = set()
-        if ctx.scope_flags.abstract:
-            title_targets.add("摘要")
-        if ctx.scope_flags.toc:
-            title_targets.add("目录")
-        if ctx.scope_flags.headings:
-            s03_targets.update({"参考文献", "致谢", "附录"})
-        if ctx.scope_flags.acknowledgement:
-            title_targets.add("致谢")
-            s03_targets.add("致谢")
-        if ctx.scope_flags.references:
-            s03_targets.add("参考文献")
-        if ctx.scope_flags.appendix:
-            s03_targets.add("附录")
-    if ctx.scope_flags.abstract:
-        fix_lnu_abs01(ctx.document_root, ctx.cfg)
-        fix_lnu_abs02(ctx.document_root, ctx.cfg)
-        fix_lnu_abs03(ctx.document_root, ctx.cfg)
-    if ctx.scope_flags.headings or ctx.scope_flags.references or ctx.scope_flags.acknowledgement or ctx.scope_flags.appendix:
-        fix_lnu_s03(ctx.document_root, ctx.cfg, allowed_titles=s03_targets)
-    if ctx.scope_flags.acknowledgement:
-        fix_lnu_ack01(ctx.document_root, ctx.cfg)
-    if ctx.scope_flags.references:
-        fix_lnu_ref01(ctx.document_root, ctx.cfg)
-        fix_lnu_ref02(ctx.document_root, ctx.cfg)
-        fix_lnu_ref04(ctx.document_root, ctx.cfg)
-    if ctx.scope_flags.headings:
-        fix_lnu_conc01(ctx.document_root, ctx.cfg)
-    if ctx.scope_flags.abstract or ctx.scope_flags.toc or ctx.scope_flags.acknowledgement:
-        fix_lnu_title01(ctx.document_root, ctx.cfg, allowed_titles=title_targets)
-    if ctx.scope_flags.figures:
-        fix_lnu_tb03(ctx.document_root, ctx.cfg)
-        renumber_lnu_captions(ctx.document_root, ctx.style_map)
-        promote_post_caption_reference_blocks(
-            ctx.document_root,
-            cfg=ctx.cfg,
-            style_map=ctx.style_map,
-            runtime=ctx.runtime,
-        )
-        rebalance_table_blocks_for_layout(
-            ctx.document_root,
-            style_map=ctx.style_map,
-            cfg=ctx.cfg,
-            runtime=ctx.runtime,
-        )
-        rebalance_figure_blocks_for_layout(
-            ctx.document_root,
-            style_map=ctx.style_map,
-            cfg=ctx.cfg,
-            runtime=ctx.runtime,
-        )
-    if ctx.scope_flags.toc:
-        remove_duplicate_body_toc_title(ctx.document_root, ctx.style_map)
-        normalize_toc_title_paragraph(ctx.document_root, ctx.style_map, ctx.cfg)
-        normalize_toc_entry_paragraphs(ctx.document_root, ctx.style_map, ctx.cfg)
-    if ctx.scope_flags.figures:
-        remove_synthetic_caption_reference_leads(ctx.document_root, ctx.style_map)
-        insert_missing_caption_reference_leads(ctx.document_root, cfg=ctx.cfg, style_map=ctx.style_map, runtime=ctx.runtime)
-        normalize_lnu_figure_block_layout(
-            ctx.document_root,
-            style_map=ctx.style_map,
-            cfg=ctx.cfg,
-            runtime=ctx.runtime,
-        )
-        normalize_lnu_table_block_layout(
-            ctx.document_root,
-            style_map=ctx.style_map,
-            cfg=ctx.cfg,
-            runtime=ctx.runtime,
-        )
-        protect_object_blocks_from_pagination(
-            ctx.document_root,
-            style_map=ctx.style_map,
-            cfg=ctx.cfg,
-            runtime=ctx.runtime,
-        )
-
+    return _impl(ctx)
 
 def _apply_text_cleanup_passes(ctx: FixExecutionContext):
     _apply_lnu_compact_text_passes(ctx)
@@ -6274,23 +4959,10 @@ def _cleanup_docx_hidden_page_number_artifacts(docx_path: str) -> int:
 
 
 def _postprocess_lnu_reference_order(output_path, runtime, cfg):
-    if not is_lnu_profile(runtime):
-        return
-    if not is_scope_enabled(runtime.requested_scopes, "references"):
-        return
-    trailing_space = bool(cfg.get("ref_number_trailing_space", cfg.get("ref_use_tab", False)))
-    document = Document(output_path)
-    reorder_references_in_document(document, trailing_space=trailing_space)
-    temp_output = tempfile.NamedTemporaryFile(prefix="lnu_refseq_", suffix=".docx", delete=False)
-    temp_output.close()
-    try:
-        document.save(temp_output.name)
-        shutil.move(temp_output.name, output_path)
-        _cleanup_docx_hidden_page_number_artifacts(output_path)
-    finally:
-        if os.path.exists(temp_output.name):
-            os.remove(temp_output.name)
+    _configure_thesis_fix_dependencies()
+    from thesis_fix.lnu_postpasses import _postprocess_lnu_reference_order as _impl
 
+    return _impl(output_path, runtime, cfg)
 
 def _build_updated_parts(ctx: FixExecutionContext, input_path, toc_parts):
     return fix_output_parts.build_updated_parts(
@@ -6443,7 +5115,7 @@ def main():
     parser = argparse.ArgumentParser(description="修复 DOCX 论文格式")
     parser.add_argument("input", help="输入 .docx 文件路径")
     parser.add_argument("--output", help="输出 .docx 文件路径")
-    parser.add_argument("--profile", default=None, help="学校Profile路径或简称（lnu/cn-common）")
+    parser.add_argument("--profile", default=None, help="学校Profile路径或简称（默认 lnu）")
     parser.add_argument(
         "--strict-profile",
         dest="strict_profile",
@@ -6455,7 +5127,7 @@ def main():
         "--allow-profile-fallback",
         dest="strict_profile",
         action="store_false",
-        help="profile 加载失败时回退到默认 CN-Common 配置",
+        help="profile 加载失败时回退到默认 LNU 配置",
     )
     parser.add_argument("--toc", action="store_true", default=False, help="在文档开头自动插入辽大格式目录（Word打开时自动更新页码）")
     parser.add_argument("--dry-run", action="store_true", default=False, help="仅预览将触达的修复范围，不写入文件")

@@ -43,28 +43,24 @@ CLI
 - `disabled_rules`：禁用当前 runtime 规则
 - `additions`：当前已接入 runtime 的扩展规则
 - `reference_additions` / `reference_overrides`：规范记录或待实现项，不进入当前 runtime
-- `meta.catalog`：profile catalog 对外展示字段，当前用于表达第一阶段支持场景、文档类型、支持级别
+- `meta.catalog`：profile catalog 对外展示字段，当前只用于表达 LNU 支持场景、文档类型、支持级别
 
 注意：
 
 - `lnu-checker-2026.yaml` 的 active additions 已与当前 runtime 对齐
 
-## 第一阶段支持场景
+## 当前支持场景
 
-当前 profile catalog 需要明确区分这三类一等支持场景，并让 CLI / `/profiles` / `article-local profiles` 都能看见：
+当前只支持辽宁大学本科毕业论文（`lnu-checker-2026`），CLI / `/profiles` / `article-local profiles` 只公开这一套 profile。
 
-- `课程作业/基础论文`
-- `普通论文或综述`
-- `学校学位论文`
-
-其中 `cn-common` 承担前两类通用场景，学校 profile 承担第三类学校学位论文场景。
+`CN-Common.yaml` 只作为内部基线和 LNU 继承来源保留，不作为公开产品 profile。
 
 ## 当前规则规模
 
-- `cn-common` runtime：49 条
-- `lnu-checker-2026` runtime：74 条
+- `lnu-checker-2026` runtime：74 条规则
+- `CN-Common.yaml` 是内部基线，不进入公开能力矩阵和 profile catalog
 
-能力矩阵以 `config/capability_matrix.md` 为准，但前提是它必须与当前 runtime 同步。
+能力矩阵以 `config/capability_matrix.md` 为准，并只记录公开 LNU runtime 当前启用规则。
 
 ## 模板注入
 

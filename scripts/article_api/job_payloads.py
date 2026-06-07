@@ -6,8 +6,9 @@ import os
 from typing import Any, Callable
 
 import audit_thesis
+from article_api import errors as api_errors
 from article_api.output_naming import normalize_output_path, scoped_output_path
-from article_api.uploads import infer_uploaded_docx_name
+from article_api.uploads import infer_uploaded_docx_name, validate_docx_package
 from fix_thesis import default_normalize_output_path
 from thesis_tool.scopes import normalize_scope_names
 
@@ -81,6 +82,73 @@ def inspection_from_payload(payload: dict[str, Any], *, finished_statuses: set[s
     }
 
 
+def job_operation_label(operation: str) -> str:
+    return {
+        "verify": "格式复查",
+        "apply": "生成修复稿",
+        "normalize": "结构整理",
+    }.get(operation, operation or "-")
+
+
+def build_job_display(payload: dict[str, Any], *, finished_statuses: set[str]) -> dict[str, Any]:
+    summary = payload.get("summary") or {}
+    runtime = payload.get("runtime") or {}
+    operation_label = job_operation_label(payload.get("operation"))
+    status = payload.get("status")
+    failed = status == "failed"
+    document_name = summary.get("document_name") or (
+        os.path.basename(str(runtime.get("input_path"))) if runtime.get("input_path") else None
+    )
+    attempt_count = int(summary.get("attempt_count") or runtime.get("attempt_count") or 0)
+    max_attempts = int(summary.get("max_attempts") or runtime.get("max_attempts") or 1)
+    return {
+        "title": f"{operation_label}失败" if failed else operation_label,
+        "document_name": document_name,
+        "message": summary.get("error_message") if failed else summary.get("business_status"),
+        "next_action": summary.get("error_next_action") if failed else None,
+        "retryable": bool(summary.get("retryable")) if failed else False,
+        "attempt_label": f"{attempt_count}/{max_attempts}" if attempt_count else None,
+        "selected_scopes": deepcopy(summary.get("selected_scopes")),
+        "result_available": status in finished_statuses,
+        "output_name": os.path.basename(str(summary.get("output_path"))) if summary.get("output_path") else None,
+        "created_at": payload.get("created_at"),
+        "updated_at": payload.get("updated_at"),
+        "finished_at": payload.get("finished_at"),
+    }
+
+
+def job_list_error(error: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not error:
+        return None
+    normalized = api_errors.normalize_error_payload(error)
+    return {
+        "code": normalized.get("code"),
+        "type": normalized.get("type"),
+        "message": normalized.get("user_message"),
+        "next_action": normalized.get("next_action"),
+        "retryable": bool(normalized.get("retryable")),
+        "http_status": normalized.get("http_status"),
+    }
+
+
+def list_item_from_payload(payload: dict[str, Any], *, finished_statuses: set[str]) -> dict[str, Any]:
+    return {
+        "job_id": payload["job_id"],
+        "operation": payload["operation"],
+        "status": payload["status"],
+        "mode": payload.get("mode", "background"),
+        "created_at": payload["created_at"],
+        "updated_at": payload["updated_at"],
+        "started_at": payload.get("started_at"),
+        "finished_at": payload.get("finished_at"),
+        "result_available": payload.get("status") in finished_statuses,
+        "summary": deepcopy(payload.get("summary")),
+        "cleanup": deepcopy(payload.get("cleanup")),
+        "error": job_list_error(payload.get("error")),
+        "display": build_job_display(payload, finished_statuses=finished_statuses),
+    }
+
+
 def coerce_positive_int(value: Any, *, field_name: str, default: int) -> int:
     if value is None:
         return default
@@ -118,10 +186,19 @@ def resolve_default_output_path(
     return scoped_output_path(source_file_path=file_path, scopes=scopes, source_display_name=source_display_name)
 
 
-def resolve_default_normalize_output_path(file_path: str, *, source_display_name: str | None) -> str:
+def resolve_default_normalize_output_path(
+    file_path: str,
+    *,
+    source_display_name: str | None,
+    output_dir: str | None = None,
+) -> str:
     if not source_display_name:
         return default_normalize_output_path(file_path)
-    return normalize_output_path(source_file_path=file_path, source_display_name=source_display_name)
+    return normalize_output_path(
+        source_file_path=file_path,
+        source_display_name=source_display_name,
+        output_dir=output_dir,
+    )
 
 
 def resolve_request(
@@ -132,6 +209,7 @@ def resolve_request(
 ) -> dict[str, Any]:
     resolved = clone_dict(request)
     resolved["file_path"] = audit_thesis.validate_docx_path(resolved["file_path"])
+    validate_docx_package(resolved["file_path"])
     resolved["source_display_name"] = resolved.get("source_display_name") or infer_uploaded_docx_name(
         resolved["file_path"]
     )
@@ -167,9 +245,15 @@ def resolve_request(
         resolved.setdefault("output_path", None)
         resolved.setdefault("strict_profile", None)
         if resolved["output_path"] is None:
+            if resolved.get("source_display_name") and resolved.get("runtime_root"):
+                resolved["output_dir"] = os.path.join(
+                    os.path.abspath(os.path.expanduser(str(resolved["runtime_root"]))),
+                    "intermediate",
+                )
             resolved["output_path"] = resolve_default_normalize_output_path(
                 resolved["file_path"],
                 source_display_name=resolved.get("source_display_name"),
+                output_dir=resolved.get("output_dir"),
             )
         else:
             resolved["output_path"] = os.path.abspath(os.path.expanduser(str(resolved["output_path"])))
@@ -241,12 +325,16 @@ def build_result_summary(operation: str, result: dict[str, Any], resolved_reques
 
 
 def build_failure_summary(operation: str, resolved_request: dict[str, Any], error: dict[str, Any]) -> dict[str, Any]:
+    normalized_error = api_errors.normalize_error_payload(error)
     source_display_name = resolved_request.get("source_display_name")
     source_file_path = resolved_request.get("source_file_path") or resolved_request.get("file_path")
     summary: dict[str, Any] = {
         "document_name": source_display_name or os.path.basename(source_file_path),
         "selected_scopes": deepcopy(resolved_request.get("scopes")),
-        "error_code": error["code"],
+        "error_code": normalized_error["code"],
+        "error_message": normalized_error["user_message"],
+        "error_next_action": normalized_error["next_action"],
+        "retryable": bool(normalized_error["retryable"]),
     }
     if operation in {"apply", "normalize"}:
         summary["output_path"] = resolved_request.get("output_path")
@@ -271,6 +359,7 @@ def merge_recovery_summary(
     *,
     existing_summary: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    normalized_error = api_errors.normalize_error_payload(error)
     base = build_failure_summary(operation, resolved_request, error)
     if not existing_summary:
         return base
@@ -280,7 +369,10 @@ def merge_recovery_summary(
     merged.setdefault("selected_scopes", base["selected_scopes"])
     if operation == "apply" and base.get("output_path") is not None:
         merged.setdefault("output_path", base["output_path"])
-    merged["error_code"] = error["code"]
+    merged["error_code"] = normalized_error["code"]
+    merged["error_message"] = normalized_error["user_message"]
+    merged["error_next_action"] = normalized_error["next_action"]
+    merged["retryable"] = bool(normalized_error["retryable"])
     merged["attempt_count"] = int(resolved_request.get("attempt_count") or merged.get("attempt_count") or 1)
     merged["max_attempts"] = int(resolved_request.get("max_attempts") or merged.get("max_attempts") or 1)
     return merged

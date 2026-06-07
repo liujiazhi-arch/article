@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python3 -m pip install -U pip
+          python3 -m pip install build
+          python3 -m pip install '.[api,dev]'
+
+      - name: Run tests
+        run: python3 -m pytest -q
+
+      - name: Build wheel
+        run: python3 -m pip wheel . -w dist --no-deps
+
+      - name: Build source and wheel distributions
+        run: python3 -m build --sdist --wheel --outdir dist
+
+      - name: Build release wheelhouse
+        run: python3 -m pip wheel '.[api]' -w /tmp/article-wheelhouse
+
+      - name: Release smoke
+        run: python3 scripts/release_smoke.py --work-dir /tmp/article-release-smoke --wheelhouse /tmp/article-wheelhouse --command-timeout-seconds 600 --json-output dist/release-smoke-${{ matrix.python-version }}.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thesis-format-tool-dist-${{ matrix.python-version }}
+          path: dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-smoke-evidence-${{ matrix.python-version }}
+          path: dist/release-smoke-${{ matrix.python-version }}.json
+
+  windows-local-bundle:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Build Windows wheelhouse
+        run: |
+          python -m pip install -U pip
+          python -m pip wheel '.[api]' -w dist\wheelhouse
+
+      - name: Prepare bundled runtime
+        run: |
+          python -m venv dist\windows-runtime
+          .\dist\windows-runtime\Scripts\python.exe -m pip install --no-index --find-links dist\wheelhouse 'thesis-format-tool[api]'
+          .\dist\windows-runtime\Scripts\python.exe -m article_api.local_app doctor --state-root dist\windows-state --runtime-root dist\windows-data
+
+      - name: Build Windows local web bundle
+        run: |
+          python scripts\build_windows_local_bundle.py --runtime-dir dist\windows-runtime --output-zip dist\article-local-windows.zip --release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest
+          python scripts\verify_release_artifact.py dist\article-local-windows.zip --sha256-output dist\article-local-windows.zip.sha256
+
+      - name: Smoke bundle contents
+        run: |
+          python -c "import pathlib, zipfile; names=set(zipfile.ZipFile(r'dist\article-local-windows.zip').namelist()); assert any(name.endswith('/启动论文格式检查.bat') for name in names); assert any(name.endswith('/导出反馈包.bat') for name in names); assert any(name.endswith('/快速开始.txt') for name in names); assert any(name.endswith('/app/Scripts/article-local.exe') for name in names); assert any(name.endswith('/app/Scripts/python.exe') for name in names); assert pathlib.Path(r'dist\article-local-windows.zip.sha256').exists()"
+
+      - name: Smoke extracted Windows local web flow
+        run: |
+          python scripts\windows_bundle_smoke.py dist\article-local-windows.zip --work-dir dist\windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist\windows-bundle-smoke.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: article-local-windows.zip
+          path: |
+            dist\article-local-windows.zip
+            dist\article-local-windows.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-bundle-smoke-evidence
+          path: dist\windows-bundle-smoke.json
+
+      - name: Upload Windows bundle to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" dist\article-local-windows.zip dist\article-local-windows.zip.sha256 --clobber

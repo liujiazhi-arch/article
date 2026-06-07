@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import tempfile
 from threading import Lock
 from time import monotonic
 from typing import Any
 
 from article_engine import apply_fix, audit_document, normalize_document, plan_document, preflight_document, render_verify_document, verify_document
-from article_api import app_ops, app_uploads, storage
+from article_api import app_ops, app_uploads, errors as api_errors, storage
 from article_api.profiles import build_profile_catalog
 from article_api.job_queries import filter_jobs
 from article_api.request_payloads import (
@@ -69,6 +70,7 @@ from article_api.jobs import (
     sweep_job_retention,
 )
 from article_api.uploads import resolve_runtime_root, store_uploaded_docx, store_uploaded_pdf
+from article_api.local_feedback import create_feedback_archive
 try:
     from fastapi import FastAPI, File, HTTPException, UploadFile
     from fastapi.responses import FileResponse, HTMLResponse
@@ -152,6 +154,10 @@ def _version_payload() -> dict[str, Any]:
     return app_ops.build_version_payload()
 
 
+def _latest_update_payload() -> dict[str, Any]:
+    return app_ops.build_latest_update_payload()
+
+
 def _readiness_payload() -> dict[str, Any]:
     return app_ops.build_readiness_payload()
 
@@ -210,15 +216,23 @@ def _normalize_upload_job_kwargs(upload_id: str, request: UploadNormalizeRequest
 
 def _raise_sync_http_error(exc: Exception) -> None:
     if isinstance(exc, ValueError):
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        payload = api_errors.value_error_payload(exc)
+        raise HTTPException(status_code=payload["http_status"], detail=payload) from exc
     if isinstance(exc, RuntimeError):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     raise exc
 
 
 def _raise_job_http_error(exc: Exception) -> None:
+    upload_payload = api_errors.upload_error_payload(exc)
+    if upload_payload is not None:
+        raise HTTPException(status_code=upload_payload["http_status"], detail=upload_payload) from exc
+    artifact_payload = api_errors.artifact_download_error_payload(exc)
+    if artifact_payload is not None:
+        raise HTTPException(status_code=artifact_payload["http_status"], detail=artifact_payload) from exc
     if isinstance(exc, ValueError):
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        payload = api_errors.value_error_payload(exc)
+        raise HTTPException(status_code=payload["http_status"], detail=payload) from exc
     if isinstance(exc, LookupError):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if isinstance(exc, RuntimeError):
@@ -304,6 +318,8 @@ def _build_download_response(job_id: str, artifact_role: str):
         raise RuntimeError(f"Artifact download is only available for files: {job_id}:{artifact_role}")
     if str(artifact_path).lower().endswith(".json"):
         media_type = "application/json"
+    elif str(artifact_path).lower().endswith(".md"):
+        media_type = "text/markdown; charset=utf-8"
     if FileResponse is None:  # pragma: no cover
         return {
             "job_id": job_id,
@@ -315,6 +331,25 @@ def _build_download_response(job_id: str, artifact_role: str):
     return FileResponse(
         artifact_path,
         filename=artifact_name,
+        media_type=media_type,
+    )
+
+
+def _build_feedback_download_response():
+    feedback_dir = Path(tempfile.mkdtemp(prefix="article-feedback-"))
+    feedback_path = feedback_dir / "feedback.zip"
+    create_feedback_archive(str(feedback_path))
+    filename = "反馈包.zip"
+    media_type = "application/zip"
+    if FileResponse is None:  # pragma: no cover
+        return {
+            "path": str(feedback_path),
+            "filename": filename,
+            "media_type": media_type,
+        }
+    return FileResponse(
+        str(feedback_path),
+        filename=filename,
         media_type=media_type,
     )
 
@@ -416,6 +451,10 @@ def create_app():
     @app.get("/version")
     def version() -> dict[str, Any]:
         return _version_payload()
+
+    @app.get("/updates/latest")
+    def latest_update() -> dict[str, Any]:
+        return _latest_update_payload()
 
     @app.get("/profiles")
     def profiles() -> dict[str, Any]:
@@ -696,6 +735,13 @@ def create_app():
     def download_job_artifact(job_id: str, artifact_role: str):
         try:
             return _build_download_response(job_id, artifact_role)
+        except Exception as exc:
+            _raise_job_http_error(exc)
+
+    @app.get("/feedback/download")
+    def download_feedback_archive():
+        try:
+            return _build_feedback_download_response()
         except Exception as exc:
             _raise_job_http_error(exc)
 

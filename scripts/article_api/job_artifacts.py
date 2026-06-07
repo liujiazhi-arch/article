@@ -5,6 +5,13 @@ import os
 from pathlib import Path
 from typing import Any
 
+from article_api import storage
+
+
+REPORT_ARTIFACT_ROLE = "report"
+REPORT_FILE_NAME = "job_report.md"
+REPORT_SCHEMA_VERSION = 2
+
 
 def build_artifacts(
     operation: str,
@@ -52,6 +59,164 @@ def build_artifacts(
         }
     )
     return artifacts
+
+
+def refresh_artifact_availability(artifacts: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+    if artifacts is None:
+        return None
+    refreshed: list[dict[str, Any]] = []
+    for artifact in artifacts:
+        item = dict(artifact)
+        path_value = item.get("path")
+        item["available"] = bool(path_value and os.path.exists(path_value) and not os.path.isdir(path_value))
+        refreshed.append(item)
+    return refreshed
+
+
+def _report_path(job_id: str) -> Path:
+    report_dir = storage.resolve_state_root() / "job_reports" / job_id
+    report_dir.mkdir(parents=True, exist_ok=True)
+    return report_dir / REPORT_FILE_NAME
+
+
+def _format_value(value: Any) -> str:
+    if value in (None, ""):
+        return "-"
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    return str(value)
+
+
+def _artifact_path(artifacts: list[dict[str, Any]] | None, role: str) -> str:
+    for artifact in artifacts or []:
+        if artifact.get("role") == role:
+            return str(artifact.get("source_path") or artifact.get("path") or "")
+    return ""
+
+
+def _summary_lines(summary: dict[str, Any] | None, error: dict[str, Any] | None) -> list[str]:
+    summary = summary or {}
+    lines = [
+        f"- 业务结论: {_format_value(summary.get('business_status') or summary.get('readiness') or summary.get('error_code'))}",
+        f"- 文档名称: {_format_value(summary.get('document_name'))}",
+        f"- 处理范围: {_format_value(', '.join(summary.get('selected_scopes') or []) if summary.get('selected_scopes') else None)}",
+    ]
+    if summary.get("failed_rules") is not None:
+        lines.append(f"- 未通过规则: {_format_value(summary.get('failed_rules'))}")
+    if summary.get("post_verify_notice_count") is not None:
+        lines.append(f"- 修复后提示: {_format_value(summary.get('post_verify_notice_count'))}")
+    if summary.get("operation_count") is not None:
+        lines.append(f"- 整理动作: {_format_value(summary.get('operation_count'))}")
+    if summary.get("guard_blocked"):
+        lines.append("- 修复保护: 已拦截写出")
+    if error:
+        lines.append(f"- 错误信息: {_format_value(error.get('user_message') or error.get('message'))}")
+    return lines
+
+
+def render_job_report(
+    *,
+    job_id: str,
+    operation: str,
+    status: str,
+    created_at: str,
+    started_at: str | None,
+    finished_at: str | None,
+    summary: dict[str, Any] | None,
+    resolved_request: dict[str, Any] | None,
+    runtime: dict[str, Any] | None,
+    artifacts: list[dict[str, Any]] | None,
+    error: dict[str, Any] | None,
+) -> str:
+    summary = summary or {}
+    resolved_request = resolved_request or {}
+    runtime = runtime or {}
+    input_path = (
+        _artifact_path(artifacts, "input")
+        or summary.get("input_path")
+        or runtime.get("source_file_path")
+        or runtime.get("input_path")
+        or resolved_request.get("source_file_path")
+        or resolved_request.get("file_path")
+        or summary.get("document_name")
+    )
+    output_path = (
+        _artifact_path(artifacts, "output")
+        or summary.get("output_path")
+        or runtime.get("output_path")
+        or resolved_request.get("output_path")
+    )
+    lines = [
+        "# 任务审查报告",
+        "",
+        f"任务编号: {job_id}",
+        f"任务类型: {operation}",
+        f"当前状态: {status}",
+        f"创建时间: {_format_value(created_at)}",
+        f"开始时间: {_format_value(started_at)}",
+        f"完成时间: {_format_value(finished_at)}",
+        "",
+        "## 对应文件",
+        "",
+        f"- 输入文件: {_format_value(input_path)}",
+        f"- 输出文件: {_format_value(output_path)}",
+        "",
+        "## 任务结论",
+        "",
+        *_summary_lines(summary, error),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def ensure_report_artifact(
+    artifacts: list[dict[str, Any]] | None,
+    *,
+    job_id: str,
+    operation: str,
+    status: str,
+    created_at: str,
+    started_at: str | None,
+    finished_at: str | None,
+    summary: dict[str, Any] | None,
+    resolved_request: dict[str, Any] | None,
+    runtime: dict[str, Any] | None,
+    error: dict[str, Any] | None,
+) -> list[dict[str, Any]] | None:
+    if operation not in {"apply", "normalize"}:
+        return artifacts
+
+    current_artifacts = [dict(item) for item in artifacts or [] if item.get("role") != REPORT_ARTIFACT_ROLE]
+    report_path = _report_path(job_id)
+    report_path.write_text(
+        render_job_report(
+            job_id=job_id,
+            operation=operation,
+            status=status,
+            created_at=created_at,
+            started_at=started_at,
+            finished_at=finished_at,
+            summary=summary,
+            resolved_request=resolved_request,
+            runtime=runtime,
+            artifacts=current_artifacts,
+            error=error,
+        ),
+        encoding="utf-8",
+    )
+    current_artifacts.append(
+        {
+            "kind": "markdown",
+            "role": REPORT_ARTIFACT_ROLE,
+            "report_version": REPORT_SCHEMA_VERSION,
+            "path": str(report_path),
+            "download_name": REPORT_FILE_NAME,
+            "workspace": None,
+            "written": True,
+            "exists_at_completion": report_path.exists(),
+        }
+    )
+    return refresh_artifact_availability(current_artifacts)
 
 
 def finalize_runtime_metadata(runtime: dict[str, Any]) -> dict[str, Any]:
@@ -116,5 +281,7 @@ def cleanup_candidate_map(payload: dict[str, Any]) -> tuple[dict[str, dict[str, 
     # Upload lifecycle is managed by the upload registry/cleanup endpoints.
     # Job cleanup only removes per-job runtime data and materialized artifacts.
     for artifact in payload.get("artifacts") or []:
+        if artifact.get("role") == REPORT_ARTIFACT_ROLE:
+            continue
         add_candidate(artifact.get("path"), kind=f"artifact:{artifact.get('role') or 'unknown'}")
     return candidates, skipped_paths

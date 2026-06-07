@@ -50,10 +50,10 @@ CLI
 
 ## 当前规则规模
 
-- `cn-common` runtime：49 条
-- `lnu-checker-2026` runtime：74 条
+- 公开 runtime 只有 `lnu-checker-2026`：74 条规则
+- `CN-Common.yaml` 保留为内部基线和 LNU 继承来源，不作为公开 profile catalog 项
 
-能力矩阵以 `config/capability_matrix.md` 为准，但前提是它必须与当前 runtime 同步。
+能力矩阵以 `config/capability_matrix.md` 为准，并只记录公开 LNU runtime 当前启用规则。
 
 ## 模板注入
 

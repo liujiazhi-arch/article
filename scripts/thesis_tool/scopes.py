@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from thesis_rules.lnu_runtime import LNU_DISABLED_RULE_IDS
+
 
 @dataclass(frozen=True)
 class ScopeDefinition:
@@ -124,11 +126,30 @@ SCOPE_DEFINITIONS = (
     ),
 )
 
-_SCOPE_BY_ID = {scope.id: scope for scope in SCOPE_DEFINITIONS}
-_RULE_TO_SCOPE = {}
-_ALIASES = {"all": tuple(scope.id for scope in SCOPE_DEFINITIONS)}
+def filter_scope_definitions(rule_ids: set[str]) -> tuple[ScopeDefinition, ...]:
+    filtered = []
+    for scope in SCOPE_DEFINITIONS:
+        kept = tuple(rule_id for rule_id in scope.rule_ids if rule_id in rule_ids)
+        filtered.append(ScopeDefinition(scope.id, scope.title, scope.description, kept, scope.aliases))
+    return tuple(filtered)
 
-for scope in SCOPE_DEFINITIONS:
+
+def build_rule_scope_map(scope_definitions: tuple[ScopeDefinition, ...]) -> dict[str, str]:
+    rule_to_scope = {}
+    for scope in scope_definitions:
+        for rule_id in scope.rule_ids:
+            rule_to_scope[rule_id] = scope.id
+    return rule_to_scope
+
+
+_PUBLIC_SCOPE_DEFINITIONS = filter_scope_definitions(
+    {rule_id for scope in SCOPE_DEFINITIONS for rule_id in scope.rule_ids} - LNU_DISABLED_RULE_IDS
+)
+_SCOPE_BY_ID = {scope.id: scope for scope in _PUBLIC_SCOPE_DEFINITIONS}
+_RULE_TO_SCOPE = build_rule_scope_map(_PUBLIC_SCOPE_DEFINITIONS)
+_ALIASES = {"all": tuple(scope.id for scope in _PUBLIC_SCOPE_DEFINITIONS)}
+
+for scope in _PUBLIC_SCOPE_DEFINITIONS:
     for rule_id in scope.rule_ids:
         _RULE_TO_SCOPE[rule_id] = scope.id
     for alias in scope.aliases:
@@ -136,7 +157,7 @@ for scope in SCOPE_DEFINITIONS:
 
 
 def list_scope_definitions() -> tuple[ScopeDefinition, ...]:
-    return SCOPE_DEFINITIONS
+    return _PUBLIC_SCOPE_DEFINITIONS
 
 
 def list_scoped_rule_ids() -> tuple[str, ...]:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 import re
@@ -559,9 +558,9 @@ def build_render_verify_report(
                 "render_findings": render_findings,
             },
         ),
-        "report_path": str(resolved_output_dir / "render_verify_report.json"),
+        "report_path": str(resolved_output_dir / "render_verify_report.md"),
     }
-    Path(report["report_path"]).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    Path(report["report_path"]).write_text(render_render_verify_report(report), encoding="utf-8")
     return report
 
 
@@ -602,15 +601,13 @@ def render_render_verify_report(report: dict) -> str:
     if render_findings:
         lines.append("")
         lines.append("自动页图判读：")
-        for finding in render_findings[:10]:
+        for finding in render_findings:
             region = finding.get("region") or {}
             region_text = f"x={region.get('x')}, y={region.get('y')}, w={region.get('w')}, h={region.get('h')}"
             lines.append(
                 f"- 第 {finding.get('page')} 页 {finding.get('id')} [{finding.get('severity')}]: "
                 f"{finding.get('message')} ({region_text})"
             )
-        if len(render_findings) > 10:
-            lines.append(f"- 另有 {len(render_findings) - 10} 条页图 finding，详见 JSON 报告。")
 
     wild_doc = report.get("wild_doc") or {}
     if wild_doc.get("detected"):

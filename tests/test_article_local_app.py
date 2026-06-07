@@ -85,10 +85,27 @@ def test_article_local_help_lists_expected_subcommands(capsys):
         "profiles",
         "maintain",
         "backup",
+        "feedback",
         "restore",
     ):
         assert subcommand in captured.out
     assert "batch" not in captured.out
+
+
+def test_module_entrypoint_exits_with_main_result(monkeypatch):
+    received = []
+
+    def fake_main(argv=None):
+        received.append(argv)
+        return 7
+
+    monkeypatch.setattr(local_app, "main", fake_main)
+
+    with pytest.raises(SystemExit) as exc_info:
+        local_app.module_main()
+
+    assert exc_info.value.code == 7
+    assert received == [None]
 
 
 @pytest.mark.parametrize(
@@ -98,6 +115,7 @@ def test_article_local_help_lists_expected_subcommands(capsys):
         (local_app.doctor_main, "article-doctor", "usage: article-local doctor", "--state-root"),
         (local_app.maintain_main, "article-maintain", "usage: article-local maintain", "--vacuum"),
         (local_app.backup_main, "article-backup", "usage: article-local backup", "output"),
+        (local_app.feedback_main, "article-feedback", "usage: article-local feedback", "output"),
         (local_app.restore_main, "article-restore", "usage: article-local restore", "--force"),
     ],
 )
@@ -215,19 +233,20 @@ def test_main_init_writes_env_file_and_reports_next_steps(capsys, tmp_path):
     assert payload["summary"]["next_steps"][0].startswith("article-local doctor")
 
 
-def test_build_profile_catalog_lists_default_and_second_profile():
+def test_build_profile_catalog_lists_lnu_only_public_profile():
     payload = local_app.build_profile_catalog()
 
     profile_ids = [item["id"] for item in payload["profiles"]]
-    assert payload["summary"]["default_profile_id"] == "cn-common"
-    assert payload["summary"]["support_scenario_count"] >= 3
-    assert "cn-common" in profile_ids
-    assert "lnu-checker-2026" in profile_ids
-    default_profile = next(item for item in payload["profiles"] if item["id"] == "cn-common")
-    assert default_profile["support_level_label"] == "一等支持"
-    assert any(item["label"] == "普通论文或综述" for item in default_profile["support_scenarios"])
-    degree_profile = next(item for item in payload["profiles"] if item["id"] == "lnu-checker-2026")
-    assert any(item["label"] == "学校学位论文" for item in degree_profile["support_scenarios"])
+    assert payload["summary"]["default_profile_id"] == "lnu-checker-2026"
+    assert payload["summary"]["profile_count"] == 1
+    assert payload["summary"]["support_scenario_count"] == 1
+    assert profile_ids == ["lnu-checker-2026"]
+    assert "cn-common" not in str(payload).lower()
+    assert "课程作业" not in str(payload)
+    assert "综述" not in str(payload)
+    profile = payload["profiles"][0]
+    assert profile["support_level_label"] == "一等支持"
+    assert any(item["label"] == "学校学位论文" for item in profile["support_scenarios"])
 
 
 def test_run_preflight_detects_wild_doc_signals(tmp_path):
@@ -305,8 +324,9 @@ def test_main_profiles_outputs_json(capsys):
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     profile_ids = [item["id"] for item in payload["profiles"]]
-    assert "lnu-checker-2026" in profile_ids
-    assert any(item["id"] == "course_assignment_basic_paper" for item in payload["summary"]["support_scenarios"])
+    assert profile_ids == ["lnu-checker-2026"]
+    assert [item["id"] for item in payload["summary"]["support_scenarios"]] == ["school_degree_thesis"]
+    assert "cn-common" not in str(payload).lower()
 
 
 def test_main_render_workflow_modes_outputs_json(capsys):

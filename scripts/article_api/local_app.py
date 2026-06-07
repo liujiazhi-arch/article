@@ -10,6 +10,7 @@ from . import local_env as local_env_module
 from .local_backup import create_backup_archive, restore_backup_archive
 from .local_doctor import build_doctor_report
 from .local_env import root_env_scope
+from .local_feedback import create_feedback_archive
 from .local_maintenance import run_storage_maintenance
 from .profiles import build_profile_catalog as build_profile_catalog_payload
 
@@ -173,6 +174,12 @@ def _build_parser() -> argparse.ArgumentParser:
     backup_parser.add_argument("--runtime-root")
     backup_parser.set_defaults(handler=_handle_backup)
 
+    feedback_parser = subparsers.add_parser("feedback")
+    feedback_parser.add_argument("output")
+    feedback_parser.add_argument("--state-root")
+    feedback_parser.add_argument("--runtime-root")
+    feedback_parser.set_defaults(handler=_handle_feedback)
+
     restore_parser = subparsers.add_parser("restore")
     restore_parser.add_argument("archive")
     restore_parser.add_argument("--state-root")
@@ -288,6 +295,17 @@ def _handle_backup(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_feedback(args: argparse.Namespace) -> int:
+    _emit_json(
+        create_feedback_archive(
+            args.output,
+            state_root=args.state_root,
+            runtime_root=args.runtime_root,
+        )
+    )
+    return 0
+
+
 def _handle_restore(args: argparse.Namespace) -> int:
     _emit_json(
         restore_backup_archive(
@@ -330,9 +348,21 @@ def backup_main() -> int:
     return main(["backup", *sys.argv[1:]])
 
 
+def feedback_main() -> int:
+    return main(["feedback", *sys.argv[1:]])
+
+
 def restore_main() -> int:
     return main(["restore", *sys.argv[1:]])
 
 
 def maintain_main() -> int:
     return main(["maintain", *sys.argv[1:]])
+
+
+def module_main() -> None:
+    raise SystemExit(main())
+
+
+if __name__ == "__main__":
+    module_main()

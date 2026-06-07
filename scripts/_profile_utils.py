@@ -3,14 +3,19 @@ from pathlib import Path
 from dataclasses import dataclass
 import yaml
 
+from thesis_resources import config_path
 
-PROFILE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config", "profiles")
+
+PROFILE_DIR = str(config_path("profiles"))
+DEFAULT_PROFILE_ALIAS = "lnu"
+DEFAULT_PROFILE_ID = "lnu-checker-2026"
+LNU_PROFILE_PATH = os.path.join(PROFILE_DIR, "lnu-checker-2026.yaml")
 PROFILE_ALIASES = {
     "cn-common": None,
     "cn_common": None,
-    "lnu": os.path.join(PROFILE_DIR, "lnu-checker-2026.yaml"),
-    "lnu-checker-2026": os.path.join(PROFILE_DIR, "lnu-checker-2026.yaml"),
-    "lnu-checker": os.path.join(PROFILE_DIR, "lnu-checker-2026.yaml"),
+    DEFAULT_PROFILE_ALIAS: LNU_PROFILE_PATH,
+    DEFAULT_PROFILE_ID: LNU_PROFILE_PATH,
+    "lnu-checker": LNU_PROFILE_PATH,
 }
 
 _DEFAULT_SUPPORT_LEVEL = {
@@ -32,14 +37,16 @@ class ProfileBundle:
     warning_message: str | None = None
 
 
-def _make_fallback_bundle(normalized, alias_key, resolved_path, warning_message):
+def _make_fallback_bundle(normalized, alias_key, resolved_path, warning_message, profile_data=None):
+    fallback_path = resolved_path if resolved_path == LNU_PROFILE_PATH else LNU_PROFILE_PATH
+    profile_data = profile_data or {}
     return ProfileBundle(
-        profile_id="cn-common",
-        profile_data={},
-        settings={},
+        profile_id=DEFAULT_PROFILE_ID,
+        profile_data=profile_data,
+        settings=profile_data.get("settings") or {},
         normalized=normalized,
         alias_key=alias_key,
-        resolved_path=resolved_path,
+        resolved_path=fallback_path,
         fallback_used=True,
         requested_profile=normalized or None,
         warning_message=warning_message,
@@ -47,7 +54,12 @@ def _make_fallback_bundle(normalized, alias_key, resolved_path, warning_message)
 
 
 def _strict_message(fallback_message):
-    return fallback_message.replace("，已回落到默认 CN-Common 配置。", "，strict-profile 已启用，停止执行。")
+    return fallback_message.replace("，已回落到默认 LNU 配置。", "，strict-profile 已启用，停止执行。")
+
+
+def _load_default_profile_data(yaml_lib):
+    with open(LNU_PROFILE_PATH, "r", encoding="utf-8") as handle:
+        return yaml_lib.safe_load(handle) or {}
 
 
 def format_profile_resolution(profile_id, requested_profile=None, fallback_used=False):
@@ -56,7 +68,7 @@ def format_profile_resolution(profile_id, requested_profile=None, fallback_used=
     if requested and requested != profile_id:
         details.append(f"requested: {requested}")
     if fallback_used:
-        details.append("fallback: cn-common")
+        details.append(f"fallback: {DEFAULT_PROFILE_ID}")
     if not details:
         return profile_id
     return f"{profile_id} ({'; '.join(details)})"
@@ -71,8 +83,10 @@ def resolve_strict_profile(profile_path, strict):
 def load_profile_bundle(profile_path, yaml_lib=None, warn=None, aliases=None, strict=None):
     aliases = PROFILE_ALIASES if aliases is None else aliases
     strict = resolve_strict_profile(profile_path, strict)
+    requested_profile = profile_path
     if not profile_path:
-        return ProfileBundle("cn-common", {}, {}, "", "cn-common", None, requested_profile=None)
+        profile_path = DEFAULT_PROFILE_ALIAS
+        requested_profile = None
 
     normalized = str(profile_path).strip()
     alias_key = normalized.lower()
@@ -81,7 +95,7 @@ def load_profile_bundle(profile_path, yaml_lib=None, warn=None, aliases=None, st
 
     resolved_path = aliases.get(alias_key, os.path.expanduser(normalized))
     if yaml_lib is None:
-        message = "PyYAML 不可用，已回落到默认 CN-Common 配置。"
+        message = "PyYAML 不可用，已回落到默认 LNU 配置。"
         if strict:
             raise ValueError(_strict_message(message))
         if warn is not None:
@@ -92,21 +106,21 @@ def load_profile_bundle(profile_path, yaml_lib=None, warn=None, aliases=None, st
         with open(resolved_path, "r", encoding="utf-8") as handle:
             profile_data = yaml_lib.safe_load(handle) or {}
     except Exception as exc:
-        message = f"Profile 加载失败：{normalized}（{exc}），已回落到默认 CN-Common 配置。"
+        message = f"Profile 加载失败：{normalized}（{exc}），已回落到默认 LNU 配置。"
         if strict:
             raise ValueError(_strict_message(message))
         if warn is not None:
             warn(message)
-        return _make_fallback_bundle(normalized, alias_key, resolved_path, message)
+        return _make_fallback_bundle(normalized, alias_key, resolved_path, message, _load_default_profile_data(yaml_lib))
 
     profile_id = str((profile_data.get("meta") or {}).get("id") or "").strip()
     if not profile_id:
-        message = f"Profile 缺少 meta.id：{normalized}，已回落到默认 CN-Common 配置。"
+        message = f"Profile 缺少 meta.id：{normalized}，已回落到默认 LNU 配置。"
         if strict:
             raise ValueError(_strict_message(message))
         if warn is not None:
             warn(message)
-        return _make_fallback_bundle(normalized, alias_key, resolved_path, message)
+        return _make_fallback_bundle(normalized, alias_key, resolved_path, message, _load_default_profile_data(yaml_lib))
 
     return ProfileBundle(
         profile_id=profile_id,
@@ -115,14 +129,14 @@ def load_profile_bundle(profile_path, yaml_lib=None, warn=None, aliases=None, st
         normalized=normalized,
         alias_key=alias_key,
         resolved_path=resolved_path,
-        requested_profile=normalized,
+        requested_profile=str(requested_profile).strip() if requested_profile is not None else None,
     )
 
 
 def resolve_template_profile_id(profile_path, resolved_profile_id="", aliases=None):
     aliases = PROFILE_ALIASES if aliases is None else aliases
     if not profile_path:
-        return resolved_profile_id or "cn-common"
+        return DEFAULT_PROFILE_ALIAS
 
     normalized = str(profile_path).strip()
     alias_key = normalized.lower()
@@ -144,7 +158,7 @@ def resolve_template_profile_id(profile_path, resolved_profile_id="", aliases=No
         ]
         if candidate_aliases:
             return sorted(candidate_aliases, key=lambda item: (len(item), item))[0]
-    return alias_key or resolved_profile_id or "cn-common"
+    return alias_key or resolved_profile_id or DEFAULT_PROFILE_ALIAS
 
 
 def _load_catalog_meta(profile_path: Path, yaml_lib) -> dict:
@@ -225,20 +239,23 @@ def _build_catalog_entry(*, profile_id: str, aliases: list[str], path: str | Non
     }
 
 
-def list_profile_catalog(aliases=None, yaml_lib=None):
+def list_profile_catalog(aliases=None, yaml_lib=None, public_only=True):
     aliases = PROFILE_ALIASES if aliases is None else aliases
     yaml_lib = yaml if yaml_lib is None else yaml_lib
     profile_dir = Path(PROFILE_DIR)
-    default_profile_meta = _load_catalog_meta(profile_dir / "CN-Common.yaml", yaml_lib)["meta"]
-    entries: list[dict] = [
-        _build_catalog_entry(
-            profile_id="cn-common",
-            aliases=["cn-common", "cn_common"],
-            path=None,
-            meta=default_profile_meta,
-            is_default=True,
+    entries: list[dict] = []
+
+    if not public_only:
+        baseline_meta = _load_catalog_meta(profile_dir / "CN-Common.yaml", yaml_lib)["meta"]
+        entries.append(
+            _build_catalog_entry(
+                profile_id="cn-common",
+                aliases=["cn-common", "cn_common"],
+                path=None,
+                meta=baseline_meta,
+                is_default=False,
+            )
         )
-    ]
 
     for profile_path in sorted(profile_dir.glob("*.yaml")):
         loaded = _load_catalog_meta(profile_path, yaml_lib)
@@ -259,9 +276,13 @@ def list_profile_catalog(aliases=None, yaml_lib=None):
                 aliases=entry_aliases,
                 path=str(profile_path.resolve()),
                 meta=meta,
-                is_default=False,
+                is_default=profile_id == DEFAULT_PROFILE_ID,
             )
         )
 
     entries.sort(key=lambda item: (item["is_default"] is False, item["id"]))
     return entries
+
+
+def list_public_profile_catalog(aliases=None, yaml_lib=None):
+    return list_profile_catalog(aliases=aliases, yaml_lib=yaml_lib, public_only=True)

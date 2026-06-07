@@ -39,6 +39,7 @@ def test_readme_declares_single_document_product_boundary():
         "article-api",
         "article-doctor",
         "article-backup",
+        "article-feedback",
         "article-restore",
         "article-maintain",
     ):
@@ -72,6 +73,7 @@ def test_packaging_scripts_match_current_product_boundary():
         'article-api = "article_api.local_app:serve_main"',
         'article-doctor = "article_api.local_app:doctor_main"',
         'article-backup = "article_api.local_app:backup_main"',
+        'article-feedback = "article_api.local_app:feedback_main"',
         'article-restore = "article_api.local_app:restore_main"',
         'article-maintain = "article_api.local_app:maintain_main"',
     ):
@@ -81,8 +83,31 @@ def test_packaging_scripts_match_current_product_boundary():
 
 
 def test_default_output_naming_uses_versioned_single_document_labels():
-    from article_api.output_naming import FORMAT_FIX_SUFFIX, NORMALIZE_SUFFIX, clean_versioned_stem
+    from article_api.output_naming import (
+        DEFAULT_INTERMEDIATE_OUTPUT_DIR,
+        DEFAULT_OUTPUT_DIR,
+        FORMAT_FIX_SUFFIX,
+        NORMALIZE_SUFFIX,
+        clean_versioned_stem,
+        normalize_output_path,
+        scoped_output_path,
+    )
 
     assert clean_versioned_stem("demo_格式修复_v01.docx") == "demo"
     assert FORMAT_FIX_SUFFIX == "格式修复"
     assert NORMALIZE_SUFFIX == "结构整理"
+    assert Path(
+        scoped_output_path(
+            source_file_path="/tmp/demo.docx",
+            scopes=["headings"],
+            source_display_name="demo.docx",
+        )
+    ).parent == DEFAULT_OUTPUT_DIR
+    normalize_path = Path(
+        normalize_output_path(
+            source_file_path="/tmp/demo.docx",
+            source_display_name="demo.docx",
+        )
+    )
+    assert normalize_path.parent == DEFAULT_INTERMEDIATE_OUTPUT_DIR
+    assert normalize_path.parent != DEFAULT_OUTPUT_DIR

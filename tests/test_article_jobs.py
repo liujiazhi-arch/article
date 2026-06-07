@@ -2,6 +2,7 @@ from concurrent.futures import Future
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import zipfile
 
 import pytest
 from docx import Document
@@ -67,6 +68,32 @@ def _make_style_conflict_lnu_doc(source_path: Path) -> Path:
     return source_path
 
 
+def _make_docx_with_document_xml(source_path: Path, document_xml: str, *, complete_package: bool = True) -> Path:
+    with zipfile.ZipFile(source_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        if complete_package:
+            zf.writestr(
+                "[Content_Types].xml",
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                '<Default Extension="xml" ContentType="application/xml"/>'
+                '<Override PartName="/word/document.xml" '
+                'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+                "</Types>",
+            )
+            zf.writestr(
+                "_rels/.rels",
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" '
+                'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+                'Target="word/document.xml"/>'
+                "</Relationships>",
+            )
+        zf.writestr("word/document.xml", document_xml)
+    return source_path
+
+
 def _create_and_wait_job(operation: str, payload: dict[str, object]) -> dict[str, object]:
     job = create_job(operation, payload)
     wait_for_job(job["job_id"])
@@ -91,7 +118,7 @@ def test_create_verify_job_completes_and_returns_result(tmp_docx):
         "verify",
         {
             "file_path": str(source_path),
-            "profile_path": None,
+            "profile_path": "cn-common",
             "scopes": ["headings"],
             "strict_profile": False,
         },
@@ -311,6 +338,178 @@ def test_apply_job_result_is_frozen_after_output_changes(tmp_docx):
     assert first_result["artifacts"][0]["exists_at_completion"] is True
 
 
+def test_apply_job_writes_report_artifact_and_marks_missing_output_unavailable(tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_report_artifact.docx",
+        rule_ids=("H02",),
+    )
+
+    job = _create_and_wait_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "profile_path": None,
+            "scopes": ["headings"],
+        },
+    )
+    result = get_job_result(job["job_id"])
+    output_artifact = next(item for item in result["artifacts"] if item["role"] == "output")
+    report_artifact = next(item for item in result["artifacts"] if item["role"] == "report")
+    report_path = Path(report_artifact["path"])
+
+    assert output_artifact["available"] is True
+    assert report_artifact["kind"] == "markdown"
+    assert report_artifact["available"] is True
+    assert report_artifact["exists_at_completion"] is True
+    assert report_path.name == "job_report.md"
+    report_text = report_path.read_text(encoding="utf-8")
+    assert f"任务编号: {job['job_id']}" in report_text
+    assert "任务类型: apply" in report_text
+    assert "当前状态: succeeded" in report_text
+    assert "输入文件:" in report_text
+    assert "输出文件:" in report_text
+    assert "业务结论:" in report_text
+
+    Path(output_artifact["path"]).unlink()
+    refreshed = get_job_result(job["job_id"])
+    refreshed_output = next(item for item in refreshed["artifacts"] if item["role"] == "output")
+    refreshed_report = next(item for item in refreshed["artifacts"] if item["role"] == "report")
+
+    assert refreshed["summary"] == result["summary"]
+    assert refreshed["result"] == result["result"]
+    assert refreshed_output["available"] is False
+    assert refreshed_report["available"] is True
+
+
+def test_get_job_status_refreshes_artifact_availability_without_mutating_completion_snapshot(tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_status_artifact_availability.docx",
+        rule_ids=("H02",),
+    )
+
+    job = _create_and_wait_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "profile_path": None,
+            "scopes": ["headings"],
+        },
+    )
+    first_status = get_job(job["job_id"])
+    output_artifact = next(item for item in first_status["artifacts"] if item["role"] == "output")
+
+    assert output_artifact["available"] is True
+    assert output_artifact["exists_at_completion"] is True
+
+    Path(output_artifact["path"]).unlink()
+    refreshed_status = get_job(job["job_id"])
+    refreshed_output = next(item for item in refreshed_status["artifacts"] if item["role"] == "output")
+    refreshed_report = next(item for item in refreshed_status["artifacts"] if item["role"] == "report")
+
+    assert refreshed_status["summary"] == first_status["summary"]
+    assert "result" not in refreshed_status
+    assert refreshed_output["exists_at_completion"] is True
+    assert refreshed_output["available"] is False
+    assert refreshed_report["available"] is True
+
+
+def test_completed_apply_job_without_report_artifact_is_backfilled_on_read(tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_legacy_report.docx",
+        rule_ids=("H02",),
+    )
+
+    job = _create_and_wait_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "profile_path": None,
+            "scopes": ["headings"],
+        },
+    )
+    legacy_payload = get_job_result(job["job_id"])
+    legacy_payload["artifacts"] = [item for item in legacy_payload["artifacts"] if item["role"] != "report"]
+    output_artifact = next(item for item in legacy_payload["artifacts"] if item["role"] == "output")
+    Path(output_artifact["path"]).unlink()
+    storage_module.upsert_job(legacy_payload)
+
+    backfilled = get_job_result(job["job_id"])
+    backfilled_output = next(item for item in backfilled["artifacts"] if item["role"] == "output")
+    backfilled_report = next(item for item in backfilled["artifacts"] if item["role"] == "report")
+
+    assert backfilled_output["available"] is False
+    assert backfilled_report["available"] is True
+    report_text = Path(backfilled_report["path"]).read_text(encoding="utf-8")
+    assert report_text.startswith("# 任务审查报告")
+    assert f"输入文件: {source_path.resolve()}" in report_text
+    persisted = storage_module.get_job(job["job_id"], include_result=True)
+    assert any(item["role"] == "report" for item in persisted["artifacts"])
+
+
+def test_legacy_report_backfill_from_list_jobs_preserves_stored_result(tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_legacy_list_report.docx",
+        rule_ids=("H02",),
+    )
+
+    job = _create_and_wait_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "profile_path": None,
+            "scopes": ["headings"],
+        },
+    )
+    legacy_payload = get_job_result(job["job_id"])
+    legacy_payload["artifacts"] = [item for item in legacy_payload["artifacts"] if item["role"] != "report"]
+    storage_module.upsert_job(legacy_payload)
+
+    listed = list_jobs()
+    persisted = storage_module.get_job(job["job_id"], include_result=True)
+
+    assert listed[0]["job_id"] == job["job_id"]
+    assert any(item["role"] == "report" for item in persisted["artifacts"])
+    assert persisted["result"] == legacy_payload["result"]
+
+
+def test_outdated_report_artifact_is_rewritten_on_read(tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_outdated_report.docx",
+        rule_ids=("H02",),
+    )
+
+    job = _create_and_wait_job(
+        "apply",
+        {
+            "file_path": str(source_path),
+            "profile_path": None,
+            "scopes": ["headings"],
+        },
+    )
+    legacy_payload = get_job_result(job["job_id"])
+    report_artifact = next(item for item in legacy_payload["artifacts"] if item["role"] == "report")
+    report_path = Path(report_artifact["path"])
+    report_path.write_text("# 任务审查报告\n\n- 输入文件: -\n", encoding="utf-8")
+    report_artifact.pop("report_version", None)
+    storage_module.upsert_job(legacy_payload)
+
+    refreshed = get_job_result(job["job_id"])
+    refreshed_report = next(item for item in refreshed["artifacts"] if item["role"] == "report")
+
+    assert refreshed_report["report_version"] >= 2
+    assert f"输入文件: {source_path.resolve()}" in Path(refreshed_report["path"]).read_text(encoding="utf-8")
+
+
 def test_apply_job_captures_blocked_guard_as_failed_job(tmp_path):
     clear_jobs()
     source_path = _make_style_conflict_lnu_doc(Path(tmp_path) / "article_job_apply_fail.docx")
@@ -352,6 +551,47 @@ def test_create_job_rejects_invalid_file_path_without_storing_job(tmp_path):
 
     with pytest.raises(ValueError, match="文件不存在"):
         create_job("verify", {"file_path": str(missing_path)})
+
+    assert job_count() == 0
+
+
+def test_create_job_rejects_malformed_docx_without_storing_job(tmp_path):
+    clear_jobs()
+    source_path = _make_docx_with_document_xml(
+        tmp_path / "article_job_malformed_docx.docx",
+        "<w:document><w:body>",
+    )
+
+    with pytest.raises(ValueError, match="word/document.xml 无法解析"):
+        create_job("verify", {"file_path": str(source_path)})
+
+    assert job_count() == 0
+
+
+def test_create_job_rejects_docx_without_body_without_storing_job(tmp_path):
+    clear_jobs()
+    source_path = _make_docx_with_document_xml(
+        tmp_path / "article_job_missing_body.docx",
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>',
+    )
+
+    with pytest.raises(ValueError, match="缺少主体结构 w:body"):
+        create_job("verify", {"file_path": str(source_path)})
+
+    assert job_count() == 0
+
+
+def test_create_job_rejects_incomplete_docx_package_without_storing_job(tmp_path):
+    clear_jobs()
+    source_path = _make_docx_with_document_xml(
+        tmp_path / "article_job_incomplete_package.docx",
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body><w:p/></w:body></w:document>",
+        complete_package=False,
+    )
+
+    with pytest.raises(ValueError, match="缺少核心部件 \\[Content_Types\\]\\.xml"):
+        create_job("verify", {"file_path": str(source_path)})
 
     assert job_count() == 0
 
@@ -410,6 +650,58 @@ def test_list_jobs_returns_latest_first(tmp_docx):
     assert [item["job_id"] for item in jobs[:2]] == [second["job_id"], first["job_id"]]
 
 
+def test_list_jobs_returns_frontend_ready_failure_digest_without_runtime_paths(monkeypatch, tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_recent_failure.docx",
+        rule_ids=("H02",),
+    )
+
+    def fake_attempt(_operation: str, _resolved_request: dict[str, object]) -> dict[str, object]:
+        return {
+            "ok": False,
+            "error": {
+                "code": "invalid_docx",
+                "type": "ValueError",
+                "message": "不是有效的 .docx 文件",
+                "user_message": "上传的文件不是有效的 DOCX 文档。",
+                "next_action": "请在 Word/WPS 中打开原文档，另存为 .docx 后重新上传。",
+                "http_status": 400,
+                "retryable": False,
+            },
+        }
+
+    monkeypatch.setattr(jobs_module, "_execute_job_attempt", fake_attempt)
+    job = _create_and_wait_job(
+        "verify",
+        {
+            "file_path": str(source_path),
+            "scopes": ["headings"],
+            "max_attempts": 2,
+        },
+    )
+
+    item = next(item for item in list_jobs() if item["job_id"] == job["job_id"])
+
+    assert item["status"] == "failed"
+    assert item["summary"]["error_code"] == "invalid_docx"
+    assert item["display"]["title"] == "格式复查失败"
+    assert item["display"]["document_name"] == "article_job_recent_failure.docx"
+    assert item["display"]["message"] == "上传的文件不是有效的 DOCX 文档。"
+    assert "Word/WPS" in item["display"]["next_action"]
+    assert item["display"]["retryable"] is False
+    assert item["display"]["attempt_label"] == "1/2"
+    assert item["display"]["selected_scopes"] == ["headings"]
+    assert item["error"]["code"] == "invalid_docx"
+    assert item["error"]["message"] == "上传的文件不是有效的 DOCX 文档。"
+    assert item["error"]["retryable"] is False
+    assert "runtime" not in item
+    assert "artifacts" not in item
+    assert "request" not in item
+    assert "resolved_request" not in item
+
+
 def test_build_job_inspection_reduces_job_payload_to_backend_view(tmp_docx):
     clear_jobs()
     source_path = _build_mutated_doc(
@@ -449,9 +741,16 @@ def test_get_job_inspection_preserves_staging_paths_and_stays_stable(tmp_docx, t
     Path(first["request_paths"]["staged_input_path"]).unlink()
     second = get_job_inspection(job["job_id"])
 
-    assert first == second
+    first_without_artifacts = dict(first)
+    second_without_artifacts = dict(second)
+    first_without_artifacts.pop("artifacts")
+    second_without_artifacts.pop("artifacts")
+
+    assert first_without_artifacts == second_without_artifacts
     assert first["request_paths"]["source_file_path"] == str(Path(source_path).resolve())
     assert first["request_paths"]["workspace_root"] == first["runtime"]["workspace_root"]
+    assert first["artifacts"][0]["available"] is True
+    assert second["artifacts"][0]["available"] is False
 
 
 def test_get_job_runtime_snapshot_returns_runtime_focused_view(tmp_docx, tmp_path):
@@ -476,7 +775,7 @@ def test_get_job_runtime_snapshot_returns_runtime_focused_view(tmp_docx, tmp_pat
     assert snapshot["job_id"] == job["job_id"]
     assert snapshot["summary"]["result_mode"] == "preview"
     assert snapshot["runtime"]["workspace_present"] is True
-    assert len(snapshot["artifacts"]) == 2
+    assert {item["role"] for item in snapshot["artifacts"]} == {"input", "output", "report"}
     assert "created_at" not in snapshot
 
 
@@ -664,6 +963,7 @@ def test_multiple_jobs_keep_frozen_summaries_isolated(tmp_docx, tmp_path):
         "verify",
         {
             "file_path": str(verify_source),
+            "profile_path": "cn-common",
             "scopes": ["headings"],
         },
     )
@@ -672,6 +972,7 @@ def test_multiple_jobs_keep_frozen_summaries_isolated(tmp_docx, tmp_path):
         {
             "file_path": str(apply_source),
             "output_path": str(Path(tmp_path) / "article_job_apply_isolation_fixed.docx"),
+            "profile_path": "cn-common",
             "scopes": ["headings"],
         },
     )
@@ -920,8 +1221,15 @@ def test_stage_input_result_remains_stable_after_staged_file_is_deleted(tmp_docx
     staged_input_path.unlink()
     after = get_job_result(job["job_id"])
 
-    assert before == after
+    before_without_artifacts = dict(before)
+    after_without_artifacts = dict(after)
+    before_without_artifacts.pop("artifacts")
+    after_without_artifacts.pop("artifacts")
+
+    assert before_without_artifacts == after_without_artifacts
     assert before["artifacts"][0]["exists_at_completion"] is True
+    assert before["artifacts"][0]["available"] is True
+    assert after["artifacts"][0]["available"] is False
     assert before["runtime"]["staged_input_exists_at_completion"] is True
 
 
@@ -1016,7 +1324,8 @@ def test_cleanup_job_removes_managed_runtime_files_and_preserves_frozen_result(t
     assert before["result"] == after["result"]
     assert after["cleanup"]["state"] == "cleaned"
     assert after["runtime"] == before["runtime"]
-    assert after["artifacts"] == before["artifacts"]
+    assert next(item for item in after["artifacts"] if item["role"] == "output")["available"] is False
+    assert next(item for item in after["artifacts"] if item["role"] == "report")["available"] is True
 
 
 def test_cleanup_job_is_idempotent_for_completed_job(tmp_docx, tmp_path):
@@ -1246,6 +1555,94 @@ def test_verify_job_exhausts_retry_budget_on_timeout(monkeypatch, tmp_docx):
     assert result["runtime"]["attempt_count"] == 2
     assert result["runtime"]["timeout_seconds"] == 0.01
     assert [item["retryable"] for item in result["runtime"]["attempts"]] == [True, True]
+
+
+def test_verify_job_failure_summary_exposes_frontend_error_guidance(monkeypatch, tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_invalid_docx_guidance.docx",
+        rule_ids=("H02",),
+    )
+
+    def fake_attempt(_operation: str, _resolved_request: dict[str, object]) -> dict[str, object]:
+        return {
+            "ok": False,
+            "error": {
+                "code": "invalid_docx",
+                "type": "ValueError",
+                "message": "不是有效的 .docx 压缩包",
+                "user_message": "上传的文件不是有效的 DOCX 文档。",
+                "next_action": "请在 Word/WPS 中打开原文档，另存为 .docx 后重新上传。",
+                "http_status": 400,
+                "retryable": False,
+            },
+        }
+
+    monkeypatch.setattr(jobs_module, "_execute_job_attempt", fake_attempt)
+    job = create_job(
+        "verify",
+        {
+            "file_path": str(source_path),
+            "scopes": ["headings"],
+            "max_attempts": 2,
+        },
+    )
+    wait_for_job(job["job_id"])
+    result = get_job_result(job["job_id"])
+
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "invalid_docx"
+    assert result["error"]["retryable"] is False
+    assert result["summary"]["error_code"] == "invalid_docx"
+    assert result["summary"]["error_message"] == "上传的文件不是有效的 DOCX 文档。"
+    assert "Word/WPS" in result["summary"]["error_next_action"]
+    assert result["summary"]["retryable"] is False
+    assert result["summary"]["attempt_count"] == 1
+    assert result["runtime"]["attempt_count"] == 1
+    assert result["runtime"]["attempts"][0]["retryable"] is False
+
+
+def test_verify_job_heartbeat_callback_does_not_fail_attempt(monkeypatch, tmp_docx):
+    clear_jobs()
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_job_heartbeat_callback.docx",
+        rule_ids=("H02",),
+    )
+
+    def fake_attempt(
+        _operation: str,
+        _resolved_request: dict[str, object],
+        *,
+        on_heartbeat=None,
+        on_phase=None,
+    ) -> dict[str, object]:
+        if on_phase is not None:
+            on_phase("processing")
+        if on_heartbeat is not None:
+            on_heartbeat()
+        return {
+            "ok": True,
+            "result": {
+                "mode": "verify",
+                "document": {"path": str(source_path), "name": source_path.name},
+                "selected_scopes": ["headings"],
+                "overall_status": "needs_fix",
+                "readiness": "manual-review-required",
+                "summary": {"failed_rules": 1, "manual_review_rules": 0},
+                "scopes": [],
+            },
+        }
+
+    monkeypatch.setattr(jobs_module, "_execute_job_attempt", fake_attempt)
+    job = create_job("verify", {"file_path": str(source_path), "scopes": ["headings"]})
+    wait_for_job(job["job_id"])
+    result = get_job_result(job["job_id"])
+
+    assert result["status"] == "succeeded"
+    assert result["error"] is None
+    assert result["runtime"]["heartbeat_count"] >= 4
 
 
 def test_apply_candidate_job_runtime_tracks_phase_and_heartbeat_while_running(monkeypatch, tmp_docx):

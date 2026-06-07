@@ -5,6 +5,9 @@ from pathlib import Path
 import yaml
 
 import audit_thesis
+import fix_thesis
+from _profile_utils import list_profile_catalog
+from thesis_rules.lnu_runtime import effective_lnu_rule_definitions
 from thesis_tool.capabilities import load_rule_capabilities
 from thesis_tool.scopes import list_scope_definitions, list_scoped_rule_ids, scope_for_rule
 
@@ -12,6 +15,44 @@ from thesis_tool.scopes import list_scope_definitions, list_scoped_rule_ids, sco
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CAPABILITY_MATRIX = PROJECT_ROOT / "config" / "capability_matrix.md"
 LNU_PROFILE = PROJECT_ROOT / "config" / "profiles" / "lnu-checker-2026.yaml"
+
+
+def test_public_profile_catalog_is_lnu_only():
+    catalog = list_profile_catalog()
+
+    assert [item["id"] for item in catalog] == ["lnu-checker-2026"]
+    assert catalog[0]["is_default"] is True
+    assert "lnu" in catalog[0]["aliases"]
+    assert "cn-common" not in str(catalog).lower()
+    assert "课程作业" not in str(catalog)
+    assert "综述" not in str(catalog)
+
+
+def test_missing_runtime_profile_defaults_to_lnu():
+    audit_runtime = audit_thesis.build_audit_runtime(None)
+    fix_runtime = fix_thesis.build_fix_runtime(None)
+
+    assert audit_runtime.profile_id == "lnu-checker-2026"
+    assert audit_runtime.requested_profile is None
+    assert audit_runtime.fallback_used is False
+    assert fix_runtime.profile_id == "lnu-checker-2026"
+    assert fix_runtime.requested_profile is None
+    assert fix_runtime.fallback_used is False
+
+
+def test_lnu_runtime_metadata_sources_agree():
+    runtime = audit_thesis.build_audit_runtime("lnu")
+    runtime_rule_ids = {rule_id for rule_id, _, _ in runtime.rule_definitions}
+    effective_rule_ids = {rule_id for rule_id, _, _ in effective_lnu_rule_definitions()}
+    checker_rule_ids = set(runtime.rule_checkers)
+    capability_rule_ids = set(load_rule_capabilities())
+    profile_data = yaml.safe_load(LNU_PROFILE.read_text(encoding="utf-8"))
+    profile_addition_ids = {item["id"] for item in profile_data.get("additions") or []}
+
+    assert runtime_rule_ids == effective_rule_ids
+    assert runtime_rule_ids <= checker_rule_ids
+    assert runtime_rule_ids == capability_rule_ids
+    assert profile_addition_ids == {rule_id for rule_id in runtime_rule_ids if rule_id.startswith("LNU_")}
 
 
 def _parse_matrix_autofix_flags() -> dict[str, bool]:

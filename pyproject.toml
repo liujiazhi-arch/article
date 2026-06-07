@@ -30,6 +30,7 @@ article-local = "article_api.local_app:main"
 article-api = "article_api.local_app:serve_main"
 article-doctor = "article_api.local_app:doctor_main"
 article-backup = "article_api.local_app:backup_main"
+article-feedback = "article_api.local_app:feedback_main"
 article-restore = "article_api.local_app:restore_main"
 article-maintain = "article_api.local_app:maintain_main"
 
@@ -41,8 +42,24 @@ py-modules = [
   "fix_docx_io",
   "fix_output_parts",
   "thesis_workbench",
+  "thesis_resources",
+  "docx_sample_intake",
+  "fetch_public_docx_samples",
+  "release_smoke",
+  "local_browser_smoke",
+  "github_release_status",
+  "release_evidence_gate",
+  "release_evidence_bundle",
+  "verify_release_artifact",
+  "build_windows_local_bundle",
+  "windows_bundle_smoke",
+  "install_article_local",
   "_profile_utils",
   "_thesis_utils",
+  "backmatter_title_utils",
+  "frontmatter_utils",
+  "reference_section_utils",
+  "reorder_references_by_appearance",
 ]
 
 [tool.setuptools.packages.find]
@@ -50,6 +67,10 @@ where = ["scripts"]
 include = [
   "thesis_tool",
   "thesis_tool.*",
+  "thesis_rules",
+  "thesis_rules.*",
+  "thesis_fix",
+  "thesis_fix.*",
   "sections",
   "sections.*",
   "article_engine",
@@ -60,6 +81,11 @@ include = [
 
 [tool.setuptools.package-data]
 article_api = ["local_console.html", "assets/lnu-emblem.jpg"]
+
+[tool.setuptools.data-files]
+"share/thesis-format-tool/config" = ["config/capability_matrix.md", "config/sources.yaml"]
+"share/thesis-format-tool/config/profiles" = ["config/profiles/*.yaml"]
+"share/thesis-format-tool/config/templates/lnu" = ["config/templates/lnu/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

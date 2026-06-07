@@ -151,16 +151,24 @@ def test_checker_2026_disables_legacy_mixed_spacing_rules_for_latest_image_polic
     assert runtime.cfg["mixed_spacing_policy"] == "compact"
 
 
-def test_checker_2026_ref02_accepts_reference_number_with_space():
+def test_checker_2026_ref02_accepts_reference_number_with_tab_alignment():
     runtime = _checker_runtime_or_xfail()
     title = _make_paragraph("参考文献")
-    ref = _make_paragraph("[1] Guo G C. Quantum optics[M]. Beijing: Higher Education Press, 2005.")
+    ref = _make_paragraph("[1]\tGuo G C. Quantum optics[M]. Beijing: Higher Education Press, 2005.")
+    p_pr = ET.SubElement(ref, _w("pPr"))
+    ind = ET.SubElement(p_pr, _w("ind"))
+    ind.set(_w("left"), "420")
+    ind.set(_w("hanging"), "420")
+    tabs = ET.SubElement(p_pr, _w("tabs"))
+    tab = ET.SubElement(tabs, _w("tab"))
+    tab.set(_w("val"), "left")
+    tab.set(_w("pos"), "420")
     contexts = [
         {"index": 1, "elem": title, "text": "参考文献", "kind": "h1", "section": "backmatter", "protected": False},
         {
             "index": 2,
             "elem": ref,
-            "text": "[1] Guo G C. Quantum optics[M]. Beijing: Higher Education Press, 2005.",
+            "text": "[1]\tGuo G C. Quantum optics[M]. Beijing: Higher Education Press, 2005.",
             "kind": "reference",
             "section": "backmatter",
             "protected": False,
@@ -172,7 +180,7 @@ def test_checker_2026_ref02_accepts_reference_number_with_space():
     assert passed, issues
 
 
-def test_checker_2026_ref02_rejects_missing_space_after_reference_number():
+def test_checker_2026_ref02_rejects_missing_tab_after_reference_number():
     runtime = _checker_runtime_or_xfail()
     title = _make_paragraph("参考文献")
     ref = _make_paragraph("[1]Guo G C. Quantum optics[M]. Beijing: Higher Education Press, 2005.")
@@ -191,7 +199,7 @@ def test_checker_2026_ref02_rejects_missing_space_after_reference_number():
     passed, issues, _ = audit_thesis.check_lnu_ref02(_make_doc_root(title, ref), contexts, {}, runtime.cfg)
 
     assert not passed
-    assert any("格式异常" in issue for issue in issues)
+    assert any("编号后应使用制表符" in issue for issue in issues)
 
 
 def test_checker_2026_toc02_accepts_checker_spacing_for_entries():

@@ -10,6 +10,8 @@ import tempfile
 import time
 from typing import Any
 
+from article_api import errors as api_errors
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_ROOT = PROJECT_ROOT / "scripts"
@@ -22,6 +24,7 @@ def handler_request(resolved_request: dict[str, Any]) -> dict[str, Any]:
     payload.pop("upload_id", None)
     payload.pop("source_file_path", None)
     payload.pop("source_display_name", None)
+    payload.pop("output_dir", None)
     payload.pop("max_attempts", None)
     payload.pop("retry_delay_seconds", None)
     payload.pop("timeout_seconds", None)
@@ -39,21 +42,16 @@ def subprocess_env(*, scripts_root: Path = SCRIPTS_ROOT) -> dict[str, str]:
 
 
 def timeout_error_payload(timeout_seconds: float | None) -> dict[str, Any]:
-    return {
-        "code": "worker_timeout",
-        "type": "TimeoutExpired",
-        "message": f"Job attempt exceeded timeout of {timeout_seconds} seconds",
-        "http_status": 504,
-    }
+    return api_errors.error_payload(
+        "worker_timeout",
+        exc_type="TimeoutExpired",
+        message=f"Job attempt exceeded timeout of {timeout_seconds} seconds",
+        http_status=504,
+    )
 
 
 def transient_internal_error_payload(message: str) -> dict[str, Any]:
-    return {
-        "code": "internal_error",
-        "type": "RuntimeError",
-        "message": message,
-        "http_status": 500,
-    }
+    return api_errors.error_payload("internal_error", exc_type="RuntimeError", message=message, http_status=500)
 
 
 def run_handler_subprocess(
@@ -132,6 +130,8 @@ def execute_job_attempt(
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": timeout_error_payload(resolved_request.get("timeout_seconds"))}
+    except ValueError as exc:
+        return {"ok": False, "error": api_errors.value_error_payload(exc)}
     except Exception as exc:
         return {"ok": False, "error": transient_internal_error_payload(str(exc))}
     if not isinstance(payload, dict) or "ok" not in payload:
@@ -143,4 +143,4 @@ def execute_job_attempt(
 
 
 def is_retryable_error(error: dict[str, Any]) -> bool:
-    return error.get("code") in {"internal_error", "worker_timeout"}
+    return bool(api_errors.normalize_error_payload(error).get("retryable"))

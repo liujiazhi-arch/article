@@ -202,6 +202,51 @@ def test_install_local_app_wheel_mode_builds_artifact_and_installs_from_direct_u
     )
 
 
+def test_install_local_app_writes_windows_launcher(monkeypatch, tmp_path):
+    def fake_run(command, *, cwd=None, capture_output=False, env=None):
+        command = list(command)
+        if command[1:3] == ["-m", "venv"]:
+            venv_dir = Path(command[-1])
+            python_path = installer._venv_python(venv_dir)
+            script_path = installer._venv_script(venv_dir, "article-local")
+            python_path.parent.mkdir(parents=True, exist_ok=True)
+            python_path.write_text("", encoding="utf-8")
+            script_path.write_text("", encoding="utf-8")
+        return None
+
+    monkeypatch.setattr(installer, "_run", fake_run)
+
+    launcher_path = tmp_path / "bundle" / "启动论文格式检查.bat"
+    payload = installer.install_local_app(
+        python_executable=sys.executable,
+        venv_dir=tmp_path / "venv",
+        state_root=tmp_path / "state",
+        runtime_root=tmp_path / "runtime",
+        write_env=tmp_path / "article-local.env",
+        no_deps=True,
+        skip_init=True,
+        launcher_path=launcher_path,
+    )
+
+    assert payload["launcher"]["path"] == str(launcher_path.resolve())
+    assert payload["quickstart"]["launcher"] == str(launcher_path.resolve())
+    launcher_text = launcher_path.read_text(encoding="utf-8-sig")
+    assert "@echo off" in launcher_text
+    assert "论文格式检查" in launcher_text
+    assert 'set "ARTICLE_LOCAL=%~dp0' in launcher_text
+    assert str(tmp_path) not in launcher_text
+    assert '"%ARTICLE_LOCAL%" doctor' in launcher_text
+    assert '"%ARTICLE_LOCAL%" serve' in launcher_text
+    assert '--state-root "%~dp0' in launcher_text
+    assert '--runtime-root "%~dp0' in launcher_text
+    assert "正在检查本地网页端口 8000..." in launcher_text
+    assert "Test-NetConnection -ComputerName 127.0.0.1 -Port 8000" in launcher_text
+    assert "端口 8000 已被占用" in launcher_text
+    assert "请先关闭占用 8000 端口的程序" in launcher_text
+    assert "Start-Sleep -Seconds 2" in launcher_text
+    assert "Start-Process 'http://127.0.0.1:8000'" in launcher_text
+
+
 def test_install_local_app_rejects_unknown_install_mode(tmp_path):
     with pytest.raises(RuntimeError, match="Unsupported install mode"):
         installer.install_local_app(
@@ -404,19 +449,25 @@ def test_install_local_app_surfaces_clear_error_on_invalid_init_json(monkeypatch
 
 
 def test_install_script_main_prints_json(capsys, monkeypatch):
-    monkeypatch.setattr(
-        installer,
-        "install_local_app",
-        lambda **_: {
+    received_kwargs = {}
+
+    def fake_install_local_app(**kwargs):
+        received_kwargs.update(kwargs)
+        return {
             "status": "ok",
             "venv": {"article_local": "/tmp/article-local", "path": "/tmp/venv"},
             "install": {"skip_init": True},
             "quickstart": {"doctor": "/tmp/article-local doctor"},
             "init": None,
-        },
+        }
+
+    monkeypatch.setattr(
+        installer,
+        "install_local_app",
+        fake_install_local_app,
     )
 
-    exit_code = installer.main(["--no-deps", "--skip-init"])
+    exit_code = installer.main(["--no-deps", "--skip-init", "--launcher-path", "启动论文格式检查.bat"])
 
     assert exit_code == 0
     captured = capsys.readouterr()
@@ -424,3 +475,4 @@ def test_install_script_main_prints_json(capsys, monkeypatch):
     assert payload["install"]["skip_init"] is True
     assert payload["venv"]["article_local"]
     assert payload["quickstart"]["doctor"]
+    assert received_kwargs["launcher_path"] == "启动论文格式检查.bat"

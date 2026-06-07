@@ -104,7 +104,9 @@ def _checker_2026_cfg(**overrides) -> dict:
             "mixed_spacing_policy": "compact",
             "pg01_format": "plain",
             "ref_terminal_punct": ".",
-            "ref_number_trailing_space": True,
+            "ref_use_tab": True,
+            "ref_tab_min": 420,
+            "ref_number_trailing_space": False,
         }
     )
     cfg.update(overrides)
@@ -276,14 +278,15 @@ def test_fix_reference_punctuation_forces_terminal_period_under_checker_2026():
     assert get_paragraph_text(paragraph).endswith(".")
 
 
-def test_fix_reference_paragraph_checker_2026_number_spacing_contract():
+def test_fix_reference_paragraph_checker_2026_number_tab_contract():
     paragraph = _make_paragraph("[01]   Some reference text.", sz=21)
-    cfg = _checker_2026_cfg(ref_use_tab=False)
+    cfg = _checker_2026_cfg()
 
     fix_reference_paragraph(paragraph, cfg=cfg)
 
     normalized = get_paragraph_text(paragraph)
-    assert normalized == "[1] Some reference text."
+    assert normalized == "[1]\tSome reference text."
+    assert paragraph.find(".//w:tab", NSMAP) is not None
 
 
 def test_split_inline_citations_normalizes_groups_and_keeps_them_superscript():
@@ -311,7 +314,7 @@ def test_fix_reference_paragraph_matches_latest_reference_layout_contract():
     assert first_rpr is not None
     vert_align = ET.SubElement(first_rpr, _w("vertAlign"))
     vert_align.set(_w("val"), "superscript")
-    cfg = _checker_2026_cfg(ref_use_tab=False)
+    cfg = _checker_2026_cfg()
 
     fix_reference_paragraph(paragraph, cfg=cfg)
 
@@ -326,8 +329,15 @@ def test_fix_reference_paragraph_matches_latest_reference_layout_contract():
     assert jc is not None and jc.get(_w("val")) == "both"
     assert spacing is not None and spacing.get(_w("line")) == "360"
     assert p_pr.find("w:suppressAutoHyphens", NSMAP) is not None
+    tabs = p_pr.find("w:tabs", NSMAP)
+    assert tabs is not None
+    left_tab = tabs.find("w:tab", NSMAP)
+    assert left_tab is not None
+    assert left_tab.get(_w("val")) == "left"
+    assert left_tab.get(_w("pos")) == "420"
     assert not fix_thesis.is_superscript(first_run)
-    assert get_paragraph_text(paragraph) == "[1] Some reference text."
+    assert paragraph.find(".//w:tab", NSMAP) is not None
+    assert get_paragraph_text(paragraph) == "[1]\tSome reference text."
 
 
 def test_fix_sp_cjk_latin_checker_2026_compact_policy_does_not_add_mixed_spacing():

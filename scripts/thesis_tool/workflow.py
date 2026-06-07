@@ -11,7 +11,7 @@ from backmatter_title_utils import is_preface_heading_title
 from frontmatter_utils import has_toc_field_instr, is_toc_structural_style_id
 
 from thesis_tool.capabilities import classify_rule_action, load_rule_capabilities
-from thesis_tool.scopes import list_scope_definitions, normalize_scope_names, scope_for_rule
+from thesis_tool.scopes import build_rule_scope_map, filter_scope_definitions, normalize_scope_names
 
 _HEADING_KIND_TO_LEVEL = {
     "h1": 1,
@@ -131,6 +131,9 @@ def build_scope_plan(file_path: str, profile_path: str | None = None, scopes=Non
         profile_path=profile_path,
         strict_profile=strict_profile,
     )
+    runtime_rule_ids = {rule_id for rule_id, _, _ in runtime.rule_definitions}
+    scope_definitions = filter_scope_definitions(runtime_rule_ids)
+    rule_to_scope = build_rule_scope_map(scope_definitions)
     failed_results = [result for result in results if not result.get("passed")]
     failed_by_scope: dict[str, list[dict]] = {}
     unscoped_failed: list[dict] = []
@@ -141,14 +144,14 @@ def build_scope_plan(file_path: str, profile_path: str | None = None, scopes=Non
         enriched_result["check_level"] = capability.get("check_level", "Unknown")
         enriched_result["autofix"] = capability.get("autofix", "?")
         enriched_result["action"] = classify_audit_result_action(result)
-        scope_id = scope_for_rule(result["id"])
+        scope_id = rule_to_scope.get(result["id"])
         if scope_id is None:
             unscoped_failed.append(enriched_result)
             continue
         failed_by_scope.setdefault(scope_id, []).append(enriched_result)
 
     scopes = []
-    for definition in list_scope_definitions():
+    for definition in scope_definitions:
         scope_failed = failed_by_scope.get(definition.id, [])
         action_counts = {
             "autofixable_count": sum(1 for item in scope_failed if item["action"] == "autofix"),

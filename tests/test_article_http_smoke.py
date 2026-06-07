@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 from pathlib import Path
 import time
+import zipfile
 
 from docx import Document
 import pytest
@@ -80,6 +82,7 @@ def _upload_pdf(client: TestClient, runtime_root: Path) -> dict[str, object]:
 
 
 def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_docx, tmp_path):
+    monkeypatch.delenv("ARTICLE_LOCAL_RELEASE_API_URL", raising=False)
     source_path = tmp_docx(make_compliant_doc, filename="article_http_smoke.docx")
     doc = Document(source_path)
     RULE_MUTATORS["H02"](doc)
@@ -91,6 +94,7 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     console_response = client.get("/")
     ready_response = client.get("/ready")
     version_response = client.get("/version")
+    update_response = client.get("/updates/latest")
     profiles_response = client.get("/profiles")
     runtime_response = client.get("/ops/runtime")
     storage_response = client.get("/ops/storage")
@@ -99,6 +103,7 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert health_response.status_code == 200
     assert ready_response.status_code == 200
     assert version_response.status_code == 200
+    assert update_response.status_code == 200
     assert profiles_response.status_code == 200
     assert runtime_response.status_code == 200
     assert storage_response.status_code == 200
@@ -111,15 +116,22 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert "选择 Word 论文" in console_response.text
     assert "辽宁大学毕业论文格式" in console_response.text
     assert "格式检查与修复" in console_response.text
-    assert "一键生成修复稿" in console_response.text
+    assert "上传 DOCX，生成修复稿；再上传导出的 PDF 复审。" not in console_response.text
+    assert "一键生成修复稿" not in console_response.text
+    assert "生成修复方案" in console_response.text
+    assert "按所选范围修复" in console_response.text
     assert "上传 PDF 复审" in console_response.text
     assert "按这些问题生成下一版 DOCX" in console_response.text
     assert "任务查询" in console_response.text
+    assert "最近任务" in console_response.text
+    assert "refreshRecentJobs" in console_response.text
+    assert "/jobs?limit=10" in console_response.text
     assert "高级设置" not in console_response.text
     assert "分步操作" not in console_response.text
     assert "advanced-details" not in console_response.text
     assert "single-profile" not in console_response.text
     assert "cn-common" not in console_response.text
+    assert "profile: 'lnu'" not in console_response.text
     assert "可选动作" not in console_response.text
     assert "处理选项" not in console_response.text
     assert "PDF 复审" in console_response.text
@@ -129,6 +141,9 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert "data-workflow-mode=\"advanced_word\"" not in console_response.text
     assert "selectedWorkflowMode: 'default_user'" in console_response.text
     assert "function userFacingError" in console_response.text
+    assert "function jobErrorText" in console_response.text
+    assert "jobErrorText(detail.error || detail)" in console_response.text
+    assert "jobErrorText(payload.error || payload)" in console_response.text
     assert "renderWorkflowStatusItems" in console_response.text
     assert "formatRenderFinding" in console_response.text
     assert "renderFindingItems" in console_response.text
@@ -137,6 +152,7 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert "pollAgentCandidateJob" in console_response.text
     assert "下一版 DOCX 已提交后端任务" in console_response.text
     assert "后端任务仍在运行，不是页面卡死" in console_response.text
+    assert "正在转换 PDF 页面；30 页左右可能需要 1-3 分钟，不是页面卡住" in console_response.text
     assert "需要版式复核原因" in console_response.text
     assert "技术详情" in console_response.text
     assert "预计下一版路径" in console_response.text
@@ -156,7 +172,8 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert "Agent 候选稿模式" not in console_response.text
     assert "排障模式工作台" not in console_response.text
     assert "进入排障模式" not in console_response.text
-    assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" in console_response.text
+    assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" not in console_response.text
+    assert "for (const id of ['preflight', 'plan'])" in console_response.text
     assert "guardedRenderWorkflow('advanced_word')" not in console_response.text
     assert "原文不会被覆盖" in console_response.text
     assert "总体结论" in console_response.text
@@ -175,6 +192,18 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert "查看路径" in console_response.text
     assert "桌面/论文格式修复输出" in console_response.text
     assert "任务状态" in console_response.text
+    assert "renderJobReportTrace" in console_response.text
+    assert "查看审查报告" in console_response.text
+    assert "检查新版本" in console_response.text
+    assert "只检查软件版本，不上传论文" in console_response.text
+    assert "/updates/latest" in console_response.text
+    assert "对应文件" in console_response.text
+    assert "outputArtifact.available === true" in console_response.text
+    assert "文件已清理，不能直接下载" in console_response.text
+    assert "/artifacts/report/download" in console_response.text
+    assert "心跳间隔" not in console_response.text
+    assert "阶段:" not in console_response.text
+    assert "超时阈值" not in console_response.text
     assert "等待选择任务" not in console_response.text
     assert "历史任务" not in console_response.text
     assert "批量任务" not in console_response.text
@@ -183,10 +212,18 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert ready_response.json()["status"] == "ready"
     assert ready_response.json()["checks"]["runtime_root"]["status"] == "ok"
     assert version_response.json()["api_version"] == "v0"
+    assert version_response.json()["update_check"]["mode"] == "manual"
+    assert update_response.json()["status"] == "not_configured"
+    assert update_response.json()["auto_update"] is False
     profiles_payload = profiles_response.json()
-    assert any(item["id"] == "lnu-checker-2026" for item in profiles_payload["profiles"])
-    assert any(item["id"] == "school_degree_thesis" for item in profiles_payload["summary"]["support_scenarios"])
-    lnu_profile = next(item for item in profiles_payload["profiles"] if item["id"] == "lnu-checker-2026")
+    assert profiles_payload["summary"]["profile_count"] == 1
+    assert profiles_payload["summary"]["default_profile_id"] == "lnu-checker-2026"
+    assert [item["id"] for item in profiles_payload["profiles"]] == ["lnu-checker-2026"]
+    assert "cn-common" not in str(profiles_payload).lower()
+    assert "课程作业" not in str(profiles_payload)
+    assert "综述" not in str(profiles_payload)
+    assert [item["id"] for item in profiles_payload["summary"]["support_scenarios"]] == ["school_degree_thesis"]
+    lnu_profile = profiles_payload["profiles"][0]
     assert any(item["label"] == "学校学位论文" for item in lnu_profile["support_scenarios"])
     assert runtime_response.json()["runtime"]["worker_model"] == "single"
     assert runtime_response.json()["runtime"]["recovery"]["strategy"] == "fail_unfinished_without_active_worker_future"
@@ -263,7 +300,7 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
             "manual_review_rule_ids": ["LNU_TOC03"],
             "unsupported_rule_ids": [],
             "review_items": ["目录需要刷新后复核页码。"],
-            "report_path": str(tmp_path / "http-render-proof" / "render_verify_report.json"),
+            "report_path": str(tmp_path / "http-render-proof" / "render_verify_report.md"),
         },
     )
     render_verify_response = client.post(
@@ -331,11 +368,29 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     result_payload = result_response.json()
     assert result_payload["result"]["document"]["name"] == "article_http_smoke.docx"
     assert result_payload["runtime"]["source_upload_id"] == upload_payload["upload_id"]
+    assert next(item for item in result_payload["artifacts"] if item["role"] == "output")["available"] is True
+    report_artifact = next(item for item in result_payload["artifacts"] if item["role"] == "report")
+    assert report_artifact["available"] is True
+    assert report_artifact["download_name"] == "job_report.md"
 
     download_response = client.get(f"/jobs/{job_id}/artifacts/output/download")
     assert download_response.status_code == 200
     assert download_response.content
     assert "article_http_smoke_%E6%A0%BC%E5%BC%8F%E4%BF%AE%E5%A4%8D_V01.docx" in download_response.headers.get("content-disposition", "")
+    report_download_response = client.get(f"/jobs/{job_id}/artifacts/report/download")
+    assert report_download_response.status_code == 200
+    assert report_download_response.headers["content-type"].startswith("text/markdown")
+    assert f"任务编号: {job_id}".encode("utf-8") in report_download_response.content
+    feedback_response = client.get("/feedback/download")
+    assert feedback_response.status_code == 200
+    assert feedback_response.headers["content-type"].startswith("application/zip")
+    assert "feedback" in feedback_response.headers.get("content-disposition", "").lower() or "%E5%8F%8D%E9%A6%88%E5%8C%85" in feedback_response.headers.get("content-disposition", "")
+    with zipfile.ZipFile(io.BytesIO(feedback_response.content)) as archive:
+        feedback_names = set(archive.namelist())
+        feedback_manifest = archive.read("manifest.json").decode("utf-8")
+    assert {"manifest.json", "doctor.json", "jobs.json", "uploads.json", "runtime_files.json"} <= feedback_names
+    assert not any(name.endswith((".docx", ".pdf", ".png")) for name in feedback_names)
+    assert str(tmp_path) not in feedback_manifest
 
     cleanup_response = client.post(f"/jobs/{job_id}/cleanup")
     assert cleanup_response.status_code == 200
@@ -346,10 +401,15 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     after_payload = after_response.json()
     assert after_payload["summary"] == result_payload["summary"]
     assert after_payload["result"] == result_payload["result"]
+    assert next(item for item in after_payload["artifacts"] if item["role"] == "output")["available"] is False
+    assert next(item for item in after_payload["artifacts"] if item["role"] == "report")["available"] is True
 
     missing_download_response = client.get(f"/jobs/{job_id}/artifacts/output/download")
     assert missing_download_response.status_code == 409
-    assert "Artifact file is unavailable" in missing_download_response.json()["detail"]
+    missing_download_detail = missing_download_response.json()["detail"]
+    assert missing_download_detail["code"] == "artifact_unavailable"
+    assert missing_download_detail["user_message"] == "下载文件已经不可用。"
+    assert "重新运行修复任务" in missing_download_detail["next_action"]
 
     summary_response = client.get("/ops/summary")
     assert summary_response.status_code == 200
@@ -432,11 +492,37 @@ def test_live_http_upload_cleanup_and_missing_upload_mapping(monkeypatch, tmp_do
         json={"scopes": ["headings"]},
     )
     assert blocked_job_response.status_code == 409
-    assert "Uploaded file is unavailable" in blocked_job_response.json()["detail"]
+    blocked_detail = blocked_job_response.json()["detail"]
+    assert blocked_detail["code"] == "upload_unavailable"
+    assert blocked_detail["user_message"] == "上传文件已经不可用。"
+    assert blocked_detail["next_action"] == "请重新上传论文后再试。"
+    assert blocked_detail["retryable"] is False
 
     missing_upload_cleanup_response = client.post("/uploads/missing-upload/cleanup")
     assert missing_upload_cleanup_response.status_code == 404
-    assert "Upload not found" in missing_upload_cleanup_response.json()["detail"]
+    missing_detail = missing_upload_cleanup_response.json()["detail"]
+    assert missing_detail["code"] == "upload_not_found"
+    assert missing_detail["user_message"] == "没有找到这个上传记录。"
+    assert missing_detail["next_action"] == "请重新上传论文后再试。"
+    assert missing_detail["retryable"] is False
+
+
+def test_live_http_pdf_upload_rejects_non_pdf_payload_with_chinese_guidance(monkeypatch, tmp_path):
+    runtime_root = tmp_path / "runtime"
+    client = _make_client(monkeypatch, tmp_path / "state")
+
+    response = client.post(
+        "/uploads/pdf",
+        params={"runtime_root": str(runtime_root)},
+        files={"file": ("paper.pdf", b"not-a-pdf", "application/pdf")},
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["code"] == "invalid_pdf"
+    assert detail["user_message"] == "上传的文件不是有效的 PDF 文档。"
+    assert detail["next_action"] == "请从 Word/WPS 重新导出 PDF 后再上传。"
+    assert not list((runtime_root / "uploads").glob("*.pdf"))
 
 
 def test_live_http_retention_sweep_cleans_expired_job_and_upload(monkeypatch, tmp_docx, tmp_path):
@@ -545,4 +631,7 @@ def test_live_http_download_missing_artifact_maps_to_404(monkeypatch, tmp_docx, 
         f"/jobs/{create_payload['job_id']}/artifacts/missing/download"
     )
     assert missing_artifact_response.status_code == 404
-    assert "Artifact not found" in missing_artifact_response.json()["detail"]
+    missing_artifact_detail = missing_artifact_response.json()["detail"]
+    assert missing_artifact_detail["code"] == "artifact_not_found"
+    assert missing_artifact_detail["user_message"] == "没有找到这个下载项。"
+    assert "刷新任务结果" in missing_artifact_detail["next_action"]

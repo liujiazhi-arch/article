@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
+
+from thesis_resources import config_path
 
 
 Capability = dict[str, str]
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CAPABILITY_MATRIX_PATH = PROJECT_ROOT / "config" / "capability_matrix.md"
+CAPABILITY_MATRIX_PATH = config_path("capability_matrix.md")
 
 
 def _split_row(line: str) -> list[str]:

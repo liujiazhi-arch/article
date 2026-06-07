@@ -7,6 +7,8 @@ import xml.etree.ElementTree as ET
 
 from docx import Document
 
+from thesis_resources import config_path
+
 
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -101,6 +103,8 @@ def _merge_styles_xml(template_styles_path, doc_styles_path):
 
 def inject_template_components(temp_dir, profile_id):
     template_dir = os.path.join(TOOL_ROOT, "config", "templates", profile_id)
+    if not os.path.isdir(template_dir):
+        template_dir = str(config_path("templates", profile_id))
     if not profile_id or not os.path.isdir(template_dir):
         return
 

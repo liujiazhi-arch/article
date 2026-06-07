@@ -42,7 +42,7 @@ def add_profile_args(command_parser, *, default="lnu"):
         "--allow-profile-fallback",
         dest="strict_profile",
         action="store_false",
-        help="profile 加载失败时回退到默认 CN-Common 配置",
+        help="profile 加载失败时回退到默认 LNU 配置",
     )
 
 

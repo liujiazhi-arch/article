@@ -8,6 +8,7 @@ from thesis_tool.scopes import normalize_scope_names
 
 
 DEFAULT_OUTPUT_DIR = Path("/Users/apple/Desktop/论文格式修复输出")
+DEFAULT_INTERMEDIATE_OUTPUT_DIR = Path(__file__).resolve().parents[2] / ".article_runtime" / "intermediate"
 FORMAT_FIX_SUFFIX = "格式修复"
 NORMALIZE_SUFFIX = "结构整理"
 LAYOUT_CANDIDATE_SUFFIX = "版式候选稿"
@@ -61,11 +62,17 @@ def scoped_output_path(
     )
 
 
-def normalize_output_path(*, source_file_path: str, source_display_name: str | None) -> str:
+def normalize_output_path(
+    *,
+    source_file_path: str,
+    source_display_name: str | None,
+    output_dir: str | Path | None = None,
+) -> str:
     return next_versioned_output_path(
         source_file_path=source_file_path,
         source_display_name=source_display_name,
         suffix_label=NORMALIZE_SUFFIX,
+        output_dir=output_dir or DEFAULT_INTERMEDIATE_OUTPUT_DIR,
     )
 
 

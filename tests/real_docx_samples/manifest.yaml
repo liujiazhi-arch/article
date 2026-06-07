@@ -1,0 +1,31 @@
+policy:
+  private_samples_ignored: true
+  commit_sanitized_only_with_review: true
+  notes:
+    - Original student theses must never be committed.
+    - Sanitized samples are committed only after manual privacy review.
+    - Prefer minimal reproductions that preserve the OOXML structure that triggered the bug.
+
+required_categories:
+  - id: wps
+    label: WPS 文档
+  - id: word
+    label: Word 文档
+  - id: toc_field
+    label: 含目录域
+  - id: footnote
+    label: 脚注
+  - id: comment
+    label: 批注
+  - id: revision
+    label: 修订
+  - id: floating_image
+    label: 浮动图片
+  - id: formula
+    label: 公式
+  - id: nested_table
+    label: 嵌套表格
+  - id: section_break
+    label: 异常 section break
+
+samples: []

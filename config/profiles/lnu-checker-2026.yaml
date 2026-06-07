@@ -128,10 +128,10 @@ additions:
     scope: undergraduate
     severity: important
     check_level: Auto
-    description: "参考文献编号格式：[N]后保留一个半角空格"
-    expected_pattern: "^\\[\\d+\\]\\s\\S"
+    description: "参考文献编号格式：[N]后使用制表符，与悬挂缩进同列对齐"
+    expected_pattern: "^\\[\\d+\\]\\t\\S"
     method: docx-structure
-    evidence: "参考文献段落文本"
+    evidence: "参考文献段落文本与 w:tabs/w:tab 制表位"
     fix: "fix_lnu_ref02(profile='lnu-checker-2026')"
     source: lnu-checker-2026
 
@@ -439,7 +439,8 @@ settings:
   kw_cn_separator: "；"
   kw_en_separator: "; "
   ref_hanging: 420
-  ref_use_tab: false
+  ref_tab_min: 420
+  ref_use_tab: true
   ref_line_spacing: 360
   ref_font_size: 21
   ack_font: "仿宋"
@@ -492,7 +493,7 @@ settings:
   abstract_en_body_line: 240
   abstract_en_body_indent: 480
   ref_require_type_marker: true
-  ref_number_trailing_space: true
+  ref_number_trailing_space: false
   acknowledgement_required: true
   relax_body_spacing_rules: true
   relax_strain_suffix_t_spacing: true

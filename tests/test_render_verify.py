@@ -47,7 +47,7 @@ def test_word_pdf_export_timeout_explains_word_automation_block(monkeypatch, tmp
         render_verify_module._export_docx_to_pdf_with_word(str(source_path), str(output_pdf))
 
 
-def test_build_render_verify_report_writes_json_and_collects_pages(monkeypatch, tmp_path):
+def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypatch, tmp_path):
     source_path = tmp_path / "render_verify_source.docx"
     doc = Document()
     doc.add_heading("Render Verify", level=1)
@@ -152,7 +152,13 @@ def test_build_render_verify_report_writes_json_and_collects_pages(monkeypatch, 
     assert report["summary"]["wild_doc_signal_count"] == 2
     assert report["summary"]["render_finding_count"] == 1
     assert report["summary"]["render_highest_severity"] == "warning"
-    assert Path(report["report_path"]).exists()
+    report_path = Path(report["report_path"])
+    assert report_path.name == "render_verify_report.md"
+    assert report_path.exists()
+    report_text = report_path.read_text(encoding="utf-8")
+    assert "文件: render_verify_source.docx" in report_text
+    assert "自动页图判读" in report_text
+    assert not report_text.lstrip().startswith("{")
 
 
 def test_extract_pdf_page_texts_splits_pdftotext_form_feeds(monkeypatch, tmp_path):
@@ -423,7 +429,7 @@ def test_render_render_verify_report_includes_review_summary():
         "render_evidence_status": "render-review-required",
         "output_dir": "/tmp/render-proof",
         "page_count": 2,
-        "report_path": "/tmp/render-proof/render_verify_report.json",
+        "report_path": "/tmp/render-proof/render_verify_report.md",
         "selected_scopes": ["headings", "figures_tables"],
         "wild_doc": {
             "detected": True,
@@ -483,7 +489,7 @@ def test_render_render_verify_report_preserves_cause_oriented_review_items():
         "render_evidence_status": "render-review-required",
         "output_dir": "/tmp/render-proof",
         "page_count": 1,
-        "report_path": "/tmp/render-proof/render_verify_report.json",
+        "report_path": "/tmp/render-proof/render_verify_report.md",
         "selected_scopes": ["figures_tables"],
         "wild_doc": {"detected": False, "signals": []},
         "layout_score": {"score": 80, "penalty": 20},

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from _profile_utils import list_profile_catalog
+from _profile_utils import DEFAULT_PROFILE_ID, list_public_profile_catalog
 
 
 def _utcnow() -> str:
@@ -46,7 +46,7 @@ def build_profile_catalog(
     version: str,
     api_version: str,
 ) -> dict:
-    profiles = list_profile_catalog()
+    profiles = list_public_profile_catalog()
     support_scenarios = _catalog_support_summary(profiles)
     return {
         "service": service_name,
@@ -56,7 +56,7 @@ def build_profile_catalog(
         "observed_at": _utcnow(),
         "summary": {
             "profile_count": len(profiles),
-            "default_profile_id": "cn-common",
+            "default_profile_id": DEFAULT_PROFILE_ID,
             "support_scenario_count": len(support_scenarios),
             "support_scenarios": support_scenarios,
         },

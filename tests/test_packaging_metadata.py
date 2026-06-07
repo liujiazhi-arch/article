@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
+import tarfile
 import tomllib
+import zipfile
 from pathlib import Path
 
 
@@ -30,6 +34,7 @@ def test_pyproject_declares_expected_console_scripts():
         "article-api": "article_api.local_app:serve_main",
         "article-doctor": "article_api.local_app:doctor_main",
         "article-backup": "article_api.local_app:backup_main",
+        "article-feedback": "article_api.local_app:feedback_main",
         "article-restore": "article_api.local_app:restore_main",
         "article-maintain": "article_api.local_app:maintain_main",
     }
@@ -56,6 +61,177 @@ def test_pyproject_includes_local_console_asset():
     ]
 
 
+def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
+    project_root = Path(__file__).resolve().parents[1]
+    wheel_dir = tmp_path / "wheelhouse"
+    subprocess.run(
+        [sys.executable, "-m", "pip", "wheel", str(project_root), "-w", str(wheel_dir), "--no-deps"],
+        check=True,
+        cwd=project_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    wheel_path = next(wheel_dir.glob("thesis_format_tool-*.whl"))
+
+    with zipfile.ZipFile(wheel_path) as wheel:
+        names = set(wheel.namelist())
+
+    required_entries = {
+        "audit_thesis.py",
+        "fix_thesis.py",
+        "thesis_workbench.py",
+        "thesis_resources.py",
+        "docx_sample_intake.py",
+        "fetch_public_docx_samples.py",
+        "release_smoke.py",
+        "local_browser_smoke.py",
+        "github_release_status.py",
+        "release_evidence_gate.py",
+        "release_evidence_bundle.py",
+        "verify_release_artifact.py",
+        "build_windows_local_bundle.py",
+        "windows_bundle_smoke.py",
+        "install_article_local.py",
+        "backmatter_title_utils.py",
+        "frontmatter_utils.py",
+        "reference_section_utils.py",
+        "reorder_references_by_appearance.py",
+        "thesis_rules/audit_common.py",
+        "thesis_rules/audit_lnu.py",
+        "thesis_rules/lnu_runtime.py",
+        "thesis_fix/dependencies.py",
+        "thesis_fix/lnu_postpasses.py",
+        "thesis_fix/page_footer.py",
+        "thesis_fix/tables_figures.py",
+        "thesis_fix/toc.py",
+        "article_api/local_feedback.py",
+    }
+    assert required_entries <= names
+
+    required_resource_suffixes = {
+        "config/profiles/lnu-checker-2026.yaml",
+        "config/profiles/CN-Common.yaml",
+        "config/capability_matrix.md",
+        "config/templates/lnu/styles.xml",
+    }
+    for suffix in required_resource_suffixes:
+        assert any(name.endswith(suffix) for name in names), suffix
+
+
+def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
+    project_root = Path(__file__).resolve().parents[1]
+    dist_dir = tmp_path / "dist"
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "build"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    subprocess.run(
+        [sys.executable, "-m", "build", "--sdist", "--outdir", str(dist_dir)],
+        check=True,
+        cwd=project_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    sdist_path = next(dist_dir.glob("thesis_format_tool-*.tar.gz"))
+
+    with tarfile.open(sdist_path, "r:gz") as sdist:
+        names = {Path(name).as_posix() for name in sdist.getnames()}
+
+    required_suffixes = {
+        "scripts/audit_thesis.py",
+        "scripts/fix_thesis.py",
+        "scripts/thesis_workbench.py",
+        "scripts/thesis_resources.py",
+        "scripts/docx_sample_intake.py",
+        "scripts/fetch_public_docx_samples.py",
+        "scripts/release_smoke.py",
+        "scripts/local_browser_smoke.py",
+        "scripts/github_release_status.py",
+        "scripts/release_evidence_gate.py",
+        "scripts/release_evidence_bundle.py",
+        "scripts/verify_release_artifact.py",
+        "scripts/build_windows_local_bundle.py",
+        "scripts/windows_bundle_smoke.py",
+        "scripts/install_article_local.py",
+        "scripts/thesis_rules/audit_lnu.py",
+        "scripts/thesis_fix/toc.py",
+        "scripts/article_api/local_console.html",
+        "scripts/article_api/local_feedback.py",
+        "config/profiles/lnu-checker-2026.yaml",
+        "config/capability_matrix.md",
+        "config/templates/lnu/styles.xml",
+    }
+    for suffix in required_suffixes:
+        assert any(name.endswith(suffix) for name in names), suffix
+
+
+def test_wheel_install_imports_entry_modules_from_outside_repo(tmp_path):
+    project_root = Path(__file__).resolve().parents[1]
+    wheel_dir = tmp_path / "wheelhouse"
+    install_dir = tmp_path / "install"
+    subprocess.run(
+        [sys.executable, "-m", "pip", "wheel", str(project_root), "-w", str(wheel_dir), "--no-deps"],
+        check=True,
+        cwd=project_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    wheel_path = next(wheel_dir.glob("thesis_format_tool-*.whl"))
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", str(wheel_path), "--target", str(install_dir), "--no-deps"],
+        check=True,
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    import_script = """
+import importlib
+from _profile_utils import DEFAULT_PROFILE_ID, list_public_profile_catalog
+from thesis_tool.capabilities import load_rule_capabilities
+
+for name in (
+    "audit_thesis",
+    "fix_thesis",
+    "thesis_workbench",
+    "article_api.local_app",
+    "article_api.local_feedback",
+    "docx_sample_intake",
+    "fetch_public_docx_samples",
+    "release_smoke",
+    "local_browser_smoke",
+    "github_release_status",
+    "release_evidence_gate",
+    "release_evidence_bundle",
+    "build_windows_local_bundle",
+    "windows_bundle_smoke",
+    "install_article_local",
+):
+    importlib.import_module(name)
+
+profiles = list_public_profile_catalog()
+assert DEFAULT_PROFILE_ID == "lnu-checker-2026"
+assert [profile["id"] for profile in profiles] == ["lnu-checker-2026"]
+assert len(load_rule_capabilities()) == 74
+"""
+    subprocess.run(
+        [sys.executable, "-c", import_script],
+        check=True,
+        cwd=tmp_path,
+        env={"PYTHONPATH": str(install_dir)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
 def test_local_console_includes_apple_style_motion_hooks():
     html_path = Path(__file__).resolve().parents[1] / "scripts" / "article_api" / "local_console.html"
     html = html_path.read_text(encoding="utf-8")
@@ -65,7 +241,8 @@ def test_local_console_includes_apple_style_motion_hooks():
         "IntersectionObserver",
         "initAppleMotion",
         "motion-reveal",
-        "topbar compact",
+        ".topbar.compact",
+        "topbar.classList.toggle('compact'",
         "report-updated",
         "upload-active",
         "step-pulse",

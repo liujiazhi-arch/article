@@ -13,9 +13,15 @@ env/
 # Test and coverage artifacts
 .coverage
 htmlcov/
+.playwright-cli/
 
 # Local article API/runtime artifacts
 .article_runtime/
+data/state/
+data/runtime/
+uploads/
+runtime/
+artifacts/
 .tmp_render_probe_out/
 .tmp_render_artifact/
 .tmp_render_verify_live/
@@ -23,6 +29,21 @@ htmlcov/
 .tmp_render_*.png
 runs/
 output/
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+
+# Local privacy/secrets and support bundles
+.env
+.env.*
+!.env.example
+*.env
+article-local.env
+*.log
+反馈包.zip
+*feedback*.zip
+article-backup*.zip
 
 # Build/install artifacts
 build/
@@ -44,3 +65,10 @@ outputs/.~*.docx
 
 # Generated thesis outputs stay local.
 outputs/
+
+# Real DOCX compatibility samples stay local unless explicitly reviewed.
+tests/real_docx_samples/private/
+tests/real_docx_samples/public_downloads/
+tests/real_docx_samples/sanitized/*.docx
+tests/real_docx_samples/sanitized/*.zip
+tests/real_docx_samples/sanitized/manifest.jsonl

@@ -80,8 +80,8 @@ def test_workbench_apply_cli_repairs_only_selected_scope(tmp_docx, tmp_path):
     assert "复查范围: headings" in result.stdout
     assert "Profile: cn-common" in result.stdout
 
-    after_h02 = audit_rule_status(fixed_path, "H02")
-    after_t01 = audit_rule_status(fixed_path, "T01")
+    after_h02 = audit_rule_status(fixed_path, "H02", profile_path="cn-common")
+    after_t01 = audit_rule_status(fixed_path, "T01", profile_path="cn-common")
     assert after_h02["rule"]["passed"], after_h02["rule"]["issues"]
     assert not after_t01["rule"]["passed"]
 
@@ -121,11 +121,12 @@ def test_workbench_profiles_lists_expected_profiles():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "cn-common" in result.stdout
     assert "lnu-checker-2026" in result.stdout
+    assert "cn-common" not in result.stdout
     assert "lnu-undergraduate" not in result.stdout
     assert "support=一等支持" in result.stdout
-    assert "课程作业/基础论文[课程作业、基础论文]/一等支持" in result.stdout
+    assert "课程作业" not in result.stdout
+    assert "综述" not in result.stdout
     assert "学校学位论文[本科毕业论文]/一等支持" in result.stdout
 
 
@@ -616,4 +617,4 @@ def test_workbench_audit_cli_can_allow_profile_fallback(tmp_docx):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Profile: cn-common (requested: missing-profile.yaml; fallback: cn-common)" in result.stdout
+    assert "Profile: lnu-checker-2026 (requested: missing-profile.yaml; fallback: lnu-checker-2026)" in result.stdout

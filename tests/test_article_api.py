@@ -1,11 +1,14 @@
 from io import BytesIO
+import zipfile
 from pathlib import Path
 import pytest
 from docx import Document
 
 import article_api.app as app_module
+from article_api import app_ops
 import article_api.jobs as jobs_module
 import article_api.output_naming as output_naming
+import article_api.storage as storage
 from article_api.app import (
     ApplyRequest,
     NormalizeRequest,
@@ -101,6 +104,7 @@ def test_create_app_handles_missing_fastapi_dependency():
         assert "/health" in route_paths
         assert "/ready" in route_paths
         assert "/version" in route_paths
+        assert "/updates/latest" in route_paths
         assert "/profiles" in route_paths
         assert "/render-workflow-modes" in route_paths
         assert "/audit" in route_paths
@@ -132,6 +136,7 @@ def test_create_app_handles_missing_fastapi_dependency():
         assert "/jobs/{job_id}/cleanup" in route_paths
         assert "/jobs/{job_id}/retry" in route_paths
         assert "/jobs/{job_id}/artifacts/{artifact_role}/download" in route_paths
+        assert "/feedback/download" in route_paths
         assert "/ops/summary" in route_paths
         assert "/ops/storage" in route_paths
         assert "/ops/runtime" in route_paths
@@ -227,6 +232,7 @@ def test_retention_sweep_request_supports_optional_thresholds():
 
 
 def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_docx, tmp_path):
+    monkeypatch.delenv("ARTICLE_LOCAL_RELEASE_API_URL", raising=False)
     clear_jobs()
     clear_uploads()
     app = _build_fake_app(monkeypatch)
@@ -239,11 +245,11 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     console_response = routes["/"].endpoint()
     health_payload = routes["/health"].endpoint()
     version_payload = routes["/version"].endpoint()
+    updates_payload = routes["/updates/latest"].endpoint()
     profiles_payload = routes["/profiles"].endpoint()
     preflight_payload = routes["/preflight"].endpoint(
         PreflightRequest(
             file_path=str(source_path),
-            profile="cn-common",
         )
     )
     ready_payload = routes["/ready"].endpoint()
@@ -266,16 +272,87 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert "选择 Word 论文" in console_html
     assert "辽宁大学毕业论文格式" in console_html
     assert "格式检查与修复" in console_html
-    assert "一键生成修复稿" in console_html
+    assert "--topbar-height: 68px" in console_html
+    assert "font-size: 16px" in console_html
+    assert "brand-mark brand-mark-reveal" in console_html
+    assert "animation: emblemIntro" in console_html
+    assert "showBrandPulse" in console_html
+    assert "brandMark.addEventListener('animationend'" in console_html
+    assert "color-scheme: light dark" in console_html
+    assert "@media (prefers-color-scheme: dark)" in console_html
+    assert 'id="theme-toggle-button"' in console_html
+    assert 'class="theme-toggle"' in console_html
+    assert 'aria-label="切换深浅色"' in console_html
+    assert "article-console-theme" in console_html
+    assert "function applyTheme" in console_html
+    assert "function toggleTheme" in console_html
+    assert "document.documentElement.dataset.theme" in console_html
+    assert "localStorage.setItem(THEME_STORAGE_KEY" in console_html
+    assert "aria-pressed" in console_html
+    assert ':root[data-theme="dark"]' in console_html
+    assert ':root[data-theme="light"]' in console_html
+    assert '[data-theme="dark"] #view-paper .hero' in console_html
+    assert '[data-theme="dark"] #view-paper .hero::before' in console_html
+    assert '[data-theme="dark"] #view-paper .stage' in console_html
+    assert "margin-top: clamp(28px, 4vw, 52px)" in console_html
+    assert "inset: 18px max(18px, calc((100vw - var(--content-max)) / 2)) 22px" in console_html
+    assert "--shadow-sm:" in console_html
+    assert "--shadow-md:" in console_html
+    assert "--shadow-lg:" in console_html
+    assert "--shadow-blue:" in console_html
+    assert "--focus-ring:" in console_html
+    assert ":focus-visible" in console_html
+    assert "button.primary:focus-visible" in console_html
+    assert ".loading-skeleton" in console_html
+    assert "renderRecentJobsLoading" in console_html
+    assert "renderRecordLoading" in console_html
+    assert "line-height: 1.08" in console_html
+    assert '<div class="records-hero hero">' in console_html
+    assert "上传 DOCX，生成修复稿；再上传导出的 PDF 复审。" not in console_html
+    assert "一键生成修复稿" not in console_html
+    assert "生成修复方案" in console_html
+    assert "按所选范围修复" in console_html
     assert "上传 PDF 复审" in console_html
     assert "按这些问题生成下一版 DOCX" in console_html
     assert "下一版 DOCX 已生成" in console_html
     assert "任务查询" in console_html
+    assert "最近任务" in console_html
+    assert "records-stage" in console_html
+    assert "records-layout" in console_html
+    assert "records-main-stack" in console_html
+    assert "records-recent-card glass-card" in console_html
+    assert "glass-card interactive-glass" in console_html
+    assert "grid-template-columns: repeat(auto-fit, minmax(260px, 1fr))" in console_html
+    assert "recent-job-document" in console_html
+    assert "recent-job-operation" in console_html
+    assert "任务编号:" in console_html
+    assert 'id="feedback-download-link"' in console_html
+    assert 'href="/feedback/download"' in console_html
+    assert 'download="反馈包.zip"' in console_html
+    assert "导出反馈包" in console_html
+    assert "默认不含论文原文或修复稿" in console_html
+    assert "检查新版本" in console_html
+    assert "只检查软件版本，不上传论文" in console_html
+    assert "/updates/latest" in console_html
+    assert "manualUpdateCheck" in console_html
+    assert ".topbar-inner {" in console_html
+    assert "flex-wrap: wrap;" in console_html
+    assert ".update-check-note {" in console_html
+    assert "display: block;" in console_html
+    assert ".update-check-note { display: none;" not in console_html
+    assert "自动安装新版本" not in console_html
+    assert "openReportPreview" in console_html
+    assert "record-report-preview" in console_html
+    assert "data-report-download" in console_html
+    assert "报告文件已清理，已复制原路径" in console_html
+    assert "refreshRecentJobs" in console_html
+    assert "/jobs?limit=10" in console_html
     assert "高级设置" not in console_html
     assert "分步操作" not in console_html
     assert "advanced-details" not in console_html
     assert "single-profile" not in console_html
     assert "cn-common" not in console_html
+    assert "profile: 'lnu'" not in console_html
     assert "可选动作" not in console_html
     assert "处理选项" not in console_html
     assert "PDF 复审" in console_html
@@ -284,6 +361,19 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert "data-workflow-mode=\"default_user\"" not in console_html
     assert "data-workflow-mode=\"advanced_word\"" not in console_html
     assert "selectedWorkflowMode: 'default_user'" in console_html
+    assert 'id="scope-selection-panel"' in console_html
+    assert 'data-scope-list' in console_html
+    assert 'data-scope-checkbox' in console_html
+    assert "function renderScopeSelection" in console_html
+    assert "querySelectorAll('[data-scope-checkbox]:checked')" in console_html
+    assert "至少选择一个修复范围" in console_html
+    assert "function selectedScopes() { return SCOPES.map(([value]) => value); }" not in console_html
+    assert "async function runApplyJob" in console_html
+    assert "pollApplyJob" in console_html
+    assert "/uploads/${encodeURIComponent(state.uploaded.upload_id)}/jobs/apply" in console_html
+    assert "'/jobs/apply'" in console_html
+    assert "/jobs/${encodeURIComponent(jobId)}/artifacts/output/download" in console_html
+    assert "下载修复稿" in console_html
     assert "function userFacingError" in console_html
     assert "renderWorkflowStatusItems" in console_html
     assert "formatRenderFinding" in console_html
@@ -293,6 +383,7 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert "pollAgentCandidateJob" in console_html
     assert "下一版 DOCX 已提交后端任务" in console_html
     assert "后端任务仍在运行，不是页面卡死" in console_html
+    assert "正在转换 PDF 页面；30 页左右可能需要 1-3 分钟，不是页面卡住" in console_html
     assert "需要版式复核原因" in console_html
     assert "技术详情" in console_html
     assert "预计下一版路径" in console_html
@@ -318,10 +409,19 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert "render-manual-button" in console_html
     assert "render-word-button" not in console_html
     assert "render-agent-button" not in console_html
-    assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" in console_html
+    assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" not in console_html
+    assert "for (const id of ['preflight', 'plan'])" in console_html
     assert "guardedRenderWorkflow('default_user')" in console_html
     assert "原文不会被覆盖" in console_html
     assert "总体结论" in console_html
+    assert "status-studio" in console_html
+    assert "status-flow-card glass-card" in console_html
+    assert "report-section-card" in console_html
+    assert "report-section is-primary" in console_html
+    assert "report-section is-next" in console_html
+    assert "linear-gradient(145deg, rgba(232, 244, 255" in console_html
+    assert "@keyframes panelFloatIn" in console_html
+    assert "font-size: clamp(20px, 2.2vw, 28px)" in console_html
     assert "report-action-button" in console_html
     assert "report-progress" in console_html
     assert "正在修复" in console_html
@@ -337,6 +437,12 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert "查看路径" in console_html
     assert "桌面/论文格式修复输出" in console_html
     assert "任务状态" in console_html
+    assert "record-result-card glass-card status-glass-panel" in console_html
+    assert ".record-result-card.glass-card" in console_html
+    assert "record-detail-hero" in console_html
+    assert "record-title-main" in console_html
+    assert "record-job-id" in console_html
+    assert "record-section-card" in console_html
     assert "等待选择任务" not in console_html
     assert "历史任务" not in console_html
     assert "批量任务" not in console_html
@@ -345,21 +451,34 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert health_payload["status"] == "ok"
     assert version_payload["version"] == "0.1.0"
     assert version_payload["api_version"] == "v0"
+    assert version_payload["update_check"]["mode"] == "manual"
+    assert version_payload["update_check"]["configured"] is False
+    assert version_payload["update_check"]["auto_update"] is False
+    assert "只检查软件版本，不上传论文" in version_payload["update_check"]["privacy"]
+    assert updates_payload["status"] == "not_configured"
+    assert updates_payload["current_version"] == "0.1.0"
+    assert updates_payload["update_available"] is False
+    assert updates_payload["auto_update"] is False
+    assert "ARTICLE_LOCAL_RELEASE_API_URL" in updates_payload["next_action"]
     assert preflight_payload["operation"] == "preflight"
     assert preflight_payload["document"]["name"] == "article_api_summary.docx"
-    assert preflight_payload["profile"]["id"] == "cn-common"
+    assert preflight_payload["profile"]["id"] == "lnu-checker-2026"
     assert preflight_payload["preflight_status"] in {"ready", "warning", "blocked"}
     assert "diagnostics" in preflight_payload
     assert preflight_payload["summary"]["wild_doc_signal_count"] >= 0
-    assert profiles_payload["summary"]["default_profile_id"] == "cn-common"
-    assert profiles_payload["summary"]["support_scenario_count"] >= 3
-    assert any(item["id"] == "school_degree_thesis" for item in profiles_payload["summary"]["support_scenarios"])
+    assert profiles_payload["summary"]["default_profile_id"] == "lnu-checker-2026"
+    assert profiles_payload["summary"]["profile_count"] == 1
+    assert profiles_payload["summary"]["support_scenario_count"] == 1
+    assert [item["id"] for item in profiles_payload["summary"]["support_scenarios"]] == ["school_degree_thesis"]
     assert not any(item["id"] == "ams-graduate" for item in profiles_payload["profiles"])
-    assert any(item["id"] == "lnu-checker-2026" for item in profiles_payload["profiles"])
-    default_profile = next(item for item in profiles_payload["profiles"] if item["id"] == "cn-common")
+    assert [item["id"] for item in profiles_payload["profiles"]] == ["lnu-checker-2026"]
+    assert "cn-common" not in str(profiles_payload).lower()
+    assert "课程作业" not in str(profiles_payload)
+    assert "综述" not in str(profiles_payload)
+    default_profile = profiles_payload["profiles"][0]
     assert default_profile["support_level_label"] == "一等支持"
-    assert any(item["label"] == "课程作业/基础论文" for item in default_profile["support_scenarios"])
-    assert any(doc_type == "综述" for doc_type in default_profile["document_types"])
+    assert any(item["label"] == "学校学位论文" for item in default_profile["support_scenarios"])
+    assert default_profile["document_types"] == ["本科毕业论文"]
     assert ready_payload["status"] == "ready"
     assert ready_payload["checks"]["storage"]["status"] == "ok"
     assert ready_payload["checks"]["runtime_root"]["status"] == "ok"
@@ -388,6 +507,138 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert summary_payload["runtime"]["recovered_failed_count"] == 0
     assert summary_payload["runtime"]["pending_recovery_count"] == 0
     assert summary_payload["retention"]["defaults"]["autorun_enabled"] is False
+
+
+def test_local_console_surfaces_structured_error_payloads(monkeypatch):
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+
+    console_html = routes["/"].endpoint().body.decode("utf-8")
+
+    assert "error.payload = parsedPayload;" in console_html
+    assert "detail.user_message" in console_html
+    assert "detail.next_action" in console_html
+    assert "const friendlyMessage = parsedPayload ? userFacingError({ payload: parsedPayload }) : '';" in console_html
+    assert "new Error(friendlyMessage || responseText || `${response.status}`)" in console_html
+    assert "if (error && typeof error === 'object' && error.message) text = String(error.message);" in console_html
+    assert "function cleanErrorText(text)" in console_html
+    assert "replace(/(\\\\n|\\n)/g, ' ')" in console_html
+    assert "const friendly = userFacingError(error);" in console_html
+    assert "issues: [friendly]" in console_html
+    assert "items: [`失败步骤: ${STEP_INFO[id]?.[0] || id}`, friendly]" in console_html
+    assert "items: [`失败步骤: ${STEP_INFO[id][0]}`, friendly]" in console_html
+    assert "上传失败: ${userFacingError(error)}" in console_html
+
+
+def test_update_check_payload_fetches_configured_github_release_without_document_data(monkeypatch):
+    monkeypatch.setenv(
+        "ARTICLE_LOCAL_RELEASE_API_URL",
+        "https://api.github.com/repos/example/article/releases/latest",
+    )
+    calls = []
+
+    def fake_fetch(url, *, timeout_seconds):
+        calls.append((url, timeout_seconds))
+        return {
+            "tag_name": "v0.2.0",
+            "name": "v0.2.0",
+            "html_url": "https://github.com/example/article/releases/tag/v0.2.0",
+            "published_at": "2026-06-06T00:00:00Z",
+            "assets": [
+                {
+                    "name": "article-local-windows.zip",
+                    "browser_download_url": "https://github.com/example/article/releases/download/v0.2.0/article-local-windows.zip",
+                },
+                {
+                    "name": "article-local-windows.zip.sha256",
+                    "browser_download_url": "https://github.com/example/article/releases/download/v0.2.0/article-local-windows.zip.sha256",
+                },
+            ],
+        }
+
+    payload = app_ops.build_latest_update_payload(fetch_release_fn=fake_fetch, current_version="0.1.0")
+
+    assert calls == [("https://api.github.com/repos/example/article/releases/latest", 5.0)]
+    assert payload["status"] == "ok"
+    assert payload["configured"] is True
+    assert payload["current_version"] == "0.1.0"
+    assert payload["latest_version"] == "0.2.0"
+    assert payload["latest_tag"] == "v0.2.0"
+    assert payload["update_available"] is True
+    assert payload["release_url"] == "https://github.com/example/article/releases/tag/v0.2.0"
+    assert payload["download_url"].endswith("/article-local-windows.zip")
+    assert payload["auto_update"] is False
+    assert "只检查软件版本，不上传论文" in payload["privacy"]
+    assert "file_path" not in payload
+    assert "api_key" not in str(payload).lower()
+
+
+def test_update_check_payload_does_not_fetch_when_release_url_is_unconfigured(monkeypatch):
+    monkeypatch.delenv("ARTICLE_LOCAL_RELEASE_API_URL", raising=False)
+
+    def fail_fetch(_url, *, timeout_seconds):
+        raise AssertionError("update check must not contact the network until configured")
+
+    payload = app_ops.build_latest_update_payload(fetch_release_fn=fail_fetch, current_version="0.1.0")
+
+    assert payload["status"] == "not_configured"
+    assert payload["configured"] is False
+    assert payload["update_available"] is False
+    assert payload["auto_update"] is False
+    assert "ARTICLE_LOCAL_RELEASE_API_URL" in payload["next_action"]
+
+
+def test_update_check_payload_rejects_non_github_release_api_url(monkeypatch):
+    monkeypatch.setenv("ARTICLE_LOCAL_RELEASE_API_URL", "https://example.com/not-github/releases/latest")
+
+    def fail_fetch(_url, *, timeout_seconds):
+        raise AssertionError("update check must reject non-GitHub Release API URLs before fetch")
+
+    payload = app_ops.build_latest_update_payload(fetch_release_fn=fail_fetch, current_version="0.1.0")
+
+    assert payload["status"] == "invalid_config"
+    assert payload["configured"] is False
+    assert payload["update_available"] is False
+    assert payload["auto_update"] is False
+    assert "api.github.com/repos/<owner>/<repo>/releases/latest" in payload["next_action"]
+
+
+def test_update_check_payload_handles_malformed_release_response(monkeypatch):
+    monkeypatch.setenv(
+        "ARTICLE_LOCAL_RELEASE_API_URL",
+        "https://api.github.com/repos/example/article/releases/latest",
+    )
+
+    payload = app_ops.build_latest_update_payload(
+        fetch_release_fn=lambda _url, *, timeout_seconds: [],
+        current_version="0.1.0",
+    )
+
+    assert payload["status"] == "error"
+    assert payload["update_available"] is False
+    assert payload["auto_update"] is False
+    assert "GitHub Release" in payload["next_action"]
+
+
+def test_update_check_payload_does_not_announce_update_for_unparseable_tag(monkeypatch):
+    monkeypatch.setenv(
+        "ARTICLE_LOCAL_RELEASE_API_URL",
+        "https://api.github.com/repos/example/article/releases/latest",
+    )
+
+    payload = app_ops.build_latest_update_payload(
+        fetch_release_fn=lambda _url, *, timeout_seconds: {
+            "tag_name": "release-0.1.0",
+            "html_url": "https://github.com/example/article/releases/tag/release-0.1.0",
+            "assets": [],
+        },
+        current_version="0.1.0",
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["latest_version"] == "release-0.1.0"
+    assert payload["update_available"] is False
+    assert "当前已是最新版本" in payload["next_action"]
 
 
 def test_fake_app_pdf_upload_endpoint_stores_pdf(tmp_path, monkeypatch):
@@ -581,7 +832,7 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
             "manual_review_rule_ids": ["LNU_TOC03"],
             "unsupported_rule_ids": [],
             "review_items": ["目录需要刷新后复核页码。"],
-            "report_path": str(output_dir / "render_verify_report.json"),
+            "report_path": str(output_dir / "render_verify_report.md"),
         },
     )
 
@@ -653,7 +904,7 @@ def test_fake_app_render_verify_endpoint_returns_proof_summary(monkeypatch):
             "manual_review_rule_ids": [],
             "unsupported_rule_ids": [],
             "review_items": ["逐页检查图表是否与题注分离。"],
-            "report_path": "/tmp/render-proof/render_verify_report.json",
+            "report_path": "/tmp/render-proof/render_verify_report.md",
         },
     )
 
@@ -958,6 +1209,61 @@ def test_fake_app_upload_endpoint_stores_docx_and_job_downloads_output(monkeypat
     assert download_response["filename"].startswith("article_api_upload_apply_格式修复_V")
 
 
+def test_fake_app_feedback_download_excludes_document_artifacts(monkeypatch, tmp_path):
+    clear_jobs()
+    clear_uploads()
+    state_root = tmp_path / "state"
+    runtime_root = tmp_path / "runtime"
+    monkeypatch.setenv(storage.STATE_ROOT_ENV_VAR, str(state_root))
+    monkeypatch.setenv("ARTICLE_API_RUNTIME_ROOT", str(runtime_root))
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+    docx_path = runtime_root / "uploads" / "paper.docx"
+    docx_path.parent.mkdir(parents=True)
+    docx_path.write_bytes(b"docx")
+    log_path = runtime_root / "jobs" / "job-1" / "logs" / "worker.log"
+    log_path.parent.mkdir(parents=True)
+    log_path.write_text("failed\n", encoding="utf-8")
+
+    response = routes["/feedback/download"].endpoint()
+
+    assert response["filename"] == "反馈包.zip"
+    assert response["media_type"] == "application/zip"
+    with zipfile.ZipFile(response["path"]) as archive:
+        names = set(archive.namelist())
+        manifest = archive.read("manifest.json").decode("utf-8")
+    assert "logs/runtime_root/jobs/job-1/logs/worker.log" in names
+    assert not any(name.endswith((".docx", ".pdf", ".png")) for name in names)
+    assert str(tmp_path) not in manifest
+
+
+def test_fake_app_upload_endpoint_rejects_corrupt_docx_without_storing(monkeypatch, tmp_path):
+    clear_jobs()
+    clear_uploads()
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+
+    class FakeUpload:
+        filename = "broken.docx"
+
+        def __init__(self, payload: bytes):
+            self.file = BytesIO(payload)
+
+    with pytest.raises(FakeHTTPException) as exc_info:
+        routes["/uploads/docx"].endpoint(
+            FakeUpload(b"not a zip archive"),
+            runtime_root=str(tmp_path / "runtime"),
+        )
+
+    detail = exc_info.value.detail
+    assert exc_info.value.status_code == 400
+    assert detail["code"] == "invalid_docx"
+    assert detail["retryable"] is False
+    assert "Word/WPS" in detail["next_action"]
+    assert upload_count() == 0
+    assert not list((tmp_path / "runtime" / "uploads").glob("*.docx"))
+
+
 def test_fake_app_upload_normalize_job_keeps_original_name(monkeypatch, tmp_path):
     clear_jobs()
     clear_uploads()
@@ -984,7 +1290,10 @@ def test_fake_app_upload_normalize_job_keeps_original_name(monkeypatch, tmp_path
     result = routes["/jobs/{job_id}/result"].endpoint(create_response["job_id"])
 
     assert create_response["request"]["upload_id"] == upload_response["upload_id"]
-    assert Path(result["summary"]["output_path"]).name.startswith("article_api_upload_normalize_结构整理_V")
+    output_path = Path(result["summary"]["output_path"])
+    assert output_path.name.startswith("article_api_upload_normalize_结构整理_V")
+    assert output_path.parent != output_naming.DEFAULT_OUTPUT_DIR
+    assert "intermediate" in output_path.parts
     assert result["result"]["document"]["name"] == "article_api_upload_normalize.docx"
     assert result["runtime"]["source_upload_id"] == upload_response["upload_id"]
 
@@ -1016,9 +1325,21 @@ def test_fake_app_download_endpoint_maps_missing_artifact_file_to_409(monkeypatc
             "output",
         )
 
+    refreshed_status = routes["/jobs/{job_id}"].endpoint(create_response["job_id"])
+    refreshed_result = routes["/jobs/{job_id}/result"].endpoint(create_response["job_id"])
+    status_without_artifacts = dict(status)
+    refreshed_without_artifacts = dict(refreshed_status)
+    status_without_artifacts.pop("artifacts")
+    refreshed_without_artifacts.pop("artifacts")
+    refreshed_output = next(item for item in refreshed_status["artifacts"] if item["role"] == "output")
+
     assert exc_info.value.status_code == 409
-    assert routes["/jobs/{job_id}"].endpoint(create_response["job_id"]) == status
-    assert routes["/jobs/{job_id}/result"].endpoint(create_response["job_id"])["status"] == "succeeded"
+    assert exc_info.value.detail["code"] == "artifact_unavailable"
+    assert exc_info.value.detail["user_message"] == "下载文件已经不可用。"
+    assert "重新运行修复任务" in exc_info.value.detail["next_action"]
+    assert refreshed_without_artifacts == status_without_artifacts
+    assert refreshed_output["available"] is False
+    assert refreshed_result["status"] == "succeeded"
 
 
 def test_fake_app_apply_endpoint_creates_missing_output_parent(monkeypatch, tmp_docx, tmp_path):
@@ -1238,6 +1559,8 @@ def test_fake_app_cleanup_endpoint_keeps_job_payload_readable_and_breaks_downloa
         )
 
     assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "artifact_unavailable"
+    assert exc_info.value.detail["user_message"] == "下载文件已经不可用。"
 
 
 def test_fake_app_retry_endpoint_requeues_upload_backed_job_without_leaking_file_path(monkeypatch, tmp_docx, tmp_path):
@@ -1348,6 +1671,8 @@ def test_fake_app_cleanup_breaks_input_download_but_result_stays_frozen(monkeypa
         )
 
     assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "artifact_unavailable"
+    assert exc_info.value.detail["user_message"] == "下载文件已经不可用。"
     assert after["summary"] == before["summary"]
     assert after["result"] == before["result"]
 

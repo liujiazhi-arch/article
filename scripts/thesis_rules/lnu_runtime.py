@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+
+BASE_RULE_DEFINITIONS = (
+    ("P01", "页边距", "critical"),
+    ("T01", "正文中文字体", "critical"),
+    ("T02", "正文西文字体", "critical"),
+    ("T03", "正文字号", "important"),
+    ("T04", "正文行距", "critical"),
+    ("T05", "正文首行缩进", "critical"),
+    ("T06", "正文两端对齐", "critical"),
+    ("H01", "一级标题格式", "critical"),
+    ("H02", "二级标题格式", "critical"),
+    ("H03", "三级标题格式", "critical"),
+    ("C01", "存在上标引用", "minor"),
+    ("C02", "上标引用字体", "important"),
+    ("C03", "上标引用后句号", "minor"),
+    ("C04", "正文嵌入引用未上标", "critical"),
+    ("R01", "参考文献悬挂缩进", "critical"),
+    ("R02", "参考文献制表位", "critical"),
+    ("R03", "参考文献行距", "critical"),
+    ("R04", "参考文献引用非上标", "important"),
+    ("R05", "参考文献制表位宽度（两位数对齐）", "critical"),
+    ("F01", "图题格式", "important"),
+    ("F02", "表题格式", "important"),
+    ("TB01", "三线表边框", "important"),
+    ("H04", "四级标题格式", "important"),
+    ("S01", "标题段前段后间距", "minor"),
+    ("S02", "章节首页分页", "minor"),
+    ("S03", "正文段前段后间距", "minor"),
+    ("FN01", "脚注字号", "minor"),
+    ("PG01", "页码存在性", "minor"),
+    ("P03", "页码底端居中", "minor"),
+    ("REF01", "参考文献标点规范", "important"),
+    ("KW01", "关键词格式", "important"),
+    ("EQ01", "公式段落居中", "important"),
+    ("EQ02", "公式编号右对齐", "important"),
+    ("EQ03", "公式引用格式", "minor"),
+    ("F03", "图题章节编号格式", "important"),
+    ("F04", "表题章节编号格式", "important"),
+    ("F05", "图表题注字体", "important"),
+    ("F06", "图片段落居中", "important"),
+    ("F07", "图题末尾无句号", "minor"),
+    ("TB03_LINE", "三线表栏目线", "important"),
+    ("TB02", "三线表无多余竖线", "important"),
+    ("TB03", "续表表头重复", "minor"),
+    ("SP01", "中英文间距关闭", "important"),
+    ("SP02", "中数字间距关闭", "important"),
+    ("SP_CJK_LATIN", "中英文字符间距", "important"),
+    ("SP_NUM_CJK", "中文与数字间距", "important"),
+    ("KW02", "关键词末尾标点", "important"),
+    ("PU02", "省略号规范（用……不用......）", "minor"),
+    ("PU01", "中文正文不含英文半角标点", "minor"),
+)
+
+LNU_RULE_DEFINITIONS = (
+    ("LNU_ACK01", "致谢字体（辽大专用）", "minor"),
+    ("LNU_FMT01", "软回车换行（辽大）", "minor"),
+    ("LNU_FMT02", "图片嵌入型与表格无环绕（辽大）", "minor"),
+    ("LNU_F01", "图题点号编号格式（辽大）", "important"),
+    ("LNU_F02", "表题点号编号格式（辽大）", "important"),
+    ("LNU_F03", "图前图后空行（辽大）", "minor"),
+    ("LNU_F06", "图题、英文题名与说明性图注版式（辽大）", "minor"),
+    ("LNU_F07", "图表同页分页保护（辽大）", "important"),
+    ("LNU_REF01", "参考文献英文半角标点（辽大）", "important"),
+    ("LNU_REF02", "参考文献编号制表位对齐格式（辽大）", "important"),
+    ("LNU_REF03", "参考文献字号五号，1.5倍行距", "important"),
+    ("LNU_REF04", "参考文献文献类型标识（辽大）", "important"),
+    ("LNU_REF05", "参考文献序号连续性（辽大）", "important"),
+    ("LNU_REF06", "参考文献题名大小写与期刊名风格一致性（辽大）", "minor"),
+    ("LNU_TB01", "表格外框1.5pt内线0.5pt", "important"),
+    ("LNU_TOC01", "目录标题与条目样式（辽大）", "minor"),
+    ("LNU_TOC02", "目录条目行距多倍1.15倍，段后5磅（辽大）", "minor"),
+    ("LNU_TOC03", "目录区段存在并可核对页码（辽大）", "important"),
+    ("LNU_TB02", "表格内容宋体五号（辽大）", "minor"),
+    ("LNU_TB04", "表块留白与表题贴表（辽大）", "minor"),
+    ("LNU_ABS01", "摘要标题格式（辽大）", "important"),
+    ("LNU_ABS02", "Abstract标题格式（辽大）", "important"),
+    ("LNU_ABS03", "英文摘要正文格式（辽大）", "minor"),
+    ("LNU_ABS04", "中文摘要不含英文半角标点（辽大）", "minor"),
+    ("LNU_TEXT01", "摘要混排空格紧凑化（辽大）", "minor"),
+    ("LNU_TEXT02", "目录条目混排空格紧凑化（辽大）", "minor"),
+    ("LNU_TEXT03", "正文混排空格紧凑化（辽大）", "minor"),
+    ("LNU_H01", "标题编号与文字间距", "important"),
+    ("LNU_CONC01", "末章标题含结论（辽大）", "minor"),
+    ("LNU_S03", "参考文献/致谢前分页符（辽大）", "minor"),
+    ("LNU_TITLE01", "摘要等标题双空格格式（辽大）", "minor"),
+    ("LNU_TB03", "表格内容1.5倍行距（辽大）", "minor"),
+    ("LNU_UNIT01", "数字与单位间空格（辽大）", "minor"),
+)
+
+LNU_DISABLED_RULE_IDS = frozenset(
+    {
+        "F03",
+        "F04",
+        "REF01",
+        "R02",
+        "SP01",
+        "SP02",
+        "SP_CJK_LATIN",
+        "SP_NUM_CJK",
+    }
+)
+
+
+def effective_lnu_rule_definitions() -> tuple[tuple[str, str, str], ...]:
+    return tuple(
+        item
+        for item in (*BASE_RULE_DEFINITIONS, *LNU_RULE_DEFINITIONS)
+        if item[0] not in LNU_DISABLED_RULE_IDS
+    )

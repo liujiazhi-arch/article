@@ -96,7 +96,7 @@ def test_audit_document_returns_structured_payload(tmp_docx):
     assert payload["document"]["name"] == "article_engine_audit.docx"
     assert payload["summary"]["failed_rules"] >= 2
     assert payload["summary"]["total_rules"] >= payload["summary"]["failed_rules"]
-    assert payload["profile"]["id"] == "cn-common"
+    assert payload["profile"]["id"] == "lnu-checker-2026"
     assert "headings" in payload["recommended_scope_order"]
     assert "abstract" in payload["recommended_scope_order"]
 
@@ -141,7 +141,7 @@ def test_audit_document_can_explicitly_allow_profile_fallback(tmp_docx):
         strict_profile=False,
     )
 
-    assert payload["profile"]["id"] == "cn-common"
+    assert payload["profile"]["id"] == "lnu-checker-2026"
     assert payload["profile"]["fallback_used"] is True
 
 
@@ -203,7 +203,7 @@ def test_verify_document_returns_scope_status(tmp_docx):
         rule_ids=("H02",),
     )
 
-    payload = verify_document(str(source_path), scopes=["headings"])
+    payload = verify_document(str(source_path), profile_path="cn-common", scopes=["headings"])
 
     assert payload["document"]["name"] == "article_engine_verify.docx"
     assert payload["overall_status"] == "needs_fix"
@@ -237,6 +237,7 @@ def test_apply_fix_returns_output_and_verification(tmp_docx, tmp_path):
     payload = apply_fix(
         str(source_path),
         output_path=str(output_path),
+        profile_path="cn-common",
         scopes=["headings"],
     )
 

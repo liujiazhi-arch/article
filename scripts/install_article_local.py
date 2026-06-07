@@ -22,6 +22,7 @@ DEFAULT_ENV_FILE = Path("~/.article/article-local.env")
 DEFAULT_ARTIFACT_DIR = Path("~/.article/dist")
 SUPPORTED_INSTALL_MODES = {"editable", "wheel"}
 INSTALL_HISTORY_FILENAME = "install-history.json"
+DEFAULT_LOCAL_URL = "http://127.0.0.1:8000"
 
 
 def _resolve_path(path_value: str | Path) -> Path:
@@ -200,6 +201,75 @@ def _no_deps_build_env() -> dict[str, str]:
     return env
 
 
+def _batch_path_from_launcher(launcher_path: Path, target_path: Path) -> str:
+    try:
+        relative_path = os.path.relpath(target_path, launcher_path.parent)
+    except ValueError:
+        return str(target_path)
+    return "%~dp0" + relative_path.replace("/", "\\")
+
+
+def _write_windows_launcher(
+    launcher_path: Path,
+    *,
+    article_local: Path,
+    state_root: Path,
+    runtime_root: Path,
+    url: str = DEFAULT_LOCAL_URL,
+) -> Path:
+    launcher_path.parent.mkdir(parents=True, exist_ok=True)
+    article_local_path = _batch_path_from_launcher(launcher_path, article_local)
+    state_root_path = _batch_path_from_launcher(launcher_path, state_root)
+    runtime_root_path = _batch_path_from_launcher(launcher_path, runtime_root)
+    lines = [
+        "@echo off",
+        "chcp 65001 >nul",
+        "title 论文格式检查",
+        "setlocal",
+        f'set "ARTICLE_LOCAL={article_local_path}"',
+        "",
+        "echo 正在检查本地运行环境...",
+        f'"%ARTICLE_LOCAL%" doctor --state-root "{state_root_path}" --runtime-root "{runtime_root_path}"',
+        "if errorlevel 1 (",
+        "  echo.",
+        "  echo 启动前检查失败。请截图此窗口并到反馈入口提交问题。",
+        "  pause",
+        "  exit /b 1",
+        ")",
+        "",
+        "echo 正在检查本地网页端口 8000...",
+        (
+            'powershell -NoProfile -Command '
+            '"if ((Test-NetConnection -ComputerName 127.0.0.1 -Port 8000 -InformationLevel Quiet)) { exit 1 } else { exit 0 }"'
+        ),
+        "if errorlevel 1 (",
+        "  echo.",
+        "  echo 端口 8000 已被占用，本地网页暂时不能启动。",
+        "  echo 请先关闭占用 8000 端口的程序，或重启电脑后再双击启动。",
+        "  pause",
+        "  exit /b 1",
+        ")",
+        "",
+        "echo 正在打开本地网页...",
+        (
+            'start "" powershell -NoProfile -WindowStyle Hidden -Command '
+            f'"Start-Sleep -Seconds 2; Start-Process \'{url}\'"'
+        ),
+        "echo 如果浏览器没有自动打开，请手动访问：",
+        f"echo {url}",
+        "",
+        f'"%ARTICLE_LOCAL%" serve --host 127.0.0.1 --port 8000 --state-root "{state_root_path}" --runtime-root "{runtime_root_path}"',
+        "if errorlevel 1 (",
+        "  echo.",
+        "  echo 本地服务启动失败。常见原因：端口 8000 被占用，或安装文件不完整。",
+        "  pause",
+        "  exit /b 1",
+        ")",
+    ]
+    launcher_path.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8-sig")
+    return launcher_path
+
+
 def install_local_app(
     *,
     python_executable: str | Path = sys.executable,
@@ -215,6 +285,7 @@ def install_local_app(
     artifact_dir: str | Path = DEFAULT_ARTIFACT_DIR,
     upgrade: bool = False,
     rollback: bool = False,
+    launcher_path: str | Path | None = None,
 ) -> dict:
     resolved_python = _resolve_python_executable(python_executable)
     resolved_venv_dir = _resolve_path(venv_dir)
@@ -222,6 +293,7 @@ def install_local_app(
     resolved_runtime_root = _resolve_path(runtime_root)
     resolved_env_file = _resolve_path(write_env) if write_env is not None else None
     resolved_artifact_dir = _resolve_path(artifact_dir)
+    resolved_launcher_path = _resolve_path(launcher_path) if launcher_path is not None else None
     resolved_install_mode = _normalize_install_mode(install_mode)
 
     if upgrade and rollback:
@@ -359,6 +431,7 @@ def install_local_app(
             f"--state-root {shlex.quote(str(resolved_state_root))} "
             f"--runtime-root {shlex.quote(str(resolved_runtime_root))} --force"
         ),
+        "launcher": str(resolved_launcher_path) if resolved_launcher_path is not None else None,
     }
     if not skip_init:
         init_command = [
@@ -378,6 +451,15 @@ def install_local_app(
             init_payload = json.loads(completed.stdout)
         except json.JSONDecodeError as exc:
             raise RuntimeError("`article-local init` did not return valid JSON output.") from exc
+
+    written_launcher_path = None
+    if resolved_launcher_path is not None:
+        written_launcher_path = _write_windows_launcher(
+            resolved_launcher_path,
+            article_local=article_local,
+            state_root=resolved_state_root,
+            runtime_root=resolved_runtime_root,
+        )
 
     return {
         "status": "ok",
@@ -412,6 +494,10 @@ def install_local_app(
             "runtime_root": str(resolved_runtime_root),
         },
         "env_file": str(resolved_env_file) if resolved_env_file is not None else None,
+        "launcher": {
+            "path": str(written_launcher_path) if written_launcher_path is not None else None,
+            "url": DEFAULT_LOCAL_URL,
+        },
         "quickstart": quickstart,
         "init": init_payload,
     }
@@ -432,6 +518,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--artifact-dir", default=str(DEFAULT_ARTIFACT_DIR))
     parser.add_argument("--upgrade", action="store_true")
     parser.add_argument("--rollback", action="store_true")
+    parser.add_argument("--launcher-path")
     return parser
 
 
@@ -452,6 +539,7 @@ def main(argv: list[str] | None = None) -> int:
         artifact_dir=args.artifact_dir,
         upgrade=bool(args.upgrade),
         rollback=bool(args.rollback),
+        launcher_path=args.launcher_path,
     )
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

@@ -7,81 +7,24 @@
 #   scope: 适用范围（undergraduate/master/phd/all）
 #   pub_date: 发布/修订日期（YYYY-MM 或 YYYY）
 #   access_date: 访问日期（YYYY-MM-DD）
-#   notes: 特殊说明（与CN-Common的主要差异）
+#   notes: 特殊说明（与内部 CN-Common 基线的主要差异）
 
 sources:
 
   - school: CN-Common
-    dept: 通用基线（整合多校共性）
+    dept: 内部通用基线
     doc_title: 中国高校论文格式通用基线 v1.0
     doc_url: null
     scope: all
     pub_date: "2026-03"
     access_date: "2026-03-25"
     notes: |
-      整合以下标准和多校规范共性部分：
+      仅作为 lnu-checker-2026 的内部基线和维护参考，不作为公开产品 profile：
       - GB/T 7714-2015 信息与文献 参考文献著录规则
       - GB/T 15834-2011 标点符号用法
       - 教育部学位论文规范（2020）
       涵盖页面、字体、标题、图表、公式、参考文献等模块。
-      高校差异项（页边距、字号等）不纳入本基线，由学校Profile覆盖。
-
-  - school: 北京大学
-    dept: 研究生院
-    doc_title: 北京大学研究生学位论文写作指南
-    doc_url: https://grs.pku.edu.cn/xwgz11/xxgk11/wjxz11/
-    scope: [master, phd]
-    pub_date: "2022"
-    access_date: "2026-03-25"
-    notes: |
-      主要差异：
-      - 页边距：上下2.54cm，左3cm，右2.5cm（左侧装订线预留）
-      - 正文字号：小四（12pt）
-      - 参考文献字号：五号（10.5pt）
-      - 页眉：奇数页显示章标题，偶数页显示论文题目
-
-  - school: 清华大学
-    dept: 研究生院
-    doc_title: 清华大学学位论文写作指南
-    doc_url: https://www.tsinghua.edu.cn/xwgz/
-    scope: [master, phd]
-    pub_date: "2023"
-    access_date: "2026-03-25"
-    notes: |
-      主要差异：
-      - 页边距：上下左右均为2.5cm
-      - 一级标题字体：黑体，三号（16pt），居中
-      - 二级标题：黑体，四号（14pt），左对齐
-      - 正文行距：固定值20pt（非倍数行距）
-
-  - school: 浙江大学
-    dept: 研究生院
-    doc_title: 浙江大学研究生学位论文编写规则
-    doc_url: https://grs.zju.edu.cn/redir.php?catalog_id=10032
-    scope: [master, phd]
-    pub_date: "2021"
-    access_date: "2026-03-25"
-    notes: |
-      主要差异：
-      - 页边距：上2.8cm，下2.5cm，左3cm，右2.5cm
-      - 正文字号：小四（12pt），中文宋体，英文Times New Roman
-      - 章标题段前：24pt，段后：18pt
-      - 参考文献：悬挂缩进560 twips，行距单倍
-
-  - school: 中国农业大学
-    dept: 教务处
-    doc_title: 中国农业大学本科毕业论文格式规范
-    doc_url: https://jwc.cau.edu.cn/
-    scope: undergraduate
-    pub_date: "2023"
-    access_date: "2026-03-25"
-    notes: |
-      主要差异（本科）：
-      - 页边距：上下左右均为2.5cm
-      - 一级标题字体：黑体，小二（15pt），居中
-      - 正文行距：1.5倍
-      - 图表编号：图1-1、表1-1（章-序号格式）
-      - 参考文献字号：五号（10.5pt）
+      当前公开产品不扩展多校 profile。
 
   - school: 辽宁大学
     dept: 教务处
@@ -96,18 +39,12 @@ sources:
     pub_date: "2025"
     access_date: "2026-04-07"
     notes: |
-      主要差异（相对CN-Common）：
+      主要差异（相对内部 CN-Common 基线）：
       - 页边距：四周全2.5cm + 装订线（左）0.5cm
       - 一级标题：黑体三号（16pt），居中；二级：黑体四号（14pt）；三级：黑体小四（12pt）
       - 图编号用点号：图2.1（非图2-1）
       - 关键词：3-5个，黑体小四不加粗
-      - 参考文献标点全用英文半角；编号[N]空格（非Tab）
+      - 参考文献标点全用英文半角；编号[N]后使用制表符并与悬挂缩进对齐
       - 致谢：仿宋小四；页码格式：—N—
-      - 当前 lnu runtime 在 CN-Common 基础上启用 64 条规则
+      - 当前 lnu runtime 在内部 CN-Common 基础上启用 74 条规则
       - 尚未接入 runtime 的规范项已转入 profile 的参考块，不再与 active rules 混写
-
-# 待补充的高校（优先级）：
-# - 复旦大学（研究生学位论文规范）
-# - 上海交通大学（学位论文写作规范）
-# - 中山大学（学位论文格式要求）
-# - 武汉大学（学位论文写作规范）
