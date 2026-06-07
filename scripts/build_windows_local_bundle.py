@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 import zipfile
 
@@ -249,6 +250,19 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _emit_json(payload: dict) -> None:
+    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except UnicodeEncodeError:
+        stdout_buffer = getattr(sys.stdout, "buffer", None)
+        if stdout_buffer is None:
+            raise
+        stdout_buffer.write(text.encode("utf-8"))
+        stdout_buffer.flush()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -258,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         bundle_name=args.bundle_name,
         release_api_url=args.release_api_url or None,
     )
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    _emit_json(payload)
     return 0
 
 

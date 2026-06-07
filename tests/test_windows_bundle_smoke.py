@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -157,3 +159,16 @@ def test_windows_bundle_smoke_cli_writes_json_output(monkeypatch, capsys, tmp_pa
     written = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["status"] == "ok"
     assert written == payload
+
+
+def test_windows_bundle_smoke_emits_utf8_when_stdout_encoding_rejects_chinese(monkeypatch):
+    windows_bundle_smoke = _load_windows_bundle_smoke()
+    output = io.BytesIO()
+    cp1252_stdout = io.TextIOWrapper(output, encoding="cp1252", errors="strict")
+    monkeypatch.setattr(sys, "stdout", cp1252_stdout)
+
+    windows_bundle_smoke._emit_payload({"status": "ok", "bundle_root": "论文格式检查本地版"})
+
+    cp1252_stdout.flush()
+    payload = json.loads(output.getvalue().decode("utf-8"))
+    assert payload == {"status": "ok", "bundle_root": "论文格式检查本地版"}

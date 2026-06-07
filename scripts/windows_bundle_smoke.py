@@ -180,11 +180,20 @@ def _format_windows_bundle_error(exc: Exception) -> dict[str, Any]:
 
 
 def _emit_payload(payload: dict[str, Any], *, json_output: Path | None = None) -> None:
+    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if json_output is not None:
         json_output = json_output.expanduser().resolve()
         json_output.parent.mkdir(parents=True, exist_ok=True)
-        json_output.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        json_output.write_text(text, encoding="utf-8")
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except UnicodeEncodeError:
+        stdout_buffer = getattr(sys.stdout, "buffer", None)
+        if stdout_buffer is None:
+            raise
+        stdout_buffer.write(text.encode("utf-8"))
+        stdout_buffer.flush()
 
 
 def main(argv: list[str] | None = None) -> int:

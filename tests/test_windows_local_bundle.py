@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import io
+import json
+import sys
 import zipfile
 from pathlib import Path
 
@@ -122,6 +125,34 @@ def test_build_windows_local_bundle_cli_prints_json(capsys, tmp_path):
     assert '"status": "ok"' in captured.out
     assert '"release_api_url_configured": true' in captured.out
     assert "article-local-windows.zip" in captured.out
+
+
+def test_build_windows_local_bundle_cli_emits_utf8_when_stdout_encoding_rejects_chinese(monkeypatch, tmp_path):
+    runtime_dir = tmp_path / "prepared-runtime"
+    scripts_dir = runtime_dir / "Scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "article-local.exe").write_bytes(b"exe")
+    (scripts_dir / "python.exe").write_bytes(b"python")
+    output_zip = tmp_path / "dist" / "article-local-windows.zip"
+    output = io.BytesIO()
+    cp1252_stdout = io.TextIOWrapper(output, encoding="cp1252", errors="strict")
+    monkeypatch.setattr(sys, "stdout", cp1252_stdout)
+
+    exit_code = bundle_builder.main(
+        [
+            "--runtime-dir",
+            str(runtime_dir),
+            "--output-zip",
+            str(output_zip),
+            "--bundle-name",
+            "论文格式检查本地版",
+        ]
+    )
+
+    cp1252_stdout.flush()
+    payload = json.loads(output.getvalue().decode("utf-8"))
+    assert exit_code == 0
+    assert payload["bundle_name"] == "论文格式检查本地版"
 
 
 def test_build_windows_local_bundle_rejects_runtime_without_python_exe(tmp_path):

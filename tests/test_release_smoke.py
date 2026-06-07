@@ -30,7 +30,18 @@ def test_release_smoke_builds_wheel_installs_clean_venv_and_runs_http_flow(monke
     runtime_root = tmp_path / "runtime"
     wheel_path = wheel_dir / "thesis_format_tool-0.1.0-py3-none-any.whl"
 
-    def fake_run(command, *, cwd=None, env=None, capture_output=False, text=True, check=True, timeout=None):
+    def fake_run(
+        command,
+        *,
+        cwd=None,
+        env=None,
+        capture_output=False,
+        text=True,
+        check=True,
+        timeout=None,
+        encoding=None,
+        errors=None,
+    ):
         command = [str(item) for item in command]
         calls.append((command, timeout))
         if command[1:3] == ["-m", "venv"]:
@@ -97,7 +108,18 @@ def test_release_smoke_can_reuse_existing_wheelhouse_without_downloading_depende
     wheel_path = wheelhouse / "thesis_format_tool-0.1.0-py3-none-any.whl"
     wheel_path.write_bytes(b"wheel")
 
-    def fake_run(command, *, cwd=None, env=None, capture_output=False, text=True, check=True, timeout=None):
+    def fake_run(
+        command,
+        *,
+        cwd=None,
+        env=None,
+        capture_output=False,
+        text=True,
+        check=True,
+        timeout=None,
+        encoding=None,
+        errors=None,
+    ):
         command = [str(item) for item in command]
         calls.append(command)
         if command[1:3] == ["-m", "venv"]:
@@ -131,6 +153,34 @@ def test_release_smoke_can_reuse_existing_wheelhouse_without_downloading_depende
         and f"{wheel_path}[api]" in command
         for command in calls
     )
+
+
+def test_release_smoke_json_run_decodes_stdout_as_utf8(monkeypatch):
+    release_smoke = _load_release_smoke()
+    captured: dict[str, object] = {}
+
+    def fake_run(
+        command,
+        *,
+        cwd=None,
+        env=None,
+        capture_output=False,
+        text=True,
+        check=True,
+        timeout=None,
+        encoding=None,
+        errors=None,
+    ):
+        captured["encoding"] = encoding
+        captured["errors"] = errors
+        return subprocess.CompletedProcess(command, 0, stdout='{"message": "论文格式检查"}', stderr="")
+
+    monkeypatch.setattr(release_smoke.subprocess, "run", fake_run)
+
+    payload = release_smoke._json_run(["python", "-m", "article_api.local_app", "doctor"])
+
+    assert payload["message"] == "论文格式检查"
+    assert captured == {"encoding": "utf-8", "errors": "replace"}
 
 
 def test_release_smoke_rejects_prebuilt_wheelhouse_inside_cleaned_work_dir(monkeypatch, tmp_path):
