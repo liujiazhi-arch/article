@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import shlex
 import sys
@@ -106,6 +107,18 @@ def test_module_entrypoint_exits_with_main_result(monkeypatch):
 
     assert exc_info.value.code == 7
     assert received == [None]
+
+
+def test_emit_json_writes_utf8_when_stdout_encoding_rejects_chinese(monkeypatch):
+    output = io.BytesIO()
+    cp1252_stdout = io.TextIOWrapper(output, encoding="cp1252", errors="strict")
+    monkeypatch.setattr(sys, "stdout", cp1252_stdout)
+
+    local_app._emit_json({"message": "论文格式检查"})
+
+    cp1252_stdout.flush()
+    payload = json.loads(output.getvalue().decode("utf-8"))
+    assert payload["message"] == "论文格式检查"
 
 
 @pytest.mark.parametrize(

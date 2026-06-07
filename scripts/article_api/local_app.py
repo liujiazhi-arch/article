@@ -20,7 +20,16 @@ resolve_runtime_root = local_env_module.resolve_runtime_root
 
 
 def _emit_json(payload: dict) -> None:
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except UnicodeEncodeError:
+        stdout_buffer = getattr(sys.stdout, "buffer", None)
+        if stdout_buffer is None:
+            raise
+        stdout_buffer.write(text.encode("utf-8"))
+        stdout_buffer.flush()
 
 
 def initialize_local_workspace(
