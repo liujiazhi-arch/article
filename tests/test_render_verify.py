@@ -7,6 +7,46 @@ import pytest
 import thesis_tool.render_verify as render_verify_module
 
 
+def test_find_external_tool_prefers_existing_env_path(monkeypatch, tmp_path):
+    tool_path = tmp_path / "custom-tool"
+    tool_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setenv("ARTICLE_CUSTOM_TOOL", str(tool_path))
+    monkeypatch.setattr(
+        render_verify_module.shutil,
+        "which",
+        lambda name: pytest.fail("env path should be used before PATH lookup"),
+    )
+
+    assert render_verify_module._find_external_tool(
+        env_name="ARTICLE_CUSTOM_TOOL",
+        binary="custom-tool",
+        missing_message="missing custom tool",
+    ) == str(tool_path.resolve())
+
+
+def test_find_external_tool_falls_back_to_path_lookup(monkeypatch):
+    monkeypatch.delenv("ARTICLE_CUSTOM_TOOL", raising=False)
+    monkeypatch.setattr(render_verify_module.shutil, "which", lambda name: f"/opt/bin/{name}")
+
+    assert render_verify_module._find_external_tool(
+        env_name="ARTICLE_CUSTOM_TOOL",
+        binary="custom-tool",
+        missing_message="missing custom tool",
+    ) == "/opt/bin/custom-tool"
+
+
+def test_find_external_tool_missing_raises_original_message(monkeypatch):
+    monkeypatch.delenv("ARTICLE_CUSTOM_TOOL", raising=False)
+    monkeypatch.setattr(render_verify_module.shutil, "which", lambda name: None)
+
+    with pytest.raises(RuntimeError, match="missing custom tool.*ARTICLE_CUSTOM_TOOL"):
+        render_verify_module._find_external_tool(
+            env_name="ARTICLE_CUSTOM_TOOL",
+            binary="custom-tool",
+            missing_message="missing custom tool; set ARTICLE_CUSTOM_TOOL",
+        )
+
+
 def test_word_pdf_export_script_targets_opened_file_not_active_document(monkeypatch, tmp_path):
     source_path = tmp_path / "render_verify_word_source.docx"
     source_path.write_bytes(b"docx")

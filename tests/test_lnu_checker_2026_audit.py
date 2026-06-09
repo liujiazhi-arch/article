@@ -265,6 +265,39 @@ def test_checker_2026_fmt01_detects_soft_line_break():
     assert any("软回车" in issue for issue in issues)
 
 
+@pytest.mark.parametrize(
+    ("module", "text"),
+    [
+        ("body_caption", "图2.1  不同改性方法处理后鹿皮明胶的溶胀率A，0～24 h 溶胀率变化"),
+        ("body_caption_en", "Fig. 2.1  Swelling ratio of deer skin gelatinA, changes from 0 to 24 h"),
+        ("body_caption_note", "不同小写字母表示组间差异显著（p<0.05）；相同小写字母表示差异不显著"),
+    ],
+)
+def test_checker_2026_fmt01_allows_soft_line_breaks_inside_figure_captions(module, text):
+    runtime = _checker_runtime_or_xfail()
+    paragraph = _make_paragraph(text)
+    run = paragraph.find("w:r", NSMAP)
+    assert run is not None
+    ET.SubElement(run, _w("br"))
+    tail = ET.SubElement(run, _w("t"))
+    tail.text = "分组说明"
+    contexts = [
+        {
+            "index": 1,
+            "elem": paragraph,
+            "text": f"{text}分组说明",
+            "kind": "caption" if module == "body_caption" else "body",
+            "section": "body",
+            "module": module,
+            "protected": False,
+        }
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_fmt01(_make_doc_root(paragraph), contexts, {}, runtime.cfg)
+
+    assert passed, issues
+
+
 def test_checker_2026_fmt02_detects_anchor_drawing_and_floating_table():
     runtime = _checker_runtime_or_xfail()
     paragraph = _make_paragraph("")

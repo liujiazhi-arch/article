@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 import shutil
 import sys
 import tempfile
 import zipfile
 
+from cli_json_output import emit_json_payload as _emit_json
 from install_article_local import _batch_path_from_launcher
+from windows_bundle_contract import (
+    BUNDLE_ROOT_NAME,
+    FEEDBACK_LAUNCHER_NAME,
+    LAUNCHER_NAME,
+    QUICKSTART_NAME,
+)
 
 
-DEFAULT_BUNDLE_NAME = "论文格式检查本地版"
-LAUNCHER_NAME = "启动论文格式检查.bat"
-FEEDBACK_LAUNCHER_NAME = "导出反馈包.bat"
-QUICKSTART_NAME = "快速开始.txt"
+DEFAULT_BUNDLE_NAME = BUNDLE_ROOT_NAME
 
 
 def _resolve_path(path_value: str | Path) -> Path:
@@ -248,19 +251,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bundle-name", default=DEFAULT_BUNDLE_NAME)
     parser.add_argument("--release-api-url", default="")
     return parser
-
-
-def _emit_json(payload: dict) -> None:
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    try:
-        sys.stdout.write(text)
-        sys.stdout.flush()
-    except UnicodeEncodeError:
-        stdout_buffer = getattr(sys.stdout, "buffer", None)
-        if stdout_buffer is None:
-            raise
-        stdout_buffer.write(text.encode("utf-8"))
-        stdout_buffer.flush()
 
 
 def main(argv: list[str] | None = None) -> int:

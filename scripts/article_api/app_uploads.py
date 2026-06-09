@@ -6,6 +6,7 @@ from time import monotonic
 from typing import Any
 
 from article_api import storage
+from article_api.retention_reports import build_retention_sweep_report, with_cleanup_result
 from article_api.uploads import resolve_runtime_root
 
 
@@ -106,19 +107,13 @@ def sweep_upload_retention(
         }
         if upload_id
     }
-    report = {
-        "policy": "retention",
-        "dry_run": bool(dry_run),
-        "max_age_seconds": float(max_age_seconds),
-        "reference_time": now,
-        "inspected_count": len(uploads),
-        "eligible_count": 0,
-        "cleaned_count": 0,
-        "noop_count": 0,
-        "blocked_count": 0,
-        "skipped_count": 0,
-        "items": [],
-    }
+    report = build_retention_sweep_report(
+        max_age_seconds=max_age_seconds,
+        reference_time=now,
+        dry_run=dry_run,
+        inspected_count=len(uploads),
+        include_blocked_count=True,
+    )
 
     for payload in uploads:
         if storage.get_upload_cleanup(payload["upload_id"]) is not None:
@@ -152,13 +147,7 @@ def sweep_upload_retention(
 
         cleaned_payload = cleanup_upload_fn(payload["upload_id"], policy="retention")
         cleanup = cleaned_payload.get("cleanup") or {}
-        item["action"] = "cleaned"
-        item["cleanup"] = cleanup
-        if cleanup.get("state") == "cleaned":
-            report["cleaned_count"] += 1
-        else:
-            report["noop_count"] += 1
-        report["items"].append(item)
+        report = with_cleanup_result(report, item, cleanup)
 
     return report
 

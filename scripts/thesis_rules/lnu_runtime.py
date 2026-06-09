@@ -55,7 +55,7 @@ BASE_RULE_DEFINITIONS = (
 
 LNU_RULE_DEFINITIONS = (
     ("LNU_ACK01", "致谢字体（辽大专用）", "minor"),
-    ("LNU_FMT01", "软回车换行（辽大）", "minor"),
+    ("LNU_FMT01", "软回车换行（辽大，图题图注例外）", "minor"),
     ("LNU_FMT02", "图片嵌入型与表格无环绕（辽大）", "minor"),
     ("LNU_F01", "图题点号编号格式（辽大）", "important"),
     ("LNU_F02", "表题点号编号格式（辽大）", "important"),

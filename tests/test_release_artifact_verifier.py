@@ -8,6 +8,41 @@ from pathlib import Path
 import pytest
 
 
+def test_github_release_api_url_check_is_shared_by_ops_and_bundle_verifier():
+    import verify_release_artifact as verifier
+    from article_api import app_ops
+    from release_url_utils import is_github_release_api_url
+
+    assert verifier._is_github_release_api_url is is_github_release_api_url
+    assert app_ops._is_github_release_api_url is is_github_release_api_url
+
+
+def test_cli_json_emitters_share_stdout_and_file_writer():
+    import build_windows_local_bundle
+    import github_release_status
+    import local_browser_smoke
+    import release_smoke
+    import windows_bundle_smoke
+    from article_api import local_app
+    from cli_json_output import emit_json_payload
+
+    assert release_smoke._emit_payload is emit_json_payload
+    assert windows_bundle_smoke._emit_payload is emit_json_payload
+    assert local_browser_smoke._emit_payload is emit_json_payload
+    assert github_release_status._emit_payload is emit_json_payload
+    assert build_windows_local_bundle._emit_json is emit_json_payload
+    assert local_app._emit_json is emit_json_payload
+
+
+def test_release_sha256_helpers_share_file_digest_implementation():
+    import release_evidence_bundle
+    import verify_release_artifact as verifier
+    from file_hash_utils import sha256_file
+
+    assert release_evidence_bundle._sha256_file is sha256_file
+    assert verifier._sha256_file is sha256_file
+
+
 def _write_bundle_zip(
     path: Path,
     extra_entries: dict[str, bytes] | None = None,
@@ -63,6 +98,27 @@ def test_verify_windows_bundle_artifact_writes_sha256(tmp_path):
     assert payload["sha256_output"] == str(sha256_path.resolve())
     assert sha256_path.read_text(encoding="utf-8") == f"{expected_digest}  article-local-windows.zip\n"
     assert payload["entry_count"] >= 7
+
+
+def test_verify_windows_bundle_artifact_allows_github_release_tag_api_url(tmp_path):
+    import verify_release_artifact as verifier
+
+    bundle_zip = tmp_path / "article-local-windows.zip"
+    _write_bundle_zip(
+        bundle_zip,
+        {
+            "论文格式检查本地版/启动论文格式检查.bat": (
+                'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"\r\n'
+                'set "ARTICLE_LOCAL_RELEASE_API_URL=https://api.github.com/repos/example/article/releases/tags/v0.1.0-beta"\r\n'
+                '"%ARTICLE_PYTHON%" -m article_api.local_app doctor\r\n'
+                '"%ARTICLE_PYTHON%" -m article_api.local_app serve\r\n'
+            ).encode("utf-8-sig"),
+        },
+    )
+
+    payload = verifier.verify_windows_bundle_artifact(bundle_zip)
+
+    assert payload["status"] == "ok"
 
 
 def test_verify_windows_bundle_artifact_rejects_extra_top_level_entries(tmp_path):

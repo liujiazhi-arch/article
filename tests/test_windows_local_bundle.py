@@ -97,6 +97,29 @@ def test_build_windows_local_bundle_omits_release_api_url_when_unconfigured(tmp_
     assert "ARTICLE_LOCAL_RELEASE_API_URL" not in launcher_text
 
 
+def test_build_windows_local_bundle_accepts_release_tag_api_url(tmp_path):
+    runtime_dir = tmp_path / "prepared-runtime"
+    scripts_dir = runtime_dir / "Scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "article-local.exe").write_bytes(b"exe")
+    (scripts_dir / "python.exe").write_bytes(b"python")
+
+    output_zip = tmp_path / "dist" / "article-local-windows.zip"
+    release_api_url = "https://api.github.com/repos/example/article/releases/tags/v0.1.0-beta"
+
+    bundle_builder.build_windows_local_bundle(
+        runtime_dir=runtime_dir,
+        output_zip=output_zip,
+        bundle_name="论文格式检查本地版",
+        release_api_url=release_api_url,
+    )
+
+    with zipfile.ZipFile(output_zip) as archive:
+        launcher_text = archive.read("论文格式检查本地版/启动论文格式检查.bat").decode("utf-8-sig")
+
+    assert f'set "ARTICLE_LOCAL_RELEASE_API_URL={release_api_url}"' in launcher_text
+
+
 def test_build_windows_local_bundle_cli_prints_json(capsys, tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
     scripts_dir = runtime_dir / "Scripts"

@@ -5,6 +5,9 @@ import xml.etree.ElementTree as ET
 from thesis_fix.dependencies import require
 
 
+BODY_TOC_BOOKMARK_NAME = "BodyTocRange"
+
+
 def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair_keywords=True):
     (
         NSMAP,
@@ -55,6 +58,7 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
     if repair_keywords:
         repair_misplaced_abstract_keywords(document_root, style_map=style_map)
     remove_existing_toc_artifacts(document_root)
+    _remove_bookmark_range(document_root, BODY_TOC_BOOKMARK_NAME, NSMAP, W_NS)
 
     has_heading = False
 
@@ -156,7 +160,7 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         run_instr = ET.SubElement(p_elem, f"{{{W_NS}}}r")
         instr_text = ET.SubElement(run_instr, f"{{{W_NS}}}instrText")
         instr_text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-        instr_text.text = f' TOC \\o "1-{max_level}" \\h \\z \\u '
+        instr_text.text = f' TOC \\o "1-{max_level}" \\h \\z \\u \\b {BODY_TOC_BOOKMARK_NAME} '
 
         run_sep = ET.SubElement(p_elem, f"{{{W_NS}}}r")
         fld_sep = ET.SubElement(run_sep, f"{{{W_NS}}}fldChar")
@@ -219,7 +223,95 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         sect_pr = body.find("w:sectPr", NSMAP)
         insert_index = list(body).index(sect_pr) if sect_pr is not None else len(body_children)
 
+    bookmark_added = _add_body_toc_bookmark(
+        document_root,
+        body_children,
+        insert_index,
+        BODY_TOC_BOOKMARK_NAME,
+        NSMAP,
+        W_NS,
+        set_attr,
+    )
+    if not bookmark_added:
+        return {}
+
     for offset, para in enumerate(new_paragraphs):
         body.insert(insert_index + offset, para)
 
     return {"word/settings.xml": build_settings_with_update_fields()}
+
+
+def _remove_bookmark_range(document_root, bookmark_name, nsmap, w_ns):
+    bookmark_start_tag = f"{{{w_ns}}}bookmarkStart"
+    bookmark_end_tag = f"{{{w_ns}}}bookmarkEnd"
+    target_ids = {
+        elem.get(f"{{{w_ns}}}id")
+        for elem in document_root.findall(".//w:bookmarkStart", nsmap)
+        if elem.get(f"{{{w_ns}}}name") == bookmark_name
+    }
+    if not target_ids:
+        return 0
+
+    removed = 0
+    for parent in document_root.iter():
+        for child in list(parent):
+            if child.tag == bookmark_start_tag and child.get(f"{{{w_ns}}}name") == bookmark_name:
+                parent.remove(child)
+                removed += 1
+            elif child.tag == bookmark_end_tag and child.get(f"{{{w_ns}}}id") in target_ids:
+                parent.remove(child)
+                removed += 1
+    return removed
+
+
+def _next_bookmark_id(document_root, w_ns):
+    used_ids = []
+    for elem in document_root.iter():
+        if elem.tag not in {f"{{{w_ns}}}bookmarkStart", f"{{{w_ns}}}bookmarkEnd"}:
+            continue
+        raw_id = elem.get(f"{{{w_ns}}}id")
+        if raw_id is None:
+            continue
+        try:
+            used_ids.append(int(raw_id))
+        except ValueError:
+            continue
+    return str(max(used_ids, default=-1) + 1)
+
+
+def _insert_bookmark_start(paragraph, bookmark_id, bookmark_name, nsmap, w_ns, set_attr):
+    bookmark_start = ET.Element(f"{{{w_ns}}}bookmarkStart")
+    set_attr(bookmark_start, "id", bookmark_id)
+    set_attr(bookmark_start, "name", bookmark_name)
+
+    p_pr = paragraph.find("w:pPr", nsmap)
+    if p_pr is None:
+        paragraph.insert(0, bookmark_start)
+        return
+
+    paragraph.insert(list(paragraph).index(p_pr) + 1, bookmark_start)
+
+
+def _add_body_toc_bookmark(document_root, body_children, insert_index, bookmark_name, nsmap, w_ns, set_attr):
+    if insert_index >= len(body_children):
+        return False
+
+    start_paragraph = body_children[insert_index]
+    if start_paragraph.tag != f"{{{w_ns}}}p":
+        return False
+
+    end_paragraph = None
+    for child in reversed(body_children[insert_index:]):
+        if child.tag == f"{{{w_ns}}}p":
+            end_paragraph = child
+            break
+    if end_paragraph is None:
+        return False
+
+    bookmark_id = _next_bookmark_id(document_root, w_ns)
+    _insert_bookmark_start(start_paragraph, bookmark_id, bookmark_name, nsmap, w_ns, set_attr)
+
+    bookmark_end = ET.Element(f"{{{w_ns}}}bookmarkEnd")
+    set_attr(bookmark_end, "id", bookmark_id)
+    end_paragraph.append(bookmark_end)
+    return True

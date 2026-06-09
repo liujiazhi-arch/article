@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 import inspect
 import os
 from pathlib import Path
-import shutil
 from threading import Lock
 from time import monotonic, sleep
 from typing import Any, Callable
@@ -18,6 +17,7 @@ from article_engine.service import _default_output_path
 from article_api import storage
 from article_api import errors as api_errors
 from article_api import job_artifacts, job_execution
+from article_api import job_retention
 from article_api import job_payloads
 from article_api.uploads import build_job_workspace, stage_job_input_docx
 
@@ -32,6 +32,24 @@ def _parse_timestamp(value: str | None) -> datetime | None:
     if not value:
         return None
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _last_seen_timestamp(payload: dict[str, Any]) -> str | None:
+    runtime = payload.get("runtime") or {}
+    return (
+        runtime.get("last_heartbeat_at")
+        or payload.get("updated_at")
+        or payload.get("started_at")
+        or payload.get("created_at")
+    )
+
+
+def _seconds_since(now: str, then: str | None) -> float | None:
+    now_dt = _parse_timestamp(now)
+    then_dt = _parse_timestamp(then)
+    if now_dt is None or then_dt is None:
+        return None
+    return max((now_dt - then_dt).total_seconds(), 0.0)
 
 
 def _recovery_error_payload(status: str) -> dict[str, Any]:
@@ -109,6 +127,22 @@ def _with_current_artifact_availability(payload: dict[str, Any]) -> dict[str, An
     return refreshed
 
 
+def _ensure_report_artifact(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return job_artifacts.ensure_report_artifact(
+        payload.get("artifacts"),
+        job_id=payload["job_id"],
+        operation=payload["operation"],
+        status=payload["status"],
+        created_at=payload["created_at"],
+        started_at=payload.get("started_at"),
+        finished_at=payload.get("finished_at"),
+        summary=payload.get("summary"),
+        resolved_request=payload.get("resolved_request"),
+        runtime=payload.get("runtime"),
+        error=payload.get("error"),
+    )
+
+
 def _ensure_finished_report_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("status") not in _FINISHED_STATUSES:
         return payload
@@ -129,19 +163,7 @@ def _ensure_finished_report_artifact_payload(payload: dict[str, Any]) -> dict[st
     includes_result = "result" in payload
     stored_payload = storage.get_job(payload["job_id"], include_result=True) or payload
     persisted = _clone_dict(stored_payload)
-    persisted["artifacts"] = job_artifacts.ensure_report_artifact(
-        persisted.get("artifacts"),
-        job_id=persisted["job_id"],
-        operation=persisted["operation"],
-        status=persisted["status"],
-        created_at=persisted["created_at"],
-        started_at=persisted.get("started_at"),
-        finished_at=persisted.get("finished_at"),
-        summary=persisted.get("summary"),
-        resolved_request=persisted.get("resolved_request"),
-        runtime=persisted.get("runtime"),
-        error=persisted.get("error"),
-    )
+    persisted["artifacts"] = _ensure_report_artifact(persisted)
     storage.upsert_job(persisted)
     if includes_result:
         return persisted
@@ -494,7 +516,7 @@ def _reconcile_incomplete_jobs() -> None:
     if not payloads:
         return
     grace_seconds = _recovery_grace_seconds()
-    now_dt = _parse_timestamp(_utcnow())
+    now = _utcnow()
     with _JOB_LOCK:
         active_job_ids = {job_id for job_id, future in _ACTIVE_FUTURES.items() if not future.done()}
         finished_job_ids = {job_id for job_id, future in _ACTIVE_FUTURES.items() if future.done()}
@@ -505,18 +527,9 @@ def _reconcile_incomplete_jobs() -> None:
             continue
         if payload["job_id"] in active_job_ids:
             continue
-        runtime = payload.get("runtime") or {}
-        last_seen = (
-            runtime.get("last_heartbeat_at")
-            or payload.get("updated_at")
-            or payload.get("started_at")
-            or payload.get("created_at")
-        )
-        last_seen_dt = _parse_timestamp(last_seen)
-        if now_dt is not None and last_seen_dt is not None:
-            age_seconds = max((now_dt - last_seen_dt).total_seconds(), 0.0)
-            if age_seconds < grace_seconds:
-                continue
+        age_seconds = _seconds_since(now, _last_seen_timestamp(payload))
+        if age_seconds is not None and age_seconds < grace_seconds:
+            continue
         record = _build_failed_record_from_payload(payload, error=_recovery_error_payload(payload["status"]))
         _finalize_record(record)
 
@@ -532,7 +545,7 @@ def runtime_snapshot() -> dict[str, Any]:
     recovery_pending_job_ids: list[str] = []
     heartbeat_stale_after_seconds = _heartbeat_stale_after_seconds()
     recovery_grace_seconds = _recovery_grace_seconds()
-    now_dt = _parse_timestamp(_utcnow())
+    now = _utcnow()
     with _JOB_LOCK:
         active_future_job_ids = sorted(job_id for job_id, future in _ACTIVE_FUTURES.items() if not future.done())
     active_future_job_id_set = set(active_future_job_ids)
@@ -544,24 +557,15 @@ def runtime_snapshot() -> dict[str, Any]:
         if payload["status"] in _FINISHED_STATUSES:
             continue
         if payload["job_id"] not in active_future_job_id_set:
-            last_seen = (
-                runtime.get("last_heartbeat_at")
-                or payload.get("updated_at")
-                or payload.get("started_at")
-                or payload.get("created_at")
-            )
-            last_seen_dt = _parse_timestamp(last_seen)
-            if last_seen_dt is not None and now_dt is not None:
-                age_seconds = max((now_dt - last_seen_dt).total_seconds(), 0.0)
-                if age_seconds < recovery_grace_seconds:
-                    recovery_pending_job_ids.append(payload["job_id"])
+            age_seconds = _seconds_since(now, _last_seen_timestamp(payload))
+            if age_seconds is not None and age_seconds < recovery_grace_seconds:
+                recovery_pending_job_ids.append(payload["job_id"])
             continue
         if payload["status"] != "running" or payload["job_id"] not in active_future_job_id_set:
             continue
-        heartbeat_dt = _parse_timestamp(runtime.get("last_heartbeat_at"))
-        if heartbeat_dt is None or now_dt is None:
+        heartbeat_age_seconds = _seconds_since(now, runtime.get("last_heartbeat_at"))
+        if heartbeat_age_seconds is None:
             continue
-        heartbeat_age_seconds = max((now_dt - heartbeat_dt).total_seconds(), 0.0)
         if heartbeat_age_seconds >= heartbeat_stale_after_seconds:
             stale_heartbeat_job_ids.append(payload["job_id"])
     return {
@@ -621,102 +625,31 @@ def _cleanup_candidate_map(payload: dict[str, Any]) -> tuple[dict[str, dict[str,
 
 
 def cleanup_job(job_id: str, *, policy: str = "manual") -> dict[str, Any]:
-    payload = storage.get_job(job_id, include_result=True)
-    if payload is None:
-        raise LookupError(f"Job not found: {job_id}")
-    if payload["status"] not in _FINISHED_STATUSES:
-        raise RuntimeError(f"Job cleanup is only available after completion: {job_id}")
-
-    candidates, skipped_paths = _cleanup_candidate_map(payload)
-    removed_paths: list[str] = []
-    missing_paths: list[str] = []
-    for item in candidates.values():
-        candidate_path = Path(item["path"])
-        if not candidate_path.exists():
-            missing_paths.append(str(candidate_path))
-            continue
-        if candidate_path.is_dir():
-            shutil.rmtree(candidate_path)
-        else:
-            candidate_path.unlink()
-        removed_paths.append(str(candidate_path))
-
-    previous_cleanup = payload.get("cleanup") or {}
-    cleanup_payload = {
-        "policy": policy,
-        "state": "cleaned" if removed_paths else "noop",
-        "cleaned_at": _utcnow(),
-        "attempt_count": int(previous_cleanup.get("attempt_count") or 0) + 1,
-        "removed_paths": removed_paths,
-        "missing_paths": missing_paths,
-        "skipped_paths": sorted(set(skipped_paths)),
-    }
-    storage.upsert_job_cleanup(job_id, cleanup_payload)
-    return get_job(job_id)
+    return job_retention.cleanup_job(
+        job_id,
+        policy=policy,
+        finished_statuses=_FINISHED_STATUSES,
+        get_job_payload_fn=lambda job_id: storage.get_job(job_id, include_result=True),
+        upsert_job_cleanup_fn=lambda job_id, payload: storage.upsert_job_cleanup(job_id, payload),
+        get_job_fn=lambda job_id: get_job(job_id),
+        cleanup_candidate_map_fn=lambda payload: _cleanup_candidate_map(payload),
+        utcnow_fn=lambda: _utcnow(),
+    )
 
 
 def sweep_job_retention(max_age_seconds: float, *, now: str | None = None, dry_run: bool = False) -> dict[str, Any]:
-    threshold_seconds = _coerce_positive_float(max_age_seconds, field_name="job_max_age_seconds")
-    reference_time = now or _utcnow()
-    reference_dt = _parse_timestamp(reference_time)
-    if reference_dt is None:
-        raise ValueError("Retention reference time is required")
-
-    _reconcile_incomplete_jobs()
-    payloads = storage.list_jobs(include_result=True)
-    report = {
-        "policy": "retention",
-        "dry_run": bool(dry_run),
-        "max_age_seconds": threshold_seconds,
-        "reference_time": reference_time,
-        "inspected_count": len(payloads),
-        "eligible_count": 0,
-        "cleaned_count": 0,
-        "noop_count": 0,
-        "skipped_count": 0,
-        "items": [],
-    }
-
-    for payload in payloads:
-        if payload["status"] not in _FINISHED_STATUSES:
-            report["skipped_count"] += 1
-            continue
-        if payload.get("cleanup") is not None:
-            report["skipped_count"] += 1
-            continue
-        finished_at = payload.get("finished_at")
-        finished_dt = _parse_timestamp(finished_at)
-        if finished_dt is None:
-            report["skipped_count"] += 1
-            continue
-        age_seconds = max((reference_dt - finished_dt).total_seconds(), 0.0)
-        if age_seconds < threshold_seconds:
-            report["skipped_count"] += 1
-            continue
-
-        report["eligible_count"] += 1
-        item = {
-            "job_id": payload["job_id"],
-            "status": payload["status"],
-            "finished_at": finished_at,
-            "age_seconds": round(age_seconds, 3),
-        }
-        if dry_run:
-            item["action"] = "would_clean"
-            report["items"].append(item)
-            continue
-
-        cleaned_payload = cleanup_job(payload["job_id"], policy="retention")
-        cleanup = deepcopy(cleaned_payload.get("cleanup")) or {}
-        item["action"] = "cleaned"
-        item["cleanup"] = cleanup
-        if cleanup.get("state") == "cleaned":
-            report["cleaned_count"] += 1
-        else:
-            report["noop_count"] += 1
-        report["items"].append(item)
-
-    return report
+    return job_retention.sweep_job_retention(
+        max_age_seconds,
+        now=now,
+        dry_run=dry_run,
+        finished_statuses=_FINISHED_STATUSES,
+        utcnow_fn=lambda: _utcnow(),
+        coerce_positive_float_fn=lambda value, field_name: _coerce_positive_float(value, field_name=field_name),
+        parse_timestamp_fn=lambda value: _parse_timestamp(value),
+        reconcile_incomplete_jobs_fn=lambda: _reconcile_incomplete_jobs(),
+        list_jobs_fn=lambda: storage.list_jobs(include_result=True),
+        cleanup_job_fn=lambda job_id, policy="retention": cleanup_job(job_id, policy=policy),
+    )
 
 
 def _finalize_record(record: JobRecord) -> None:
@@ -724,20 +657,10 @@ def _finalize_record(record: JobRecord) -> None:
         record.runtime = _finalize_runtime_metadata(record.runtime)
     record.finished_at = _utcnow()
     record.updated_at = record.finished_at
-    record.artifacts = job_artifacts.ensure_report_artifact(
-        record.artifacts,
-        job_id=record.job_id,
-        operation=record.operation,
-        status=record.status,
-        created_at=record.created_at,
-        started_at=record.started_at,
-        finished_at=record.finished_at,
-        summary=record.summary,
-        resolved_request=record.resolved_request,
-        runtime=record.runtime,
-        error=record.error,
-    )
-    storage.upsert_job(_serialize_job(record, include_result=True))
+    payload = _serialize_job(record, include_result=True)
+    payload["artifacts"] = _ensure_report_artifact(payload)
+    record.artifacts = payload["artifacts"]
+    storage.upsert_job(payload)
 
 
 def _mark_record_failed_from_exception(
@@ -1046,10 +969,9 @@ def get_job(job_id: str) -> dict[str, Any]:
     runtime = payload.get("runtime") or {}
     heartbeat_at = runtime.get("last_heartbeat_at")
     if heartbeat_at:
-        heartbeat_dt = _parse_timestamp(heartbeat_at)
-        now_dt = _parse_timestamp(_utcnow())
-        if heartbeat_dt is not None and now_dt is not None:
-            runtime["heartbeat_age_seconds"] = max((now_dt - heartbeat_dt).total_seconds(), 0.0)
+        heartbeat_age_seconds = _seconds_since(_utcnow(), heartbeat_at)
+        if heartbeat_age_seconds is not None:
+            runtime["heartbeat_age_seconds"] = heartbeat_age_seconds
             payload["runtime"] = runtime
     return payload
 

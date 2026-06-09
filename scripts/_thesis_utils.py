@@ -337,13 +337,16 @@ def paragraph_has_math(p_elem):
     )
 
 
-def _parse_int(value):
+def parse_int(value):
     if value is None:
         return None
     try:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+_parse_int = parse_int
 
 
 def _has_text_content(p_elem):

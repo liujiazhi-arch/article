@@ -95,10 +95,10 @@ additions:
     scope: undergraduate
     severity: minor
     check_level: Auto
-    description: "不使用软回车伪造段落"
+    description: "普通正文不使用软回车；图题、英文图题和说明性图注允许用软回车分隔题名、分组说明和显著性说明"
     method: docx-structure
-    evidence: "w:br/w:cr 软换行"
-    fix: "fix_soft_line_breaks()"
+    evidence: "非图题/图注段落中的 w:br/w:cr 软换行"
+    fix: "fix_soft_line_breaks(preserve_caption_soft_line_breaks=true)"
     source: lnu-checker-2026
 
   - id: LNU_FMT02
@@ -447,6 +447,7 @@ settings:
   caption_number_sep: "."
   # 辽大截图样例中编号与题名之间为两个半角空格，例如“图2.1  中国企业会计监管模式”。
   caption_label_gap_spaces: 2
+  preserve_caption_soft_line_breaks: true
   figure_blank_line_twips: 360
   table_blank_line_twips: 360
   table_cell_line: 360

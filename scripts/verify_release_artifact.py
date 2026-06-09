@@ -1,24 +1,22 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
-import urllib.parse
 import zipfile
 
-
-REQUIRED_SUFFIXES = (
-    "启动论文格式检查.bat",
-    "导出反馈包.bat",
-    "快速开始.txt",
-    "app/Scripts/python.exe",
-    "app/Scripts/article-local.exe",
-    "data/state/.keep",
-    "data/runtime/.keep",
+from file_hash_utils import sha256_file as _sha256_file
+from release_url_utils import is_github_release_api_url as _is_github_release_api_url
+from windows_bundle_contract import (
+    BUNDLE_ROOT_NAME,
+    FEEDBACK_LAUNCHER_NAME,
+    LAUNCHER_NAME,
+    QUICKSTART_NAME,
+    REQUIRED_SUFFIXES,
 )
-EXPECTED_BUNDLE_ROOT = "论文格式检查本地版"
+
+EXPECTED_BUNDLE_ROOT = BUNDLE_ROOT_NAME
 FORBIDDEN_EXACT_NAMES = {
     ".env",
     "article-local.env",
@@ -116,28 +114,12 @@ def _is_forbidden_entry(name: str) -> bool:
     return False
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _is_github_latest_release_api_url(url: str) -> bool:
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme != "https" or parsed.netloc.lower() != "api.github.com":
-        return False
-    parts = [part for part in parsed.path.split("/") if part]
-    return len(parts) == 5 and parts[0] == "repos" and parts[3] == "releases" and parts[4] == "latest"
-
-
 def _verify_release_api_url_if_present(launcher_text: str) -> None:
     match = RELEASE_API_LINE_RE.search(launcher_text)
     if match is None:
         return
-    if not _is_github_latest_release_api_url(match.group("url")):
-        raise RuntimeError("Launcher ARTICLE_LOCAL_RELEASE_API_URL must be a GitHub Release API latest URL")
+    if not _is_github_release_api_url(match.group("url")):
+        raise RuntimeError("Launcher ARTICLE_LOCAL_RELEASE_API_URL must be a GitHub Release API latest or tag URL")
 
 
 def _is_dependency_document_resource(lowered_parts: tuple[str, ...]) -> bool:
@@ -175,9 +157,9 @@ def verify_windows_bundle_artifact(
                 + ", ".join(forbidden_entries[:10])
             )
 
-        launcher_name = _find_bundle_entry(names, bundle_root, "启动论文格式检查.bat")
-        feedback_name = _find_bundle_entry(names, bundle_root, "导出反馈包.bat")
-        quickstart_name = _find_bundle_entry(names, bundle_root, "快速开始.txt")
+        launcher_name = _find_bundle_entry(names, bundle_root, LAUNCHER_NAME)
+        feedback_name = _find_bundle_entry(names, bundle_root, FEEDBACK_LAUNCHER_NAME)
+        quickstart_name = _find_bundle_entry(names, bundle_root, QUICKSTART_NAME)
         assert launcher_name is not None
         assert feedback_name is not None
         assert quickstart_name is not None

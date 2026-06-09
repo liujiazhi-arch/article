@@ -1,29 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 import os
 from pathlib import Path
-import tempfile
-from threading import Lock
-from time import monotonic
 from typing import Any
 
 from article_engine import apply_fix, audit_document, normalize_document, plan_document, preflight_document, render_verify_document, verify_document
-from article_api import app_ops, app_uploads, errors as api_errors, storage
-from article_api.profiles import build_profile_catalog
-from article_api.job_queries import filter_jobs
-from article_api.request_payloads import (
-    apply_job_kwargs,
-    apply_kwargs,
-    audit_kwargs,
-    normalize_job_kwargs,
-    normalize_kwargs,
-    plan_kwargs,
-    preflight_kwargs,
-    render_verify_kwargs,
-    verify_job_kwargs,
-    verify_kwargs,
+from article_api import (
+    app_ops,
+    app_retention,
+    app_uploads,
+    errors as api_errors,
+    routes_feedback,
+    routes_job_submit,
+    routes_jobs,
+    routes_metadata,
+    routes_ops,
+    routes_sync,
+    routes_uploads,
+    storage,
 )
+from article_api.profiles import build_profile_catalog
 from article_api.schemas import (
     ApplyRequest,
     AuditRequest,
@@ -70,7 +67,6 @@ from article_api.jobs import (
     sweep_job_retention,
 )
 from article_api.uploads import resolve_runtime_root, store_uploaded_docx, store_uploaded_pdf
-from article_api.local_feedback import create_feedback_archive
 try:
     from fastapi import FastAPI, File, HTTPException, UploadFile
     from fastapi.responses import FileResponse, HTMLResponse
@@ -89,18 +85,12 @@ else:
     _FASTAPI_IMPORT_ERROR = None
 
 
-JOB_RETENTION_SECONDS_ENV = "ARTICLE_API_JOB_RETENTION_SECONDS"
-UPLOAD_RETENTION_SECONDS_ENV = "ARTICLE_API_UPLOAD_RETENTION_SECONDS"
-RETENTION_AUTORUN_ENV = "ARTICLE_API_RETENTION_AUTORUN"
-RETENTION_AUTORUN_INTERVAL_ENV = "ARTICLE_API_RETENTION_AUTORUN_INTERVAL_SECONDS"
-_RETENTION_STATE_LOCK = Lock()
-_RETENTION_STATE: dict[str, Any] = {
-    "last_run_at": None,
-    "last_trigger": None,
-    "last_result": None,
-    "last_error": None,
-    "last_monotonic": None,
-}
+JOB_RETENTION_SECONDS_ENV = app_retention.JOB_RETENTION_SECONDS_ENV
+UPLOAD_RETENTION_SECONDS_ENV = app_retention.UPLOAD_RETENTION_SECONDS_ENV
+RETENTION_AUTORUN_ENV = app_retention.RETENTION_AUTORUN_ENV
+RETENTION_AUTORUN_INTERVAL_ENV = app_retention.RETENTION_AUTORUN_INTERVAL_ENV
+_RETENTION_STATE_LOCK = app_retention.RETENTION_STATE_LOCK
+_RETENTION_STATE = app_retention.RETENTION_STATE
 
 class _InlineHTMLResponse:
     def __init__(self, content: str, *, status_code: int = 200):
@@ -120,26 +110,15 @@ def _utcnow() -> str:
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return app_retention.parse_timestamp(value)
 
 
 def _parse_optional_positive_float_env(env_name: str) -> float | None:
-    raw = os.environ.get(env_name)
-    if raw in (None, ""):
-        return None
-    value = float(raw)
-    if value <= 0:
-        raise ValueError(f"{env_name} must be > 0")
-    return value
+    return app_retention.parse_optional_positive_float_env(env_name)
 
 
 def _parse_bool_env(env_name: str, *, default: bool = False) -> bool:
-    raw = os.environ.get(env_name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return app_retention.parse_bool_env(env_name, default=default)
 
 
 def _upload_view(payload: dict[str, Any]) -> dict[str, Any]:
@@ -163,24 +142,11 @@ def _readiness_payload() -> dict[str, Any]:
 
 
 def _retention_defaults_payload() -> dict[str, Any]:
-    return app_ops.build_retention_defaults_payload(
-        parse_optional_positive_float_env=_parse_optional_positive_float_env,
-        parse_bool_env=lambda env_name: _parse_bool_env(env_name, default=False),
-        job_retention_seconds_env=JOB_RETENTION_SECONDS_ENV,
-        upload_retention_seconds_env=UPLOAD_RETENTION_SECONDS_ENV,
-        retention_autorun_env=RETENTION_AUTORUN_ENV,
-        retention_autorun_interval_env=RETENTION_AUTORUN_INTERVAL_ENV,
-    )
+    return app_retention.retention_defaults_payload()
 
 
 def _retention_state_payload() -> dict[str, Any]:
-    with _RETENTION_STATE_LOCK:
-        return {
-            "last_run_at": _RETENTION_STATE["last_run_at"],
-            "last_trigger": _RETENTION_STATE["last_trigger"],
-            "last_result": _RETENTION_STATE["last_result"],
-            "last_error": _RETENTION_STATE["last_error"],
-        }
+    return app_retention.retention_state_payload()
 
 
 def _ops_summary_payload() -> dict[str, Any]:
@@ -241,21 +207,22 @@ def _raise_job_http_error(exc: Exception) -> None:
 
 
 def _cleanup_upload(upload_id: str, *, policy: str = "manual") -> dict[str, Any]:
-    return app_uploads.cleanup_upload(upload_id, policy=policy, now_iso=_utcnow())
+    return app_retention.cleanup_upload(upload_id, policy=policy, utcnow_fn=_utcnow)
 
 
 def _sweep_upload_retention(max_age_seconds: float, *, now: str, dry_run: bool) -> dict[str, Any]:
-    return app_uploads.sweep_upload_retention(
+    return app_retention.sweep_upload_retention(
         max_age_seconds,
         now=now,
         dry_run=dry_run,
-        parse_timestamp=_parse_timestamp,
+        utcnow_fn=_utcnow,
+        parse_timestamp_fn=_parse_timestamp,
         cleanup_upload_fn=lambda upload_id, policy="retention": _cleanup_upload(upload_id, policy=policy),
     )
 
 
 def _sweep_retention(request: RetentionSweepRequest) -> dict[str, Any]:
-    return app_uploads.sweep_retention(
+    return app_retention.sweep_retention(
         request,
         utcnow_fn=_utcnow,
         sweep_job_retention_fn=sweep_job_retention,
@@ -264,45 +231,31 @@ def _sweep_retention(request: RetentionSweepRequest) -> dict[str, Any]:
 
 
 def _record_retention_success(*, trigger: str, result: dict[str, Any]) -> None:
-    with _RETENTION_STATE_LOCK:
-        app_uploads.record_retention_success(
-            _RETENTION_STATE,
-            trigger=trigger,
-            result={**result, "triggered_at": result.get("triggered_at") or _utcnow()},
-        )
+    app_retention.record_retention_success(trigger=trigger, result=result, utcnow_fn=_utcnow)
 
 
 def _record_retention_error(*, trigger: str, error: Exception) -> None:
-    with _RETENTION_STATE_LOCK:
-        app_uploads.record_retention_error(
-            _RETENTION_STATE,
-            trigger=trigger,
-            error=error,
-            now_iso=_utcnow(),
-        )
+    app_retention.record_retention_error(trigger=trigger, error=error, utcnow_fn=_utcnow)
 
 
 def _run_default_retention_sweep(*, dry_run: bool, trigger: str) -> dict[str, Any]:
-    defaults = _retention_defaults_payload()
-    request = RetentionSweepRequest(
-        job_max_age_seconds=defaults["job_max_age_seconds"],
-        upload_max_age_seconds=defaults["upload_max_age_seconds"],
+    return app_retention.run_default_retention_sweep(
         dry_run=dry_run,
+        trigger=trigger,
+        utcnow_fn=_utcnow,
+        retention_defaults_payload_fn=_retention_defaults_payload,
+        sweep_retention_fn=_sweep_retention,
+        record_retention_success_fn=_record_retention_success,
     )
-    result = _sweep_retention(request)
-    _record_retention_success(trigger=trigger, result=result)
-    return result
 
 
 def _maybe_autorun_retention() -> None:
-    defaults = _retention_defaults_payload()
-    with _RETENTION_STATE_LOCK:
-        if not app_uploads.should_autorun_retention(defaults=defaults, retention_state=_RETENTION_STATE):
-            return
-    try:
-        _run_default_retention_sweep(dry_run=False, trigger="autorun")
-    except Exception as exc:
-        _record_retention_error(trigger="autorun", error=exc)
+    app_retention.maybe_autorun_retention(
+        utcnow_fn=_utcnow,
+        retention_defaults_payload_fn=_retention_defaults_payload,
+        run_default_retention_sweep_fn=_run_default_retention_sweep,
+        record_retention_error_fn=_record_retention_error,
+    )
 
 
 def _build_download_response(job_id: str, artifact_role: str):
@@ -336,22 +289,7 @@ def _build_download_response(job_id: str, artifact_role: str):
 
 
 def _build_feedback_download_response():
-    feedback_dir = Path(tempfile.mkdtemp(prefix="article-feedback-"))
-    feedback_path = feedback_dir / "feedback.zip"
-    create_feedback_archive(str(feedback_path))
-    filename = "反馈包.zip"
-    media_type = "application/zip"
-    if FileResponse is None:  # pragma: no cover
-        return {
-            "path": str(feedback_path),
-            "filename": filename,
-            "media_type": media_type,
-        }
-    return FileResponse(
-        str(feedback_path),
-        filename=filename,
-        media_type=media_type,
-    )
+    return routes_feedback.build_feedback_download_response(file_response_cls=FileResponse)
 
 
 def build_preflight_payload(**kwargs) -> dict[str, Any]:
@@ -426,323 +364,91 @@ def create_app():
         description="Local API prototype for Article thesis audit and planning.",
     )
 
-    @app.get("/")
-    def local_console():
-        return _html_response(_local_console_html())
+    routes_metadata.register_metadata_routes(
+        app,
+        file_response_cls=FileResponse,
+        http_exception_cls=HTTPException,
+        html_response_fn=_html_response,
+        local_console_html_fn=_local_console_html,
+        health_payload_fn=_health_payload,
+        readiness_payload_fn=_readiness_payload,
+        version_payload_fn=_version_payload,
+        latest_update_payload_fn=_latest_update_payload,
+        render_workflow_modes_payload_fn=build_render_workflow_modes_payload,
+        profile_catalog_fn=lambda: build_profile_catalog(
+            service_name=SERVICE_NAME,
+            stage=SERVICE_STAGE,
+            version=SERVICE_VERSION,
+            api_version=API_VERSION,
+        ),
+        raise_sync_http_error=lambda exc: _raise_sync_http_error(exc),
+        package_file=__file__,
+    )
 
-    @app.get("/assets/lnu-emblem.jpg")
-    def lnu_emblem():
-        emblem_path = Path(__file__).with_name("assets") / "lnu-emblem.jpg"
-        if not emblem_path.exists():
-            raise HTTPException(status_code=404, detail="Liaoning University emblem asset is unavailable.")
-        return FileResponse(str(emblem_path), media_type="image/jpeg")
+    routes_ops.register_ops_routes(
+        app,
+        ops_summary_payload_fn=lambda: _ops_summary_payload(),
+        ops_storage_payload_fn=lambda: _ops_storage_payload(),
+        ops_runtime_payload_fn=lambda: _ops_runtime_payload(),
+        run_default_retention_sweep_fn=lambda **kwargs: _run_default_retention_sweep(**kwargs),
+        sweep_retention_fn=lambda request: _sweep_retention(request),
+        raise_job_http_error=lambda exc: _raise_job_http_error(exc),
+    )
 
-    @app.get("/health")
-    def health() -> dict[str, Any]:
-        return _health_payload()
+    routes_sync.register_sync_engine_routes(
+        app,
+        audit_document_fn=lambda **kwargs: audit_document(**kwargs),
+        plan_document_fn=lambda **kwargs: plan_document(**kwargs),
+        build_preflight_payload_fn=lambda **kwargs: build_preflight_payload(**kwargs),
+        build_normalize_payload_fn=lambda **kwargs: build_normalize_payload(**kwargs),
+        build_render_verify_payload_fn=lambda **kwargs: build_render_verify_payload(**kwargs),
+        verify_document_fn=lambda **kwargs: verify_document(**kwargs),
+        apply_fix_fn=lambda **kwargs: apply_fix(**kwargs),
+        raise_sync_http_error=lambda exc: _raise_sync_http_error(exc),
+    )
 
-    @app.get("/ready")
-    def ready() -> dict[str, Any]:
-        try:
-            return _readiness_payload()
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"Readiness check failed: {exc}") from exc
+    routes_job_submit.register_job_submit_routes(
+        app,
+        create_job_fn=lambda operation, payload: create_job(operation, payload),
+        maybe_autorun_retention=lambda: _maybe_autorun_retention(),
+        raise_job_http_error=lambda exc: _raise_job_http_error(exc),
+    )
 
-    @app.get("/version")
-    def version() -> dict[str, Any]:
-        return _version_payload()
+    routes_uploads.register_upload_routes(
+        app,
+        file_param=File(...),
+        maybe_autorun_retention=lambda: _maybe_autorun_retention(),
+        store_uploaded_docx_fn=lambda *args, **kwargs: store_uploaded_docx(*args, **kwargs),
+        store_uploaded_pdf_fn=lambda *args, **kwargs: store_uploaded_pdf(*args, **kwargs),
+        upsert_upload_fn=lambda payload: storage.upsert_upload(payload),
+        list_uploads_fn=lambda: storage.list_uploads(),
+        get_upload_fn=lambda upload_id: storage.get_upload(upload_id),
+        upload_view_fn=lambda payload: _upload_view(payload),
+        cleanup_upload_fn=lambda upload_id: _cleanup_upload(upload_id),
+        create_job_fn=lambda operation, payload: create_job(operation, payload),
+        verify_upload_job_kwargs_fn=lambda upload_id, request: _verify_upload_job_kwargs(upload_id, request),
+        normalize_upload_job_kwargs_fn=lambda upload_id, request: _normalize_upload_job_kwargs(upload_id, request),
+        apply_upload_job_kwargs_fn=lambda upload_id, request: _apply_upload_job_kwargs(upload_id, request),
+        raise_job_http_error=lambda exc: _raise_job_http_error(exc),
+        utcnow_fn=_utcnow,
+    )
 
-    @app.get("/updates/latest")
-    def latest_update() -> dict[str, Any]:
-        return _latest_update_payload()
+    routes_jobs.register_job_status_routes(
+        app,
+        list_jobs_fn=lambda: list_jobs(),
+        get_job_fn=lambda job_id: get_job(job_id),
+        inspect_job_fn=lambda job_id: inspect_job(job_id),
+        get_job_result_fn=lambda job_id: get_job_result(job_id),
+        cleanup_job_fn=lambda job_id: cleanup_job(job_id),
+        retry_job_fn=lambda job_id: retry_job(job_id),
+        build_download_response_fn=lambda job_id, artifact_role: _build_download_response(job_id, artifact_role),
+        raise_job_http_error=lambda exc: _raise_job_http_error(exc),
+    )
 
-    @app.get("/profiles")
-    def profiles() -> dict[str, Any]:
-        try:
-            return build_profile_catalog(
-                service_name=SERVICE_NAME,
-                stage=SERVICE_STAGE,
-                version=SERVICE_VERSION,
-                api_version=API_VERSION,
-            )
-        except Exception as exc:
-            _raise_sync_http_error(exc)
-
-    @app.get("/render-workflow-modes")
-    def render_workflow_modes() -> dict[str, Any]:
-        return build_render_workflow_modes_payload()
-
-    @app.get("/ops/summary")
-    def ops_summary() -> dict[str, Any]:
-        try:
-            return _ops_summary_payload()
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/ops/storage")
-    def ops_storage() -> dict[str, Any]:
-        try:
-            return _ops_storage_payload()
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/ops/runtime")
-    def ops_runtime() -> dict[str, Any]:
-        try:
-            return _ops_runtime_payload()
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/audit")
-    def audit_endpoint(request: AuditRequest) -> dict[str, Any]:
-        try:
-            return audit_document(
-                **audit_kwargs(request),
-            )
-        except Exception as exc:
-            _raise_sync_http_error(exc)
-
-    @app.post("/plan")
-    def plan_endpoint(request: PlanRequest) -> dict[str, Any]:
-        try:
-            return plan_document(
-                **plan_kwargs(request),
-            )
-        except Exception as exc:
-            _raise_sync_http_error(exc)
-
-    @app.post("/preflight")
-    def preflight_endpoint(request: PreflightRequest) -> dict[str, Any]:
-        try:
-            return build_preflight_payload(
-                **preflight_kwargs(request),
-            )
-        except Exception as exc:
-            _raise_sync_http_error(exc)
-
-    @app.post("/normalize")
-    def normalize_endpoint(request: NormalizeRequest) -> dict[str, Any]:
-        try:
-            return build_normalize_payload(
-                **normalize_kwargs(request),
-            )
-        except Exception as exc:
-            _raise_sync_http_error(exc)
-
-    @app.post("/render-verify")
-    def render_verify_endpoint(request: RenderVerifyRequest) -> dict[str, Any]:
-        try:
-            return build_render_verify_payload(
-                **render_verify_kwargs(request),
-            )
-        except Exception as exc:
-            _raise_sync_http_error(exc)
-
-    @app.post("/verify")
-    def verify_endpoint(request: VerifyRequest) -> dict[str, Any]:
-        try:
-            return verify_document(
-                **verify_kwargs(request),
-            )
-        except Exception as exc:
-            _raise_sync_http_error(exc)
-
-    @app.post("/apply")
-    def apply_endpoint(request: ApplyRequest) -> dict[str, Any]:
-        try:
-            return apply_fix(
-                **apply_kwargs(request),
-            )
-        except Exception as exc:
-            _raise_sync_http_error(exc)
-
-    @app.post("/jobs/verify", status_code=201)
-    def create_verify_job(request: VerifyRequest) -> dict[str, Any]:
-        try:
-            _maybe_autorun_retention()
-            return create_job("verify", verify_job_kwargs(request))
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/jobs/normalize", status_code=201)
-    def create_normalize_job(request: NormalizeJobRequest) -> dict[str, Any]:
-        try:
-            _maybe_autorun_retention()
-            return create_job("normalize", normalize_job_kwargs(request))
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/jobs/apply", status_code=201)
-    def create_apply_job(request: ApplyRequest) -> dict[str, Any]:
-        try:
-            _maybe_autorun_retention()
-            return create_job("apply", apply_job_kwargs(request))
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/uploads/docx", status_code=201)
-    def upload_docx(file: UploadFile = File(...), runtime_root: str | None = None) -> dict[str, Any]:
-        try:
-            _maybe_autorun_retention()
-            upload = store_uploaded_docx(file, runtime_root=runtime_root)
-            payload = {
-                "upload_id": upload.upload_id,
-                "file_name": upload.file_name,
-                "stored_path": upload.stored_path,
-                "workspace_dir": upload.workspace_dir,
-                "runtime_root": runtime_root,
-                "size_bytes": upload.size_bytes,
-                "created_at": _utcnow(),
-            }
-            try:
-                storage.upsert_upload(payload)
-            except Exception:
-                stored_path = payload.get("stored_path")
-                if stored_path and os.path.exists(stored_path):
-                    os.unlink(stored_path)
-                raise
-            return _upload_view(payload)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/uploads/pdf", status_code=201)
-    def upload_pdf(file: UploadFile = File(...), runtime_root: str | None = None) -> dict[str, Any]:
-        try:
-            _maybe_autorun_retention()
-            upload = store_uploaded_pdf(file, runtime_root=runtime_root)
-            payload = {
-                "upload_id": upload.upload_id,
-                "file_name": upload.file_name,
-                "stored_path": upload.stored_path,
-                "workspace_dir": upload.workspace_dir,
-                "runtime_root": runtime_root,
-                "size_bytes": upload.size_bytes,
-                "created_at": _utcnow(),
-            }
-            return _upload_view(payload)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/uploads")
-    def list_uploaded_docx() -> list[dict[str, Any]]:
-        try:
-            return [_upload_view(item) for item in storage.list_uploads()]
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/uploads/{upload_id}")
-    def get_uploaded_docx(upload_id: str) -> dict[str, Any]:
-        try:
-            payload = storage.get_upload(upload_id)
-            if payload is None:
-                raise LookupError(f"Upload not found: {upload_id}")
-            return _upload_view(payload)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/uploads/{upload_id}/cleanup")
-    def cleanup_uploaded_docx(upload_id: str) -> dict[str, Any]:
-        try:
-            return _cleanup_upload(upload_id)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/ops/retention/run-defaults")
-    def run_default_retention(request: RetentionDefaultsRunRequest) -> dict[str, Any]:
-        try:
-            return _run_default_retention_sweep(dry_run=request.dry_run, trigger="manual-defaults")
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/ops/retention/sweep")
-    def sweep_retention(request: RetentionSweepRequest) -> dict[str, Any]:
-        try:
-            return _sweep_retention(request)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/uploads/{upload_id}/jobs/verify", status_code=201)
-    def create_verify_job_from_upload(upload_id: str, request: UploadVerifyRequest) -> dict[str, Any]:
-        try:
-            _maybe_autorun_retention()
-            return create_job("verify", _verify_upload_job_kwargs(upload_id, request))
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/uploads/{upload_id}/jobs/normalize", status_code=201)
-    def create_normalize_job_from_upload(upload_id: str, request: UploadNormalizeRequest) -> dict[str, Any]:
-        try:
-            _maybe_autorun_retention()
-            return create_job("normalize", _normalize_upload_job_kwargs(upload_id, request))
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/uploads/{upload_id}/jobs/apply", status_code=201)
-    def create_apply_job_from_upload(upload_id: str, request: UploadApplyRequest) -> dict[str, Any]:
-        try:
-            _maybe_autorun_retention()
-            return create_job("apply", _apply_upload_job_kwargs(upload_id, request))
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/jobs")
-    def list_job_statuses(
-        operation: str | None = None,
-        status: str | None = None,
-        limit: int | None = None,
-    ) -> list[dict[str, Any]]:
-        try:
-            return filter_jobs(list_jobs(), operation=operation, status=status, limit=limit)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/jobs/{job_id}")
-    def get_job_status(job_id: str) -> dict[str, Any]:
-        try:
-            return get_job(job_id)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/jobs/{job_id}/inspect")
-    def inspect_job_status(job_id: str) -> dict[str, Any]:
-        try:
-            return inspect_job(job_id)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/jobs/{job_id}/result")
-    def get_job_output(job_id: str) -> dict[str, Any]:
-        try:
-            return get_job_result(job_id)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/jobs/{job_id}/cleanup")
-    def cleanup_job_runtime(job_id: str) -> dict[str, Any]:
-        try:
-            return cleanup_job(job_id)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.post("/jobs/{job_id}/retry", status_code=201)
-    def retry_job_runtime(job_id: str) -> dict[str, Any]:
-        try:
-            return retry_job(job_id)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/jobs/{job_id}/artifacts/{artifact_role}/download")
-    def download_job_artifact(job_id: str, artifact_role: str):
-        try:
-            return _build_download_response(job_id, artifact_role)
-        except Exception as exc:
-            _raise_job_http_error(exc)
-
-    @app.get("/feedback/download")
-    def download_feedback_archive():
-        try:
-            return _build_feedback_download_response()
-        except Exception as exc:
-            _raise_job_http_error(exc)
+    routes_feedback.register_feedback_routes(
+        app,
+        build_feedback_download_response_fn=lambda: _build_feedback_download_response(),
+        raise_job_http_error=lambda exc: _raise_job_http_error(exc),
+    )
 
     return app

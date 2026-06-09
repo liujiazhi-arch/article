@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import re
 
+from citation_text_utils import (
+    CITATION_TOKEN_RE,
+    citation_numbers_from_token as _citation_numbers_from_token,
+    format_citation_numbers as _format_citation_numbers,
+)
 from _thesis_utils import NSMAP, W_NS, _looks_like_toc_entry, get_paragraph_text
 from frontmatter_utils import (
     is_cn_keywords_paragraph_text,
@@ -15,8 +20,8 @@ from thesis_rules.audit_checkers import (
     _needs_num_cjk_space,
 )
 
-_CITATION_TOKEN_RE = re.compile(r"\[\d{1,3}(?:[,，、\-]\d{1,3})*\]")
-INLINE_CITATION_PAT = re.compile(r"\[\d{1,3}(?:[,，、\-]\d{1,3})*\]")
+_CITATION_TOKEN_RE = CITATION_TOKEN_RE
+INLINE_CITATION_PAT = CITATION_TOKEN_RE
 _PU01_CJK_RE = r"[\u4e00-\u9fff\u3400-\u4dbf]"
 _PU01_HALF_PUNCT_RE = re.compile(
     rf"(?<={_PU01_CJK_RE})[,;:]|[,;:](?={_PU01_CJK_RE})|(?<={_PU01_CJK_RE})\.(?!\d)|\.(?={_PU01_CJK_RE})"
@@ -462,44 +467,6 @@ def check_c02(document_root, contexts, style_map):
         issues.extend(samples)
         return False, issues, summarize_positions(positions)
     return True, [], "全部上标引用"
-
-def _citation_numbers_from_token(text):
-    match = re.fullmatch(r"\[(.+)\]", text or "")
-    if match is None:
-        return []
-    numbers = []
-    for part in re.split(r"[,，、]", match.group(1)):
-        part = part.strip()
-        if not part:
-            continue
-        range_match = re.fullmatch(r"(\d{1,3})-(\d{1,3})", part)
-        if range_match is not None:
-            start, end = int(range_match.group(1)), int(range_match.group(2))
-            step = 1 if start <= end else -1
-            numbers.extend(range(start, end + step, step))
-            continue
-        if re.fullmatch(r"\d{1,3}", part):
-            numbers.append(int(part))
-    return numbers
-
-def _format_citation_numbers(numbers):
-    unique_numbers = sorted(set(numbers))
-    parts = []
-    index = 0
-    while index < len(unique_numbers):
-        start = unique_numbers[index]
-        end = start
-        while index + 1 < len(unique_numbers) and unique_numbers[index + 1] == end + 1:
-            index += 1
-            end = unique_numbers[index]
-        if end - start >= 2:
-            parts.append(f"{start}-{end}")
-        elif end == start:
-            parts.append(str(start))
-        else:
-            parts.extend([str(start), str(end)])
-        index += 1
-    return f"[{','.join(parts)}]"
 
 def _has_misgrouped_superscript_citations(p_elem):
     runs = [run_elem for run_elem in p_elem.findall("w:r", NSMAP)]

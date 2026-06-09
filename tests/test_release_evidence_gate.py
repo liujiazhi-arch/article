@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 from pathlib import Path
 
@@ -134,6 +135,36 @@ def _write_browser_smoke(path: Path, *, tmp_path: Path, valid_docx: bool = True)
         ),
         encoding="utf-8",
     )
+
+
+def test_release_evidence_gate_http_smoke_failure_mapping_is_centralized():
+    release_evidence_gate = _load_release_evidence_gate()
+
+    download_bytes, missing_or_failed = release_evidence_gate._check_http_smoke_payload(
+        payload_status="failed",
+        http_smoke={"status": "failed", "ready": "starting", "job_status": "failed", "download_bytes": 0},
+        source_status_label="release smoke status",
+        http_status_label="http_smoke",
+        ready_label="http_smoke ready",
+        job_status_label="http_smoke apply job",
+        download_label="http_smoke output download",
+    )
+
+    release_source = inspect.getsource(release_evidence_gate._check_release_smoke)
+    windows_source = inspect.getsource(release_evidence_gate._check_windows_bundle_smoke)
+
+    assert download_bytes == 0
+    assert missing_or_failed == [
+        "release smoke status",
+        "http_smoke",
+        "http_smoke ready",
+        "http_smoke apply job",
+        "http_smoke output download",
+    ]
+    assert "_check_http_smoke_payload(" in release_source
+    assert "_check_http_smoke_payload(" in windows_source
+    assert 'http_smoke.get("ready")' not in release_source
+    assert 'http_smoke.get("ready")' not in windows_source
 
 
 def test_release_evidence_gate_requires_remote_release_windows_report_and_smoke_json(tmp_path):

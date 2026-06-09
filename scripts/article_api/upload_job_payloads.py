@@ -28,105 +28,86 @@ def resolve_upload_runtime_root(upload: dict[str, Any], requested_runtime_root: 
     return upload_runtime_root or requested_runtime_root
 
 
-def build_verify_upload_job_kwargs(upload_id: str, request, *, resolve_upload_fn=resolve_upload) -> dict[str, Any]:
+_WORKER_REQUEST_FIELDS = (
+    "stage_input",
+    "max_attempts",
+    "retry_delay_seconds",
+    "timeout_seconds",
+)
+
+
+def _upload_worker_request_kwargs(request) -> dict[str, Any]:
+    return {field: getattr(request, field) for field in _WORKER_REQUEST_FIELDS}
+
+
+def _build_upload_job_kwargs(
+    upload_id: str,
+    request,
+    operation_payload: dict[str, Any],
+    *,
+    resolve_upload_fn=resolve_upload,
+) -> dict[str, Any]:
     upload = resolve_upload_fn(upload_id)
     public_request = {
         "upload_id": upload_id,
-        "profile_path": request.profile,
-        "scopes": request.scopes,
-        "strict_profile": request.strict_profile,
-        "stage_input": request.stage_input,
-        "max_attempts": request.max_attempts,
-        "retry_delay_seconds": request.retry_delay_seconds,
-        "timeout_seconds": request.timeout_seconds,
+        **operation_payload,
+        **_upload_worker_request_kwargs(request),
     }
     if request.runtime_root is not None:
         public_request["runtime_root"] = request.runtime_root
+
     return {
         "file_path": upload["stored_path"],
         "upload_id": upload_id,
         "source_display_name": upload["file_name"],
         "_public_request": public_request,
-        "profile_path": request.profile,
-        "scopes": request.scopes,
-        "strict_profile": request.strict_profile,
-        "stage_input": request.stage_input,
+        **operation_payload,
+        **_upload_worker_request_kwargs(request),
         "runtime_root": resolve_upload_runtime_root(upload, request.runtime_root),
-        "max_attempts": request.max_attempts,
-        "retry_delay_seconds": request.retry_delay_seconds,
-        "timeout_seconds": request.timeout_seconds,
     }
+
+
+def build_verify_upload_job_kwargs(upload_id: str, request, *, resolve_upload_fn=resolve_upload) -> dict[str, Any]:
+    return _build_upload_job_kwargs(
+        upload_id,
+        request,
+        {
+            "profile_path": request.profile,
+            "scopes": request.scopes,
+            "strict_profile": request.strict_profile,
+        },
+        resolve_upload_fn=resolve_upload_fn,
+    )
 
 
 def build_apply_upload_job_kwargs(upload_id: str, request, *, resolve_upload_fn=resolve_upload) -> dict[str, Any]:
-    upload = resolve_upload_fn(upload_id)
-    public_request = {
-        "upload_id": upload_id,
-        "output_path": request.output_path,
-        "profile_path": request.profile,
-        "scopes": request.scopes,
-        "toc": request.toc,
-        "renumber_headings": request.renumber_headings,
-        "layout_rebalance": request.layout_rebalance,
-        "candidate_mode": request.candidate_mode,
-        "strict_profile": request.strict_profile,
-        "dry_run": request.dry_run,
-        "force": request.force,
-        "stage_input": request.stage_input,
-        "max_attempts": request.max_attempts,
-        "retry_delay_seconds": request.retry_delay_seconds,
-        "timeout_seconds": request.timeout_seconds,
-    }
-    if request.runtime_root is not None:
-        public_request["runtime_root"] = request.runtime_root
-    return {
-        "file_path": upload["stored_path"],
-        "upload_id": upload_id,
-        "source_display_name": upload["file_name"],
-        "_public_request": public_request,
-        "output_path": request.output_path,
-        "profile_path": request.profile,
-        "scopes": request.scopes,
-        "toc": request.toc,
-        "renumber_headings": request.renumber_headings,
-        "layout_rebalance": request.layout_rebalance,
-        "candidate_mode": request.candidate_mode,
-        "strict_profile": request.strict_profile,
-        "dry_run": request.dry_run,
-        "force": request.force,
-        "stage_input": request.stage_input,
-        "runtime_root": resolve_upload_runtime_root(upload, request.runtime_root),
-        "max_attempts": request.max_attempts,
-        "retry_delay_seconds": request.retry_delay_seconds,
-        "timeout_seconds": request.timeout_seconds,
-    }
+    return _build_upload_job_kwargs(
+        upload_id,
+        request,
+        {
+            "output_path": request.output_path,
+            "profile_path": request.profile,
+            "scopes": request.scopes,
+            "toc": request.toc,
+            "renumber_headings": request.renumber_headings,
+            "layout_rebalance": request.layout_rebalance,
+            "candidate_mode": request.candidate_mode,
+            "strict_profile": request.strict_profile,
+            "dry_run": request.dry_run,
+            "force": request.force,
+        },
+        resolve_upload_fn=resolve_upload_fn,
+    )
 
 
 def build_normalize_upload_job_kwargs(upload_id: str, request, *, resolve_upload_fn=resolve_upload) -> dict[str, Any]:
-    upload = resolve_upload_fn(upload_id)
-    public_request = {
-        "upload_id": upload_id,
-        "output_path": request.output_path,
-        "profile_path": request.profile,
-        "strict_profile": request.strict_profile,
-        "stage_input": request.stage_input,
-        "max_attempts": request.max_attempts,
-        "retry_delay_seconds": request.retry_delay_seconds,
-        "timeout_seconds": request.timeout_seconds,
-    }
-    if request.runtime_root is not None:
-        public_request["runtime_root"] = request.runtime_root
-    return {
-        "file_path": upload["stored_path"],
-        "upload_id": upload_id,
-        "source_display_name": upload["file_name"],
-        "_public_request": public_request,
-        "output_path": request.output_path,
-        "profile_path": request.profile,
-        "strict_profile": request.strict_profile,
-        "stage_input": request.stage_input,
-        "runtime_root": resolve_upload_runtime_root(upload, request.runtime_root),
-        "max_attempts": request.max_attempts,
-        "retry_delay_seconds": request.retry_delay_seconds,
-        "timeout_seconds": request.timeout_seconds,
-    }
+    return _build_upload_job_kwargs(
+        upload_id,
+        request,
+        {
+            "output_path": request.output_path,
+            "profile_path": request.profile,
+            "strict_profile": request.strict_profile,
+        },
+        resolve_upload_fn=resolve_upload_fn,
+    )

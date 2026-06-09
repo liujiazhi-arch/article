@@ -11,6 +11,10 @@ import sys
 from typing import Any, Sequence
 import zipfile
 
+from cli_json_output import build_failed_json_payload as _build_failed_payload
+from cli_json_output import emit_json_payload as _emit_payload
+from smoke_workdir_utils import prepare_work_dir
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -66,12 +70,6 @@ def _js_string(value: str | Path) -> str:
     return json.dumps(str(value), ensure_ascii=False)
 
 
-def _prepare_work_dir(work_dir: Path) -> None:
-    if work_dir.exists():
-        shutil.rmtree(work_dir)
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-
 def _server_env() -> dict[str, str]:
     env = dict(os.environ)
     existing = env.get("PYTHONPATH")
@@ -123,7 +121,7 @@ def run_local_browser_smoke(
     if not pwcli_path.exists():
         raise RuntimeError(f"Playwright CLI wrapper does not exist: {pwcli_path}")
 
-    _prepare_work_dir(smoke_dir)
+    prepare_work_dir(smoke_dir)
     state_root_path = Path(state_root).expanduser().resolve() if state_root is not None else smoke_dir / "state"
     runtime_root_path = Path(runtime_root).expanduser().resolve() if runtime_root is not None else smoke_dir / "runtime"
     state_root_path.mkdir(parents=True, exist_ok=True)
@@ -236,43 +234,14 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_LOCAL_BROWSER_SMOKE_ERROR_NEXT_STEPS = [
+    "Install Node.js/npm and Playwright browsers if the Playwright CLI wrapper cannot start.",
+    "Inspect the local service output and screenshots under the smoke work directory.",
+]
+
+
 def _format_error(exc: Exception) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "status": "failed",
-        "error": {
-            "type": exc.__class__.__name__,
-            "message": str(exc),
-        },
-        "next_steps": [
-            "Install Node.js/npm and Playwright browsers if the Playwright CLI wrapper cannot start.",
-            "Inspect the local service output and screenshots under the smoke work directory.",
-        ],
-    }
-    if isinstance(exc, subprocess.CalledProcessError):
-        payload["error"].update(
-            {
-                "command": [str(item) for item in (exc.cmd or [])],
-                "returncode": exc.returncode,
-                "stdout": exc.stdout,
-                "stderr": exc.stderr,
-            }
-        )
-    if isinstance(exc, subprocess.TimeoutExpired):
-        payload["error"].update(
-            {
-                "command": [str(item) for item in (exc.cmd or [])],
-                "timeout_seconds": float(exc.timeout),
-            }
-        )
-    return payload
-
-
-def _emit_payload(payload: dict[str, Any], *, json_output: Path | None = None) -> None:
-    if json_output is not None:
-        json_output = json_output.expanduser().resolve()
-        json_output.parent.mkdir(parents=True, exist_ok=True)
-        json_output.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    return _build_failed_payload(exc, next_steps=_LOCAL_BROWSER_SMOKE_ERROR_NEXT_STEPS)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -4,6 +4,12 @@ import copy
 import re
 import xml.etree.ElementTree as ET
 
+from sections._xml_helpers import (
+    get_paragraph_spacing_twips as _get_paragraph_spacing_twips,
+    set_paragraph_pagination_flags as _set_paragraph_pagination_flags,
+    set_paragraph_spacing_attrs as _set_paragraph_spacing_attrs,
+    set_table_row_cant_split as _set_table_row_cant_split,
+)
 from thesis_fix.dependencies import require
 
 
@@ -260,8 +266,6 @@ def normalize_lnu_figure_block_layout(document_root, style_map=None, cfg=None, r
         CAPTION_NOTE_MODULES,
         NSMAP,
         W_NS,
-        _get_paragraph_spacing_twips,
-        _set_paragraph_spacing_attrs,
         build_document_model,
         get_paragraph_text,
         resolve_fix_cfg,
@@ -270,8 +274,6 @@ def normalize_lnu_figure_block_layout(document_root, style_map=None, cfg=None, r
         "CAPTION_NOTE_MODULES",
         "NSMAP",
         "W_NS",
-        "_get_paragraph_spacing_twips",
-        "_set_paragraph_spacing_attrs",
         "build_document_model",
         "get_paragraph_text",
         "resolve_fix_cfg",
@@ -414,8 +416,6 @@ def normalize_lnu_table_block_layout(document_root, style_map=None, cfg=None, ru
     (
         NSMAP,
         W_NS,
-        _get_paragraph_spacing_twips,
-        _set_paragraph_spacing_attrs,
         collect_table_blocks,
         ensure_ppr,
         get_or_create,
@@ -425,8 +425,6 @@ def normalize_lnu_table_block_layout(document_root, style_map=None, cfg=None, ru
     ) = require(
         "NSMAP",
         "W_NS",
-        "_get_paragraph_spacing_twips",
-        "_set_paragraph_spacing_attrs",
         "collect_table_blocks",
         "ensure_ppr",
         "get_or_create",
@@ -581,15 +579,11 @@ def normalize_lnu_table_block_layout(document_root, style_map=None, cfg=None, ru
 def protect_object_blocks_from_pagination(document_root, style_map=None, cfg=None, runtime=None):
     (
         NSMAP,
-        _set_paragraph_pagination_flags,
-        _set_table_row_cant_split,
         collect_figure_blocks,
         collect_table_blocks,
         resolve_fix_cfg,
     ) = require(
         "NSMAP",
-        "_set_paragraph_pagination_flags",
-        "_set_table_row_cant_split",
         "collect_figure_blocks",
         "collect_table_blocks",
         "resolve_fix_cfg",

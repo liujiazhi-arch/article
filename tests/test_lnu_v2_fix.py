@@ -1068,6 +1068,131 @@ def test_fix_insert_toc_starts_at_preface_not_abstracts(lnu_runtime):
     assert 'TOC \\o "1-3"' in instr_text
 
 
+def test_fix_insert_toc_scopes_word_field_to_body_bookmark(lnu_runtime):
+    cover = _make_paragraph("封面信息")
+    abstract_cn = _make_paragraph("摘  要")
+    abstract_en = _make_paragraph("Abstract")
+    keywords = _make_paragraph("关键词：论文；格式")
+    body_h1 = _make_paragraph("第1章 绪论")
+    body_h2 = _make_paragraph("1.1 研究背景")
+    body_para = _make_paragraph("这是正文。")
+
+    for paragraph, style_id in (
+        (abstract_cn, "Heading1"),
+        (abstract_en, "Heading1"),
+        (body_h1, "Heading1"),
+        (body_h2, "Heading2"),
+    ):
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+        p_style = ET.SubElement(p_pr, _w("pStyle"))
+        p_style.set(_w("val"), style_id)
+
+    doc = _make_doc_root(cover, abstract_cn, abstract_en, keywords, body_h1, body_h2, body_para)
+
+    fix_insert_toc(doc, {"toc_auto": True, "toc_title": "目录", "toc_max_level": 3}, runtime=lnu_runtime)
+
+    instr_text = "".join((instr.text or "") for instr in doc.findall(".//w:instrText", NSMAP))
+    assert 'TOC \\o "1-3" \\h \\z \\u \\b BodyTocRange' in instr_text
+
+    bookmark_starts = doc.findall(".//w:bookmarkStart", NSMAP)
+    body_bookmarks = [
+        bookmark
+        for bookmark in bookmark_starts
+        if bookmark.get(_w("name")) == "BodyTocRange"
+    ]
+    assert len(body_bookmarks) == 1
+    bookmark_id = body_bookmarks[0].get(_w("id"))
+    assert body_h1.find("w:bookmarkStart", NSMAP) is body_bookmarks[0]
+    assert abstract_cn.find("w:bookmarkStart", NSMAP) is None
+    assert abstract_en.find("w:bookmarkStart", NSMAP) is None
+
+    bookmark_ends = [
+        bookmark
+        for bookmark in doc.findall(".//w:bookmarkEnd", NSMAP)
+        if bookmark.get(_w("id")) == bookmark_id
+    ]
+    assert len(bookmark_ends) == 1
+    assert body_para.find("w:bookmarkEnd", NSMAP) is bookmark_ends[0]
+
+
+def test_fix_insert_toc_bookmark_runs_from_preface_through_acknowledgement(lnu_runtime):
+    abstract_cn = _make_paragraph("摘  要")
+    abstract_en = _make_paragraph("Abstract")
+    keywords = _make_paragraph("关键词：论文；格式")
+    preface = _make_paragraph("序言")
+    chapter = _make_paragraph("第1章 绪论")
+    section = _make_paragraph("1.1 研究背景")
+    references = _make_paragraph("参考文献")
+    acknowledgement = _make_paragraph("致谢")
+    acknowledgement_body = _make_paragraph("感谢老师和同学。")
+
+    for paragraph, style_id in (
+        (abstract_cn, "Heading1"),
+        (abstract_en, "Heading1"),
+        (preface, "Heading1"),
+        (chapter, "Heading1"),
+        (section, "Heading2"),
+        (references, "Heading1"),
+        (acknowledgement, "Heading1"),
+    ):
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+        p_style = ET.SubElement(p_pr, _w("pStyle"))
+        p_style.set(_w("val"), style_id)
+
+    doc = _make_doc_root(
+        abstract_cn,
+        abstract_en,
+        keywords,
+        preface,
+        chapter,
+        section,
+        references,
+        acknowledgement,
+        acknowledgement_body,
+    )
+
+    fix_insert_toc(doc, {"toc_auto": True, "toc_title": "目录", "toc_max_level": 3}, runtime=lnu_runtime)
+
+    instr_text = "".join((instr.text or "") for instr in doc.findall(".//w:instrText", NSMAP))
+    assert 'TOC \\o "1-3" \\h \\z \\u \\b BodyTocRange' in instr_text
+
+    bookmark = next(
+        bookmark
+        for bookmark in doc.findall(".//w:bookmarkStart", NSMAP)
+        if bookmark.get(_w("name")) == "BodyTocRange"
+    )
+    bookmark_id = bookmark.get(_w("id"))
+
+    assert preface.find("w:bookmarkStart", NSMAP) is bookmark
+    assert abstract_cn.find("w:bookmarkStart", NSMAP) is None
+    assert abstract_en.find("w:bookmarkStart", NSMAP) is None
+    assert keywords.find("w:bookmarkStart", NSMAP) is None
+
+    bookmark_end = next(
+        bookmark
+        for bookmark in doc.findall(".//w:bookmarkEnd", NSMAP)
+        if bookmark.get(_w("id")) == bookmark_id
+    )
+    assert acknowledgement_body.find("w:bookmarkEnd", NSMAP) is bookmark_end
+
+
+def test_fix_insert_toc_does_not_insert_body_scoped_field_without_body_start(lnu_runtime):
+    abstract_cn = _make_paragraph("摘  要")
+    abstract_en = _make_paragraph("Abstract")
+    for paragraph in (abstract_cn, abstract_en):
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+        p_style = ET.SubElement(p_pr, _w("pStyle"))
+        p_style.set(_w("val"), "Heading1")
+    doc = _make_doc_root(abstract_cn, abstract_en)
+
+    toc_parts = fix_insert_toc(doc, {"toc_auto": True, "toc_title": "目录", "toc_max_level": 3}, runtime=lnu_runtime)
+
+    assert toc_parts == {}
+    instr_text = "".join((instr.text or "") for instr in doc.findall(".//w:instrText", NSMAP))
+    assert "TOC" not in instr_text
+    assert doc.findall(".//w:bookmarkStart", NSMAP) == []
+
+
 def test_fix_insert_toc_ignores_numeric_body_style_ids(lnu_runtime):
     body_h1 = _make_paragraph("第1章 绪论")
     body_h1_pr = ET.SubElement(body_h1, _w("pPr"))
@@ -1187,6 +1312,39 @@ def test_normalize_toc_entry_paragraphs_applies_latest_lnu_line_spacing():
     assert updated_spacing.get(_w("after")) == "100"
     assert updated_spacing.get(_w("line")) == "276"
     assert updated_spacing.get(_w("lineRule")) == "auto"
+
+
+def test_normalize_toc_entry_paragraphs_adds_right_aligned_page_tab():
+    toc_title = _make_paragraph("目  录")
+    toc_entry = _make_paragraph("序  言\t1")
+    toc_entry_pr = ET.SubElement(toc_entry, _w("pPr"))
+    toc_entry_style = ET.SubElement(toc_entry_pr, _w("pStyle"))
+    toc_entry_style.set(_w("val"), "TOC1")
+    ET.SubElement(toc_entry_pr, _w("spacing"))
+    document = _make_doc_root(toc_title, toc_entry)
+
+    changed = normalize_toc_entry_paragraphs(
+        document,
+        {},
+        {
+            "toc_tab_pos": 9000,
+            "toc_entry_font": "宋体",
+            "toc_entry_size": 24,
+            "toc_level1_font": "宋体",
+            "toc_level1_size": 24,
+        },
+    )
+
+    tab = toc_entry.find("w:pPr/w:tabs/w:tab", NSMAP)
+    assert changed > 0
+    assert tab is not None
+    assert tab.get(_w("val")) == "right"
+    assert tab.get(_w("leader")) == "dot"
+    assert tab.get(_w("pos")) == "9000"
+    ppr_children = list(toc_entry_pr)
+    assert ppr_children.index(toc_entry.find("w:pPr/w:tabs", NSMAP)) < ppr_children.index(
+        toc_entry.find("w:pPr/w:spacing", NSMAP)
+    )
 
 
 def test_fix_insert_toc_moves_misplaced_english_keywords_back_before_toc(lnu_runtime):

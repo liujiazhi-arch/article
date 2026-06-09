@@ -13,6 +13,10 @@ STATE_ROOT_ENV_VAR = "ARTICLE_API_STATE_ROOT"
 DB_FILENAME = "article_api.sqlite3"
 SCHEMA_VERSION = 2
 _TABLE_NAMES = ("jobs", "artifacts", "uploads", "job_cleanup", "upload_cleanup")
+_CLEANUP_ID_COLUMNS = {
+    "job_cleanup": "job_id",
+    "upload_cleanup": "upload_id",
+}
 _INDEX_DEFINITIONS = {
     "idx_jobs_status_updated_at": "CREATE INDEX IF NOT EXISTS idx_jobs_status_updated_at ON jobs(status, updated_at)",
     "idx_jobs_finished_at": "CREATE INDEX IF NOT EXISTS idx_jobs_finished_at ON jobs(finished_at)",
@@ -461,57 +465,69 @@ def list_uploads(*, state_root: str | Path | None = None) -> list[dict[str, Any]
 
 
 def upsert_job_cleanup(job_id: str, payload: dict[str, Any], *, state_root: str | Path | None = None) -> None:
-    init_storage(state_root)
-    with _DB_LOCK:
-        with _connect(state_root) as connection:
-            connection.execute(
-                """
-                INSERT INTO job_cleanup (job_id, payload_json)
-                VALUES (?, ?)
-                ON CONFLICT(job_id) DO UPDATE SET
-                    payload_json = excluded.payload_json
-                """,
-                (job_id, _json_dumps(payload)),
-            )
+    _upsert_cleanup_payload("job_cleanup", job_id, payload, state_root=state_root)
 
 
 def get_job_cleanup(job_id: str, *, state_root: str | Path | None = None) -> dict[str, Any] | None:
-    init_storage(state_root)
-    with _DB_LOCK:
-        with _connect(state_root) as connection:
-            row = connection.execute("SELECT payload_json FROM job_cleanup WHERE job_id = ?", (job_id,)).fetchone()
-    if row is None:
-        return None
-    return _json_loads(row["payload_json"])
+    return _get_cleanup_payload("job_cleanup", job_id, state_root=state_root)
 
 
 def _load_job_cleanup(connection: sqlite3.Connection, job_id: str) -> dict[str, Any] | None:
-    row = connection.execute("SELECT payload_json FROM job_cleanup WHERE job_id = ?", (job_id,)).fetchone()
-    if row is None:
-        return None
-    return _json_loads(row["payload_json"])
+    return _load_cleanup_payload(connection, "job_cleanup", job_id)
 
 
 def upsert_upload_cleanup(upload_id: str, payload: dict[str, Any], *, state_root: str | Path | None = None) -> None:
+    _upsert_cleanup_payload("upload_cleanup", upload_id, payload, state_root=state_root)
+
+
+def get_upload_cleanup(upload_id: str, *, state_root: str | Path | None = None) -> dict[str, Any] | None:
+    return _get_cleanup_payload("upload_cleanup", upload_id, state_root=state_root)
+
+
+def _cleanup_id_column(table_name: str) -> str:
+    try:
+        return _CLEANUP_ID_COLUMNS[table_name]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported cleanup table: {table_name}") from exc
+
+
+def _upsert_cleanup_payload(
+    table_name: str,
+    item_id: str,
+    payload: dict[str, Any],
+    *,
+    state_root: str | Path | None = None,
+) -> None:
+    id_column = _cleanup_id_column(table_name)
     init_storage(state_root)
     with _DB_LOCK:
         with _connect(state_root) as connection:
             connection.execute(
-                """
-                INSERT INTO upload_cleanup (upload_id, payload_json)
+                f"""
+                INSERT INTO {table_name} ({id_column}, payload_json)
                 VALUES (?, ?)
-                ON CONFLICT(upload_id) DO UPDATE SET
+                ON CONFLICT({id_column}) DO UPDATE SET
                     payload_json = excluded.payload_json
                 """,
-                (upload_id, _json_dumps(payload)),
+                (item_id, _json_dumps(payload)),
             )
 
 
-def get_upload_cleanup(upload_id: str, *, state_root: str | Path | None = None) -> dict[str, Any] | None:
+def _get_cleanup_payload(
+    table_name: str,
+    item_id: str,
+    *,
+    state_root: str | Path | None = None,
+) -> dict[str, Any] | None:
     init_storage(state_root)
     with _DB_LOCK:
         with _connect(state_root) as connection:
-            row = connection.execute("SELECT payload_json FROM upload_cleanup WHERE upload_id = ?", (upload_id,)).fetchone()
+            return _load_cleanup_payload(connection, table_name, item_id)
+
+
+def _load_cleanup_payload(connection: sqlite3.Connection, table_name: str, item_id: str) -> dict[str, Any] | None:
+    id_column = _cleanup_id_column(table_name)
+    row = connection.execute(f"SELECT payload_json FROM {table_name} WHERE {id_column} = ?", (item_id,)).fetchone()
     if row is None:
         return None
     return _json_loads(row["payload_json"])

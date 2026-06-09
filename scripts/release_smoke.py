@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
 import subprocess
 import sys
@@ -14,6 +13,9 @@ import urllib.parse
 import urllib.request
 from typing import Any, Sequence
 
+from cli_json_output import build_failed_json_payload as _build_failed_payload
+from cli_json_output import emit_json_payload as _emit_payload
+from smoke_workdir_utils import prepare_work_dir
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WORK_DIR = Path(".release_smoke")
@@ -260,9 +262,7 @@ def run_release_smoke(
             pass
         else:
             raise RuntimeError("Prebuilt wheelhouse must be outside work-dir unless --keep-work-dir is set")
-    if smoke_dir.exists() and not keep_work_dir:
-        shutil.rmtree(smoke_dir)
-    smoke_dir.mkdir(parents=True, exist_ok=True)
+    prepare_work_dir(smoke_dir, keep_existing=keep_work_dir)
     venv_dir = smoke_dir / "venv"
     wheel_dir = wheelhouse_path if wheelhouse_path is not None else smoke_dir / "wheelhouse"
     state = Path(state_root).expanduser().resolve() if state_root is not None else smoke_dir / "state"
@@ -360,53 +360,26 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _format_timeout_error(exc: subprocess.TimeoutExpired) -> dict[str, Any]:
-    return {
-        "status": "failed",
-        "error": {
-            "type": "command_timeout",
-            "message": "Release smoke command timed out before the package install flow completed.",
-            "command": [str(item) for item in (exc.cmd or [])],
-            "timeout_seconds": float(exc.timeout),
-        },
-        "next_steps": [
-            "Retry with a larger --command-timeout-seconds value if the network or package index is slow.",
-            "Check that the dependency wheelhouse can download python-docx, lxml, FastAPI, uvicorn, and python-multipart.",
-            "Use CI pip caching so the release smoke gate is deterministic enough for repeated release checks.",
-        ],
-    }
+_RELEASE_SMOKE_TIMEOUT_NEXT_STEPS = [
+    "Retry with a larger --command-timeout-seconds value if the network or package index is slow.",
+    "Check that the dependency wheelhouse can download python-docx, lxml, FastAPI, uvicorn, and python-multipart.",
+    "Use CI pip caching so the release smoke gate is deterministic enough for repeated release checks.",
+]
+
+_RELEASE_SMOKE_ERROR_NEXT_STEPS = [
+    "Inspect the failed release smoke step and rerun after fixing the packaging or local API issue.",
+]
 
 
 def _format_release_error(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, subprocess.TimeoutExpired):
-        return _format_timeout_error(exc)
-    return {
-        "status": "failed",
-        "error": {
-            "type": exc.__class__.__name__,
-            "message": str(exc),
-        },
-        "next_steps": [
-            "Inspect the failed release smoke step and rerun after fixing the packaging or local API issue.",
-        ],
-    }
-
-
-def _emit_payload(payload: dict[str, Any], *, json_output: Path | None = None) -> None:
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    if json_output is not None:
-        json_output = json_output.expanduser().resolve()
-        json_output.parent.mkdir(parents=True, exist_ok=True)
-        json_output.write_text(text, encoding="utf-8")
-    try:
-        sys.stdout.write(text)
-        sys.stdout.flush()
-    except UnicodeEncodeError:
-        stdout_buffer = getattr(sys.stdout, "buffer", None)
-        if stdout_buffer is None:
-            raise
-        stdout_buffer.write(text.encode("utf-8"))
-        stdout_buffer.flush()
+        return _build_failed_payload(
+            exc,
+            next_steps=_RELEASE_SMOKE_TIMEOUT_NEXT_STEPS,
+            timeout_type="command_timeout",
+            timeout_message="Release smoke command timed out before the package install flow completed.",
+        )
+    return _build_failed_payload(exc, next_steps=_RELEASE_SMOKE_ERROR_NEXT_STEPS)
 
 
 def main(argv: list[str] | None = None) -> int:

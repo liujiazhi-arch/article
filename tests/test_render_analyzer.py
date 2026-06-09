@@ -1,20 +1,19 @@
 import struct
 import zlib
 
+from thesis_tool import render_image_metrics
+import thesis_tool.render_analyzer as render_analyzer
 from thesis_tool.render_analyzer import analyze_page_images, analyze_render_pages
 
 
 def _write_rgb_png(path, width, height, rectangles):
     rows = []
+    white_row = bytes((255, 255, 255)) * width
     for y in range(height):
-        row = bytearray()
-        for x in range(width):
-            color = (255, 255, 255)
-            for left, top, right, bottom, candidate_color in rectangles:
-                if left <= x < right and top <= y < bottom:
-                    color = candidate_color
-                    break
-            row.extend(color)
+        row = bytearray(white_row)
+        for left, top, right, bottom, color in rectangles:
+            if top <= y < bottom:
+                row[left * 3 : right * 3] = bytes(color) * (right - left)
         rows.append(b"\x00" + bytes(row))
 
     raw = zlib.compress(b"".join(rows))
@@ -57,6 +56,104 @@ def test_analyze_page_images_flags_blank_page(tmp_path):
     assert result["findings"][0]["evidence_source"] == "test-images"
     assert result["summary"]["blank_page_count"] == 1
     assert result["summary"]["highest_severity"] == "warning"
+
+
+def test_analyze_page_images_prefers_builtin_png_reader(tmp_path, monkeypatch):
+    image_path = tmp_path / "page-1.png"
+    _write_rgb_png(image_path, 700, 1000, [])
+    pillow_calls = []
+
+    def fail_if_pillow_is_used(path):
+        pillow_calls.append(path)
+        raise AssertionError("Pillow should not be used for supported PNG files")
+
+    monkeypatch.setattr(render_analyzer, "_read_with_pillow", fail_if_pillow_is_used)
+
+    result = analyze_page_images([str(image_path)], evidence_source="test-images")
+
+    assert pillow_calls == []
+    assert _finding_ids(result) == ["blank_page"]
+
+
+def test_analyze_page_images_rejects_invalid_png_without_pillow(tmp_path, monkeypatch):
+    image_path = tmp_path / "page-1.png"
+    image_path.write_bytes(b"not a png")
+    pillow_calls = []
+
+    def fail_if_pillow_is_used(path):
+        pillow_calls.append(path)
+        raise AssertionError("Pillow should not be used for invalid PNG files")
+
+    monkeypatch.setattr(render_analyzer, "_read_with_pillow", fail_if_pillow_is_used)
+
+    result = analyze_page_images([str(image_path)], evidence_source="manual-pdf")
+
+    assert pillow_calls == []
+    assert _finding_ids(result) == ["render_suspect"]
+    assert result["summary"]["failed_page_count"] == 1
+
+
+def test_render_image_metrics_keeps_png_suffix_on_builtin_reader(tmp_path):
+    image_path = tmp_path / "page-1.png"
+    calls = []
+    metrics = render_image_metrics.PageImageMetrics(1, 1, 0, (0,), None)
+
+    def fail_if_pillow_is_used(path):
+        calls.append(("pillow", path))
+        raise AssertionError("Pillow should not be used for PNG suffix inputs")
+
+    def fake_png_reader(path):
+        calls.append(("png", path))
+        return metrics
+
+    result = render_image_metrics.read_page_image_metrics(
+        str(image_path),
+        read_with_pillow_fn=fail_if_pillow_is_used,
+        read_png_metrics_fn=fake_png_reader,
+    )
+
+    assert result is metrics
+    assert calls == [("png", str(image_path))]
+
+
+def test_render_image_metrics_falls_back_to_png_reader_for_non_png_when_pillow_fails(tmp_path):
+    image_path = tmp_path / "page-1.tiff"
+    calls = []
+    metrics = render_image_metrics.PageImageMetrics(1, 1, 0, (0,), None)
+
+    def fail_pillow(path):
+        calls.append(("pillow", path))
+        raise ImportError("Pillow unavailable")
+
+    def fake_png_reader(path):
+        calls.append(("png", path))
+        return metrics
+
+    result = render_image_metrics.read_page_image_metrics(
+        str(image_path),
+        read_with_pillow_fn=fail_pillow,
+        read_png_metrics_fn=fake_png_reader,
+    )
+
+    assert result is metrics
+    assert calls == [("pillow", str(image_path)), ("png", str(image_path))]
+
+
+def test_render_image_metrics_accumulates_ink_rows_and_bbox_from_indexed_pixels():
+    metrics = render_image_metrics._measure_image_pixels(
+        4,
+        3,
+        [
+            (0, [(255, 255, 255, 255), (30, 30, 30, 255), (255, 255, 255, 0), (246, 246, 246, 255)]),
+            (2, [(255, 255, 255, 255), (255, 255, 255, 255), (0, 0, 0, 255), (255, 255, 255, 255)]),
+        ],
+    )
+
+    assert metrics.width == 4
+    assert metrics.height == 3
+    assert metrics.ink_count == 2
+    assert metrics.row_ink_counts == (1, 0, 1)
+    assert metrics.bbox == (1, 0, 2, 2)
 
 
 def test_analyze_page_images_flags_large_bottom_blank_region(tmp_path):

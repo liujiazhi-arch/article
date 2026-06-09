@@ -509,6 +509,30 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert summary_payload["retention"]["defaults"]["autorun_enabled"] is False
 
 
+def test_fake_app_profiles_route_uses_app_module_profile_catalog(monkeypatch):
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+    calls = []
+
+    def fake_profile_catalog(**kwargs):
+        calls.append(kwargs)
+        return {"profiles": [{"id": "patched-profile"}], "summary": {"profile_count": 1}}
+
+    monkeypatch.setattr(app_module, "build_profile_catalog", fake_profile_catalog)
+
+    payload = routes["/profiles"].endpoint()
+
+    assert payload["profiles"] == [{"id": "patched-profile"}]
+    assert calls == [
+        {
+            "service_name": app_module.SERVICE_NAME,
+            "stage": app_module.SERVICE_STAGE,
+            "version": app_module.SERVICE_VERSION,
+            "api_version": app_module.API_VERSION,
+        }
+    ]
+
+
 def test_local_console_surfaces_structured_error_payloads(monkeypatch):
     app = _build_fake_app(monkeypatch)
     routes = _routes_by_path(app)
@@ -571,6 +595,40 @@ def test_update_check_payload_fetches_configured_github_release_without_document
     assert "只检查软件版本，不上传论文" in payload["privacy"]
     assert "file_path" not in payload
     assert "api_key" not in str(payload).lower()
+
+
+def test_update_check_payload_accepts_github_release_tag_api_url(monkeypatch):
+    release_api_url = "https://api.github.com/repos/example/article/releases/tags/v0.1.0-beta"
+    monkeypatch.setenv("ARTICLE_LOCAL_RELEASE_API_URL", release_api_url)
+    calls = []
+
+    def fake_fetch(url, *, timeout_seconds):
+        calls.append((url, timeout_seconds))
+        return {
+            "tag_name": "v0.1.0-beta",
+            "name": "v0.1.0-beta",
+            "html_url": "https://github.com/example/article/releases/tag/v0.1.0-beta",
+            "published_at": "2026-06-07T14:20:15Z",
+            "assets": [
+                {
+                    "name": "article-local-windows.zip",
+                    "browser_download_url": "https://github.com/example/article/releases/download/v0.1.0-beta/article-local-windows.zip",
+                },
+            ],
+        }
+
+    payload = app_ops.build_latest_update_payload(fetch_release_fn=fake_fetch, current_version="0.1.0")
+
+    assert calls == [(release_api_url, 5.0)]
+    assert payload["status"] == "ok"
+    assert payload["configured"] is True
+    assert payload["latest_version"] == "0.1.0-beta"
+    assert payload["latest_tag"] == "v0.1.0-beta"
+    assert payload["update_available"] is False
+    assert payload["release_url"] == "https://github.com/example/article/releases/tag/v0.1.0-beta"
+    assert payload["download_url"].endswith("/article-local-windows.zip")
+    assert payload["auto_update"] is False
+    assert "只检查软件版本，不上传论文" in payload["privacy"]
 
 
 def test_update_check_payload_does_not_fetch_when_release_url_is_unconfigured(monkeypatch):
@@ -1235,6 +1293,21 @@ def test_fake_app_feedback_download_excludes_document_artifacts(monkeypatch, tmp
     assert "logs/runtime_root/jobs/job-1/logs/worker.log" in names
     assert not any(name.endswith((".docx", ".pdf", ".png")) for name in names)
     assert str(tmp_path) not in manifest
+
+
+def test_fake_app_feedback_route_uses_app_module_download_response_builder(monkeypatch):
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+
+    monkeypatch.setattr(
+        app_module,
+        "_build_feedback_download_response",
+        lambda: {"path": "patched-feedback.zip", "filename": "patched.zip", "media_type": "application/zip"},
+    )
+
+    response = routes["/feedback/download"].endpoint()
+
+    assert response == {"path": "patched-feedback.zip", "filename": "patched.zip", "media_type": "application/zip"}
 
 
 def test_fake_app_upload_endpoint_rejects_corrupt_docx_without_storing(monkeypatch, tmp_path):

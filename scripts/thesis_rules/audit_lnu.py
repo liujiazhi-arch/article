@@ -5,6 +5,10 @@ import re
 import zipfile
 import xml.etree.ElementTree as ET
 
+from citation_text_utils import (
+    CITATION_NUMBER_GROUP_RE as _CITATION_NUM_RE,
+    citation_numbers_from_group as _expand_citation_numbers,
+)
 from _thesis_utils import (
     NSMAP,
     _looks_like_toc_entry,
@@ -33,7 +37,20 @@ from frontmatter_utils import (
     is_toc_heading_style as is_toc_heading_style_shared,
     is_toc_structural_style_id,
 )
+from reference_numbering_utils import (
+    has_valid_reference_tab_stop,
+    is_plain_reference_number_prefix,
+    paragraph_has_reference_tab,
+    parse_reference_number_prefix,
+    reference_number_has_compact_separator,
+    reference_number_has_space_separator,
+    reference_number_has_tab_separator,
+)
 from reference_section_utils import iter_reference_section_contexts
+from sections._xml_helpers import (
+    paragraph_onoff_enabled as _paragraph_onoff_enabled,
+    table_row_cant_split_enabled as _table_row_cant_split_enabled,
+)
 from thesis_rules.audit_checkers import *
 from thesis_rules.audit_common import _is_toc_entry_style, _is_toc_heading_style, check_heading_num_space
 from thesis_rules.audit_common import _has_half_width_punct_in_cjk_context
@@ -43,6 +60,14 @@ from thesis_rules.audit_checkers import (
 )
 
 WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+_CAPTION_SOFT_BREAK_ALLOWED_MODULES = {
+    "body_caption",
+    "appendix_caption",
+    "body_caption_en",
+    "appendix_caption_en",
+    "body_caption_note",
+    "appendix_caption_note",
+}
 _UNIT_RE = re.compile(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)([A-Za-z]{1,4})(?![0-9A-Za-z])")
 _KNOWN_UNITS = {
     "g", "mg", "kg",
@@ -283,7 +308,6 @@ def check_lnu_ref02(document_root, contexts, style_map, cfg):
     """LNU_REF02: 参考文献编号格式按 profile 要求处理。"""
     use_tab = bool(cfg.get("ref_use_tab", False))
     expect_space = bool(cfg.get("ref_number_trailing_space", not use_tab))
-    space_pattern = re.compile(r"^\[[1-9]\d{0,2}\] \S")
     issues = []
     in_ref = False
     for ctx in contexts:
@@ -292,27 +316,25 @@ def check_lnu_ref02(document_root, contexts, style_map, cfg):
             in_ref = True
             continue
         if in_ref and re.match(r"^\[", text):
-            number_match = re.match(r"^\[(\d+)\]", text)
-            if number_match and len(number_match.group(1)) > 1 and number_match.group(1).startswith("0"):
+            number_prefix = parse_reference_number_prefix(text)
+            if number_prefix is None:
+                issues.append(f"格式异常: {text[:40]}")
+            elif number_prefix.has_leading_zero:
                 issues.append(f"编号补零: {text[:40]}")
+            elif not is_plain_reference_number_prefix(number_prefix):
+                issues.append(f"格式异常: {text[:40]}")
             elif use_tab:
-                tabs = ctx["elem"].find("w:pPr/w:tabs", NSMAP)
-                has_valid_tab_stop = False
-                if tabs is not None:
-                    for tab in tabs.findall("w:tab", NSMAP):
-                        pos = parse_int(get_w_attr(tab, "pos"))
-                        if get_w_attr(tab, "val") == "left" and pos is not None and pos >= cfg.get("ref_tab_min", cfg.get("ref_hanging", 420)):
-                            has_valid_tab_stop = True
-                            break
-                has_number_tab = bool(re.match(r"^\[[1-9]\d{0,2}\]\t\S", text)) or ctx["elem"].find(".//w:tab", NSMAP) is not None
+                tab_min = cfg.get("ref_tab_min", cfg.get("ref_hanging", 420))
+                has_valid_tab_stop = has_valid_reference_tab_stop(ctx["elem"], tab_min)
+                has_number_tab = reference_number_has_tab_separator(text) or paragraph_has_reference_tab(ctx["elem"])
                 if not has_number_tab:
                     issues.append(f"编号后应使用制表符: {text[:40]}")
                 elif not has_valid_tab_stop:
                     issues.append(f"缺少有效制表位: {text[:40]}")
             elif expect_space:
-                if not space_pattern.match(text):
+                if not reference_number_has_space_separator(text):
                     issues.append(f"格式异常: {text[:40]}")
-            elif not re.match(r"^\[[1-9]\d{0,2}\]\S", text):
+            elif not reference_number_has_compact_separator(text):
                 issues.append(f"格式异常: {text[:40]}")
         elif in_ref and text and not re.match(r"^\[", text):
             in_ref = False
@@ -595,18 +617,6 @@ def check_lnu_tb04(document_root, contexts, style_map, cfg):
         return False, [header] + issues[:6], summarize_positions(affected_positions)
     return True, [], "全部正文表块留白与表题贴表正常"
 
-def _onoff_enabled(elem) -> bool:
-    if elem is None:
-        return False
-    val = get_w_attr(elem, "val")
-    return val not in ("0", "false", "False", "off", "none")
-
-def _paragraph_onoff_enabled(p_elem, tag_name: str) -> bool:
-    return _onoff_enabled(p_elem.find(f"w:pPr/w:{tag_name}", NSMAP))
-
-def _table_row_cant_split_enabled(tr_elem) -> bool:
-    return _onoff_enabled(tr_elem.find("w:trPr/w:cantSplit", NSMAP))
-
 def check_lnu_object_pagination(document_root, contexts, style_map, cfg):
     """LNU_F07: 图、图名、图注以及短表块应设置同页保护，降低跨页断裂风险。"""
     issues = []
@@ -673,8 +683,13 @@ def _paragraph_has_soft_break(p_elem):
             return True
     return p_elem.find(".//w:cr", NSMAP) is not None
 
+def _is_allowed_caption_soft_break(ctx, cfg):
+    if not bool((cfg or {}).get("preserve_caption_soft_line_breaks")):
+        return False
+    return ctx.get("module") in _CAPTION_SOFT_BREAK_ALLOWED_MODULES or ctx.get("kind") == "caption"
+
 def check_lnu_fmt01(document_root, contexts, style_map, cfg):
-    """LNU_FMT01: 正文不应使用软回车（Shift+Enter）充当段落换行。"""
+    """LNU_FMT01: 正文不应使用软回车；图题/图注可用软回车分隔题名与分组说明。"""
     issues = []
     affected_positions = []
     for ctx in contexts:
@@ -684,6 +699,8 @@ def check_lnu_fmt01(document_root, contexts, style_map, cfg):
         if ctx.get("section") in {"cover", "toc"}:
             continue
         if not _paragraph_has_soft_break(p_elem):
+            continue
+        if _is_allowed_caption_soft_break(ctx, cfg):
             continue
         issues.append(f"第{ctx['index']}段包含软回车，应用 Enter 分段而非 Shift+Enter 换行。")
         affected_positions.append(ctx["index"])
@@ -905,33 +922,6 @@ def check_lnu_ref06(document_root, contexts, style_map, cfg):
     if issues:
         return False, issues, summarize_positions(sorted(affected_positions))
     return True, [], "参考文献题名大小写与期刊名风格未发现明显混用"
-
-_CITATION_NUM_RE = re.compile(r"\[(\d+(?:[-,，、]\d+)*)\]")
-
-def _expand_citation_numbers(raw):
-    normalized = str(raw or "").replace("，", ",").replace("、", ",")
-    numbers = []
-    for part in normalized.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if "-" in part:
-            start_text, end_text = part.split("-", 1)
-            try:
-                start = int(start_text)
-                end = int(end_text)
-            except ValueError:
-                continue
-            if start <= end:
-                numbers.extend(range(start, end + 1))
-            else:
-                numbers.extend(range(end, start + 1))
-        else:
-            try:
-                numbers.append(int(part))
-            except ValueError:
-                continue
-    return numbers
 
 def _collect_body_citation_numbers(contexts):
     ordered = []

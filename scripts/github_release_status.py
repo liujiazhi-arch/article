@@ -7,10 +7,13 @@ import re
 import subprocess
 from typing import Any, Sequence
 
+from cli_json_output import emit_json_payload as _emit_payload
+from windows_bundle_contract import WINDOWS_BUNDLE_ASSET_NAME, WINDOWS_BUNDLE_SHA256_ASSET_NAME
+
 
 REQUIRED_RELEASE_ASSETS = [
-    "article-local-windows.zip",
-    "article-local-windows.zip.sha256",
+    WINDOWS_BUNDLE_ASSET_NAME,
+    WINDOWS_BUNDLE_SHA256_ASSET_NAME,
 ]
 
 
@@ -180,14 +183,6 @@ def _format_error(exc: Exception) -> dict[str, Any]:
             }
         )
     return payload
-
-
-def _emit_payload(payload: dict[str, Any], *, json_output: Path | None = None) -> None:
-    if json_output is not None:
-        json_output = json_output.expanduser().resolve()
-        json_output.parent.mkdir(parents=True, exist_ok=True)
-        json_output.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -14,6 +14,15 @@ def set_attr(elem, attr, value):
     elem.set(f"{{{W_NS}}}{attr}", value)
 
 
+def get_run_text(run_elem):
+    return "".join(t_elem.text or "" for t_elem in run_elem.findall(".//w:t", NSMAP))
+
+
+def is_superscript(run_elem):
+    vert_align = run_elem.find("w:rPr/w:vertAlign", NSMAP)
+    return vert_align is not None and vert_align.get(f"{{{W_NS}}}val") == "superscript"
+
+
 def ensure_rpr(run_elem):
     r_pr = run_elem.find("w:rPr", NSMAP)
     if r_pr is None:
@@ -76,6 +85,66 @@ def ensure_spacing(p_pr, before=None, after=None):
     if after is not None:
         set_attr(spacing, "after", str(after))
     return spacing
+
+
+def get_paragraph_spacing_twips(p_elem, attr_name: str) -> int:
+    spacing = p_elem.find("w:pPr/w:spacing", NSMAP)
+    value = spacing.get(f"{{{W_NS}}}{attr_name}") if spacing is not None else None
+    return int(value) if value and value.isdigit() else 0
+
+
+def set_paragraph_spacing_attrs(p_elem, *, before=None, after=None, line=None):
+    p_pr = ensure_ppr(p_elem)
+    spacing = get_or_create(p_pr, "w:spacing")
+    if before is not None:
+        set_attr(spacing, "before", str(before))
+    if after is not None:
+        set_attr(spacing, "after", str(after))
+    if line is not None:
+        set_attr(spacing, "line", str(line))
+        set_attr(spacing, "lineRule", "auto")
+
+
+def set_onoff_property(parent_elem, tag_name: str, enabled: bool) -> int:
+    elem = parent_elem.find(f"w:{tag_name}", NSMAP)
+    if elem is None:
+        elem = ET.SubElement(parent_elem, f"{{{W_NS}}}{tag_name}")
+    desired = "1" if enabled else "0"
+    if elem.get(f"{{{W_NS}}}val") == desired:
+        return 0
+    set_attr(elem, "val", desired)
+    return 1
+
+
+def is_onoff_enabled(elem) -> bool:
+    if elem is None:
+        return False
+    val = elem.get(f"{{{W_NS}}}val")
+    return val not in ("0", "false", "False", "off", "none")
+
+
+def paragraph_onoff_enabled(p_elem, tag_name: str) -> bool:
+    return is_onoff_enabled(p_elem.find(f"w:pPr/w:{tag_name}", NSMAP))
+
+
+def table_row_cant_split_enabled(tr_elem) -> bool:
+    return is_onoff_enabled(tr_elem.find("w:trPr/w:cantSplit", NSMAP))
+
+
+def set_paragraph_pagination_flags(p_elem, *, keep_next: bool, keep_lines: bool, page_break_before: bool = False) -> int:
+    p_pr = ensure_ppr(p_elem)
+    changed = 0
+    changed += set_onoff_property(p_pr, "keepNext", keep_next)
+    changed += set_onoff_property(p_pr, "keepLines", keep_lines)
+    changed += set_onoff_property(p_pr, "pageBreakBefore", page_break_before)
+    return changed
+
+
+def set_table_row_cant_split(tr_elem, enabled: bool = True) -> int:
+    tr_pr = tr_elem.find("w:trPr", NSMAP)
+    if tr_pr is None:
+        tr_pr = ET.SubElement(tr_elem, f"{{{W_NS}}}trPr")
+    return set_onoff_property(tr_pr, "cantSplit", enabled)
 
 
 def insert_tabs_before_spacing(p_pr):

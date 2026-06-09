@@ -567,3 +567,23 @@ def test_upload_cleanup_payload_is_persisted_and_reloaded(monkeypatch, tmp_path)
     assert reloaded_storage.get_upload_cleanup(upload_payload["upload_id"]) == second_cleanup
     assert reloaded_storage.get_upload(upload_payload["upload_id"]) == upload_payload
     assert reloaded_storage.list_uploads()[0]["upload_id"] == upload_payload["upload_id"]
+
+
+def test_cleanup_payload_helpers_reject_non_whitelisted_tables(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARTICLE_API_STATE_ROOT", str(tmp_path / "state"))
+    job_storage.init_storage()
+
+    with pytest.raises(ValueError, match="Unsupported cleanup table"):
+        job_storage._upsert_cleanup_payload(
+            "job_cleanup; DROP TABLE jobs; --",
+            "item-1",
+            {"state": "cleaned"},
+        )
+
+    with sqlite3.connect(job_storage.resolve_db_path()) as connection:
+        with pytest.raises(ValueError, match="Unsupported cleanup table"):
+            job_storage._load_cleanup_payload(
+                connection,
+                "upload_cleanup; DROP TABLE uploads; --",
+                "item-1",
+            )

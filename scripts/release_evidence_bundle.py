@@ -1,25 +1,18 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path, PurePosixPath
 from typing import Any, Sequence
 import zipfile
+
+from file_hash_utils import sha256_file as _sha256_file
 
 
 ALLOWED_SUFFIXES = {".json", ".md", ".txt", ".sha256"}
 FORBIDDEN_SUFFIXES = {".doc", ".docx", ".pdf", ".png", ".jpg", ".jpeg", ".log", ".db", ".sqlite3"}
 FORBIDDEN_NAMES = {".env", "article-local.env", "反馈包.zip"}
 FORBIDDEN_NAME_PARTS = {"secret", "apikey", "api-key", "token", "password", "论文", "修复稿"}
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _is_privacy_sensitive(path: Path) -> bool:

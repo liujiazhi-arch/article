@@ -95,7 +95,7 @@
 | LNU_F03 | 图前图后空行（辽大） | Auto | docx-structure | ✓ | ✓ |
 | LNU_F06 | 图题、英文题名与说明性图注版式（辽大） | Auto | docx-structure | ✓ | ✓ |
 | LNU_F07 | 图表块同页/跨页保护（辽大） | Auto | docx-structure | ✓ | ✓ |
-| LNU_FMT01 | 软回车换行 | Auto | docx-structure | ✓ | ✓ |
+| LNU_FMT01 | 软回车换行（图题/图注分组说明例外） | Auto | docx-structure | ✓ | ✓ |
 | LNU_FMT02 | 图片嵌入型/表格无环绕 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB01 | 表格外框1.5pt内线0.5pt | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB02 | 表格内容宋体五号 | Auto | docx-structure | ✓ | ✓ |

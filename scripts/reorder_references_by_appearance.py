@@ -13,9 +13,13 @@ from backmatter_title_utils import (
     is_appendix_title,
     is_reference_title,
 )
+from citation_text_utils import (
+    CITATION_NUMBER_GROUP_RE as CITATION_RE,
+    citation_numbers_from_group as _expand_citation_numbers,
+    format_citation_numbers as _compress_citation_numbers,
+)
 
 
-CITATION_RE = re.compile(r"\[(\d+(?:[-,，、]\d+)*)\]")
 REFERENCE_RE = re.compile(r"^\[(\d+)\]\s*")
 _CHAPTER_HEADING_RE = re.compile(r"^第.+[章节篇]")
 
@@ -39,54 +43,6 @@ def _is_reference_stop_text(text: str | None) -> bool:
         or normalized == "abstract"
         or bool(_CHAPTER_HEADING_RE.match(stripped))
     )
-
-
-def _expand_citation_numbers(raw: str) -> list[int]:
-    normalized = raw.replace("，", ",").replace("、", ",")
-    numbers: list[int] = []
-    for part in normalized.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if "-" in part:
-            start_text, end_text = part.split("-", 1)
-            start = int(start_text)
-            end = int(end_text)
-            if start <= end:
-                numbers.extend(range(start, end + 1))
-            else:
-                numbers.extend(range(end, start + 1))
-        else:
-            numbers.append(int(part))
-    return numbers
-
-
-def _compress_citation_numbers(numbers: list[int]) -> str:
-    ordered_unique = sorted(OrderedDict.fromkeys(numbers))
-    if not ordered_unique:
-        return "[]"
-
-    parts: list[str] = []
-    start = ordered_unique[0]
-    prev = ordered_unique[0]
-    for current in ordered_unique[1:]:
-        if current == prev + 1:
-            prev = current
-            continue
-        if prev - start >= 2:
-            parts.append(f"{start}-{prev}")
-        elif prev == start:
-            parts.append(str(start))
-        else:
-            parts.extend([str(start), str(prev)])
-        start = prev = current
-    if prev - start >= 2:
-        parts.append(f"{start}-{prev}")
-    elif prev == start:
-        parts.append(str(start))
-    else:
-        parts.extend([str(start), str(prev)])
-    return "[" + ",".join(parts) + "]"
 
 
 def _iter_body_paragraphs_until_references(doc: Document):

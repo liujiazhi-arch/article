@@ -25,6 +25,9 @@ artifacts/
 .tmp_render_probe_out/
 .tmp_render_artifact/
 .tmp_render_verify_live/
+.release_smoke/
+.local_browser_smoke/
+.windows_bundle_smoke/
 .tmp_render_probe.docx
 .tmp_render_*.png
 runs/

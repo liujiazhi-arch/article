@@ -5,6 +5,7 @@ from typing import Any
 
 import audit_thesis
 import fix_thesis
+from thesis_tool.apply_guard import assess_apply_risk, render_post_verify_notice as _render_post_verify_notice
 from thesis_tool.capabilities import load_rule_capabilities
 from thesis_tool.render_verify import build_render_verify_report
 from thesis_tool.scopes import normalize_scope_names
@@ -188,42 +189,28 @@ def _render_apply_risk_warning(
     renumber_headings: bool,
     selected_scopes: set[str] | None,
 ) -> tuple[list[str], bool]:
-    table_risk = len(diagnostics["table_heading_candidates"])
-    style_conflict = len(diagnostics["style_text_conflicts"])
+    assessment = assess_apply_risk(
+        diagnostics,
+        renumber_headings=renumber_headings,
+        selected_scopes=selected_scopes,
+    )
     lines: list[str] = []
-    should_block = False
 
-    affects_heading_renumber = bool(renumber_headings and selected_scopes and "headings" in selected_scopes)
-
-    if table_risk >= 5:
-        lines.append(f"表格伪标题候选: {table_risk} 个（阈值 5）")
+    if assessment.has_table_heading_risk:
+        lines.append(
+            f"表格伪标题候选: {assessment.table_heading_risk_count} "
+            f"个（阈值 {assessment.table_heading_risk_threshold}）"
+        )
         lines.append("建议: 先运行 preflight 核对表格内容，避免化合物名或数值误入标题重编号链。")
 
-    if style_conflict >= 1:
-        lines.append(f"样式/文本层级冲突: {style_conflict} 个")
-        if affects_heading_renumber:
+    if assessment.has_style_text_conflict:
+        lines.append(f"样式/文本层级冲突: {assessment.style_text_conflict_count} 个")
+        if assessment.affects_heading_renumber:
             lines.append("建议: 先检查 headings 相关冲突，再执行标题重编号。")
-            should_block = True
         else:
             lines.append("建议: 可先运行 preflight 查看冲突详情，必要时再处理 headings scope。")
 
-    return lines, should_block
-
-
-def _render_post_verify_notice(verification: dict[str, Any]) -> list[str]:
-    lines: list[str] = []
-    manual_review_rule_ids = verification.get("manual_review_rule_ids") or []
-    unsupported_rule_ids = verification.get("unsupported_rule_ids") or []
-
-    if manual_review_rule_ids or unsupported_rule_ids:
-        lines.append("[提示] 当前结果仍含人工复核项，评分较高不等于可直接提交。")
-        if manual_review_rule_ids:
-            lines.append(f"需人工确认规则: {', '.join(manual_review_rule_ids)}")
-        if unsupported_rule_ids:
-            lines.append(f"当前不支持规则: {', '.join(unsupported_rule_ids)}")
-        if verification.get("selected_scopes"):
-            lines.append("注意: 以上结论仅覆盖当前复查范围。")
-    return lines
+    return lines, assessment.should_block
 
 
 def _serialize_apply_guard(

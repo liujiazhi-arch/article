@@ -50,16 +50,24 @@ py-modules = [
   "github_release_status",
   "release_evidence_gate",
   "release_evidence_bundle",
+  "release_url_utils",
   "verify_release_artifact",
   "build_windows_local_bundle",
   "windows_bundle_smoke",
+  "windows_bundle_contract",
+  "smoke_workdir_utils",
   "install_article_local",
   "_profile_utils",
   "_thesis_utils",
   "backmatter_title_utils",
+  "citation_text_utils",
+  "cli_json_output",
+  "file_hash_utils",
   "frontmatter_utils",
+  "reference_numbering_utils",
   "reference_section_utils",
   "reorder_references_by_appearance",
+  "text_spacing_utils",
 ]
 
 [tool.setuptools.packages.find]
@@ -86,7 +94,3 @@ article_api = ["local_console.html", "assets/lnu-emblem.jpg"]
 "share/thesis-format-tool/config" = ["config/capability_matrix.md", "config/sources.yaml"]
 "share/thesis-format-tool/config/profiles" = ["config/profiles/*.yaml"]
 "share/thesis-format-tool/config/templates/lnu" = ["config/templates/lnu/*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-q"

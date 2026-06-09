@@ -360,6 +360,18 @@ def test_fix_sp_num_cjk_checker_2026_compact_policy_does_not_add_mixed_spacing()
     assert get_paragraph_text(paragraph) == "第3章"
 
 
+def test_fix_sp_num_cjk_inserts_spacing_across_plain_text_runs_when_spaced_policy():
+    cfg = _checker_2026_cfg(mixed_spacing_policy="spaced")
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("检测12", sz=24))
+    paragraph.append(_make_run("样本", sz=24))
+
+    changed = fix_thesis.fix_sp_num_cjk(paragraph, cfg=cfg)
+
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "检测 12 样本"
+
+
 def test_fix_lnu_compact_text_removes_mixed_spacing_and_chinese_punctuation_spaces():
     paragraph = _make_paragraph("本研究使用 CRISPR 技术检测 12 个样本 ，结果稳定。", sz=24)
 
@@ -595,6 +607,125 @@ def test_fix_footer_page_number_uses_cover_frontmatter_body_sections(tmp_path):
     assert any("PAGE" in (instr.text or "").upper() for instr in body_footer.findall(".//w:instrText", NSMAP))
 
 
+def test_fix_footer_page_number_normalizes_existing_footer_parts_when_rebuilding_sections(tmp_path):
+    workdir = tmp_path
+    (workdir / "word" / "_rels").mkdir(parents=True)
+    (workdir / "word").mkdir(exist_ok=True)
+    (workdir / "[Content_Types].xml").write_text(
+        (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>'
+            '</Types>'
+        ),
+        encoding="utf-8",
+    )
+    (workdir / "word" / "_rels" / "document.xml.rels").write_text(
+        (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>'
+            '</Relationships>'
+        ),
+        encoding="utf-8",
+    )
+    (workdir / "word" / "footer1.xml").write_text(
+        (
+            f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f'<w:ftr xmlns:w="{W}"><w:p><w:pPr><w:jc w:val="center"/></w:pPr>'
+            f'<w:r><w:rPr><w:rFonts w:eastAsia="宋体"/><w:sz w:val="24"/></w:rPr>'
+            f'<w:fldChar w:fldCharType="begin"/><w:instrText xml:space="preserve"> PAGE </w:instrText>'
+            f'<w:fldChar w:fldCharType="end"/><w:t>1</w:t></w:r>'
+            f'</w:p></w:ftr>'
+        ),
+        encoding="utf-8",
+    )
+
+    cover = _make_paragraph("封面信息")
+    cover_pr = ET.SubElement(cover, _w("pPr"))
+    ET.SubElement(cover_pr, _w("sectPr"))
+    frontmatter_break = _make_paragraph("")
+    front_pr = ET.SubElement(frontmatter_break, _w("pPr"))
+    ET.SubElement(front_pr, _w("sectPr"))
+    document = _make_doc_root(cover, frontmatter_break, _make_paragraph("序言"))
+    body = document.find("w:body", NSMAP)
+    assert body is not None
+    ET.SubElement(body, _w("sectPr"))
+
+    updated_parts = fix_footer_page_number(str(workdir), document, cfg=_checker_2026_cfg())
+
+    assert "word/footer1.xml" in updated_parts
+    footer_root = ET.fromstring(updated_parts["word/footer1.xml"])
+    sizes = footer_root.findall(".//w:rPr/w:sz", NSMAP)
+    assert sizes
+    assert all(size.get(_w("val")) == "21" for size in sizes)
+
+
+def test_fix_footer_page_number_reuses_existing_footer_relationships_without_package_rewrite(tmp_path):
+    workdir = tmp_path
+    (workdir / "word" / "_rels").mkdir(parents=True)
+    (workdir / "word").mkdir(exist_ok=True)
+    (workdir / "[Content_Types].xml").write_text(
+        (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>'
+            '<Override PartName="/word/footer2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>'
+            '</Types>'
+        ),
+        encoding="utf-8",
+    )
+    (workdir / "word" / "_rels" / "document.xml.rels").write_text(
+        (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>'
+            '<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer2.xml"/>'
+            '</Relationships>'
+        ),
+        encoding="utf-8",
+    )
+    for footer_name in ("footer1.xml", "footer2.xml"):
+        (workdir / "word" / footer_name).write_text(
+            (
+                f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                f'<w:ftr xmlns:w="{W}"><w:p><w:pPr><w:jc w:val="left"/></w:pPr>'
+                f'<w:r><w:rPr><w:rFonts w:eastAsia="宋体"/><w:sz w:val="24"/></w:rPr>'
+                f'<w:fldChar w:fldCharType="begin"/><w:instrText xml:space="preserve"> PAGE </w:instrText>'
+                f'<w:fldChar w:fldCharType="end"/></w:r>'
+                f'</w:p></w:ftr>'
+            ),
+            encoding="utf-8",
+        )
+
+    cover = _make_paragraph("封面信息")
+    cover_pr = ET.SubElement(cover, _w("pPr"))
+    ET.SubElement(cover_pr, _w("sectPr"))
+    frontmatter_break = _make_paragraph("")
+    front_pr = ET.SubElement(frontmatter_break, _w("pPr"))
+    ET.SubElement(front_pr, _w("sectPr"))
+    document = _make_doc_root(cover, frontmatter_break, _make_paragraph("序言"))
+    body = document.find("w:body", NSMAP)
+    assert body is not None
+    ET.SubElement(body, _w("sectPr"))
+
+    updated_parts = fix_footer_page_number(str(workdir), document, cfg=_checker_2026_cfg())
+
+    assert "word/footer1.xml" in updated_parts
+    assert "word/footer2.xml" in updated_parts
+    assert "word/_rels/document.xml.rels" not in updated_parts
+    assert "[Content_Types].xml" not in updated_parts
+    for footer_name in ("word/footer1.xml", "word/footer2.xml"):
+        footer_root = ET.fromstring(updated_parts[footer_name])
+        sizes = footer_root.findall(".//w:rPr/w:sz", NSMAP)
+        assert sizes
+        assert all(size.get(_w("val")) == "21" for size in sizes)
+
+
 def test_fix_footer_page_number_creates_cover_section_when_frontmatter_has_no_cover_break(tmp_path):
     workdir = tmp_path
     (workdir / "word" / "_rels").mkdir(parents=True)
@@ -734,6 +865,25 @@ def test_fix_soft_line_breaks_splits_paragraphs_on_shift_enter():
     assert body is not None
     texts = [get_paragraph_text(child) for child in body.findall("w:p", NSMAP)]
     assert texts == ["第一行", "第二行"]
+
+
+def test_fix_soft_line_breaks_preserves_lnu_figure_caption_line_breaks_when_configured():
+    paragraph = _make_paragraph("图2.1  不同改性方法处理后鹿皮明胶的溶胀率")
+    run = paragraph.find("w:r", NSMAP)
+    assert run is not None
+    ET.SubElement(run, _w("br"))
+    tail = ET.SubElement(run, _w("t"))
+    tail.text = "A，0～24 h 溶胀率变化；B，24 h 终点溶胀率"
+    document = _make_doc_root(paragraph)
+
+    changed = fix_soft_line_breaks(document, cfg={"preserve_caption_soft_line_breaks": True})
+
+    assert changed == 0
+    body = document.find("w:body", NSMAP)
+    assert body is not None
+    paragraphs = body.findall("w:p", NSMAP)
+    assert len(paragraphs) == 1
+    assert paragraphs[0].find(".//w:br", NSMAP) is not None
 
 
 def test_normalize_object_wrapping_converts_anchor_and_removes_tblppr():

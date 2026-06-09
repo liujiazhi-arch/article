@@ -54,28 +54,32 @@ def _collect_png_images(output_dir: str | Path) -> list[str]:
     return [str(path) for path in sorted(directory.glob("*.png"), key=_page_sort_key)]
 
 
-def _find_pdftoppm() -> str:
-    env_path = os.environ.get("ARTICLE_PDFTOPPM")
+def _find_external_tool(*, env_name: str, binary: str, missing_message: str) -> str:
+    env_path = os.environ.get(env_name)
     if env_path:
         resolved = Path(env_path).expanduser().resolve()
         if resolved.exists():
             return str(resolved)
-    found = shutil.which("pdftoppm")
+    found = shutil.which(binary)
     if found:
         return found
-    raise RuntimeError("未找到 pdftoppm，无法将 Word PDF 转为页图。请安装 poppler 或设置 ARTICLE_PDFTOPPM。")
+    raise RuntimeError(missing_message)
+
+
+def _find_pdftoppm() -> str:
+    return _find_external_tool(
+        env_name="ARTICLE_PDFTOPPM",
+        binary="pdftoppm",
+        missing_message="未找到 pdftoppm，无法将 Word PDF 转为页图。请安装 poppler 或设置 ARTICLE_PDFTOPPM。",
+    )
 
 
 def _find_pdftotext() -> str:
-    env_path = os.environ.get("ARTICLE_PDFTOTEXT")
-    if env_path:
-        resolved = Path(env_path).expanduser().resolve()
-        if resolved.exists():
-            return str(resolved)
-    found = shutil.which("pdftotext")
-    if found:
-        return found
-    raise RuntimeError("未找到 pdftotext，无法抽取 PDF 每页文本。请安装 poppler 或设置 ARTICLE_PDFTOTEXT。")
+    return _find_external_tool(
+        env_name="ARTICLE_PDFTOTEXT",
+        binary="pdftotext",
+        missing_message="未找到 pdftotext，无法抽取 PDF 每页文本。请安装 poppler 或设置 ARTICLE_PDFTOTEXT。",
+    )
 
 
 def _export_docx_to_pdf_with_word(input_docx: str, output_pdf: str) -> None:

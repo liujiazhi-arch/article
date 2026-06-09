@@ -385,10 +385,13 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
             rel.get("Id")
             for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
         }
-        existing_targets = {
-            rel.get("Target")
+        existing_footer_rels = [
+            rel
             for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
-        }
+            if rel.get("Type") in FOOTER_REL_TYPES and rel.get("Id") and rel.get("Target")
+        ]
+        existing_targets = {rel.get("Target") for rel in rels_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")}
+        package_changed = False
 
         def next_rel_id():
             suffix = 1
@@ -407,6 +410,7 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
             return target
 
         def ensure_footer_content_type(target):
+            nonlocal package_changed
             part_name = f"/word/{target}"
             has_override = any(
                 override.get("PartName") == part_name
@@ -420,15 +424,23 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
                 "ContentType",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml",
             )
+            package_changed = True
 
         def attach_footer(sect_pr, *, footer_cfg):
+            nonlocal package_changed
             remove_footer_references(sect_pr)
-            rel_id = next_rel_id()
-            target = next_footer_target()
-            footer_rel = ET.SubElement(rels_root, f"{{{PACKAGE_REL_NS}}}Relationship")
-            footer_rel.set("Id", rel_id)
-            footer_rel.set("Type", f"{REL_NS}/footer")
-            footer_rel.set("Target", target)
+            if existing_footer_rels:
+                footer_rel = existing_footer_rels.pop(0)
+                rel_id = footer_rel.get("Id")
+                target = footer_rel.get("Target")
+            else:
+                rel_id = next_rel_id()
+                target = next_footer_target()
+                footer_rel = ET.SubElement(rels_root, f"{{{PACKAGE_REL_NS}}}Relationship")
+                footer_rel.set("Id", rel_id)
+                footer_rel.set("Type", f"{REL_NS}/footer")
+                footer_rel.set("Target", target)
+                package_changed = True
 
             footer_reference = ET.SubElement(sect_pr, f"{{{W_NS}}}footerReference")
             set_attr(footer_reference, "type", "default")
@@ -453,8 +465,11 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
         body_cfg["pg01_format"] = str(active_cfg.get("body_page_number_wrap") or active_cfg.get("pg01_format") or "plain")
         attach_footer(frontmatter_sect_pr, footer_cfg=front_cfg)
         attach_footer(body_sect_pr, footer_cfg=body_cfg)
-        updated["word/_rels/document.xml.rels"] = ET.tostring(rels_root, encoding="utf-8", xml_declaration=True)
-        updated["[Content_Types].xml"] = ET.tostring(content_types_root, encoding="utf-8", xml_declaration=True)
+        for part_name, part_xml in center_existing_footer_page_numbers(rels_root).items():
+            updated.setdefault(part_name, part_xml)
+        if package_changed:
+            updated["word/_rels/document.xml.rels"] = ET.tostring(rels_root, encoding="utf-8", xml_declaration=True)
+            updated["[Content_Types].xml"] = ET.tostring(content_types_root, encoding="utf-8", xml_declaration=True)
         return updated
 
     rels_root = ET.parse(rels_path).getroot()

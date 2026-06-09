@@ -5,13 +5,14 @@ import os
 from pathlib import Path
 import re
 from typing import Any, Callable
-import urllib.parse
 import urllib.request
 
 from article_api import storage
 from article_api.jobs import runtime_snapshot
 from article_api.response_payloads import API_VERSION, SERVICE_NAME, SERVICE_STAGE, SERVICE_VERSION, utcnow
 from article_api.uploads import resolve_runtime_root
+from release_url_utils import is_github_release_api_url as _is_github_release_api_url
+from windows_bundle_contract import WINDOWS_BUNDLE_ASSET_NAME
 
 
 _RUNTIME_DIR_NAMES = ("jobs", "uploads", "staging")
@@ -19,7 +20,7 @@ UPDATE_RELEASE_API_URL_ENV = "ARTICLE_LOCAL_RELEASE_API_URL"
 UPDATE_RELEASE_TIMEOUT_SECONDS_ENV = "ARTICLE_LOCAL_RELEASE_TIMEOUT_SECONDS"
 UPDATE_CHECK_MODE = "manual"
 UPDATE_PRIVACY = "只检查软件版本，不上传论文、修复稿、任务记录、本地路径或日志。"
-UPDATE_ASSET_NAME = "article-local-windows.zip"
+UPDATE_ASSET_NAME = WINDOWS_BUNDLE_ASSET_NAME
 _DEFAULT_UPDATE_TIMEOUT_SECONDS = 5.0
 
 
@@ -90,9 +91,12 @@ def build_latest_update_payload(
             "update_available": False,
             "release_url": None,
             "download_url": None,
-            "next_action": f"设置 {UPDATE_RELEASE_API_URL_ENV}=https://api.github.com/repos/<owner>/<repo>/releases/latest 后再手动检查。",
+            "next_action": (
+                f"设置 {UPDATE_RELEASE_API_URL_ENV}=https://api.github.com/repos/<owner>/<repo>/releases/latest "
+                "或 https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag> 后再手动检查。"
+            ),
         }
-    if not _is_github_latest_release_api_url(configured_url):
+    if not _is_github_release_api_url(configured_url):
         return {
             **base_payload,
             "status": "invalid_config",
@@ -102,7 +106,11 @@ def build_latest_update_payload(
             "update_available": False,
             "release_url": None,
             "download_url": None,
-            "next_action": f"{UPDATE_RELEASE_API_URL_ENV} 必须形如 https://api.github.com/repos/<owner>/<repo>/releases/latest。",
+            "next_action": (
+                f"{UPDATE_RELEASE_API_URL_ENV} 必须形如 "
+                "https://api.github.com/repos/<owner>/<repo>/releases/latest "
+                "或 https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>。"
+            ),
         }
 
     fetcher = fetch_release_fn or fetch_latest_release_payload
@@ -145,14 +153,6 @@ def build_latest_update_payload(
 
 def _configured_release_api_url() -> str:
     return os.environ.get(UPDATE_RELEASE_API_URL_ENV, "").strip()
-
-
-def _is_github_latest_release_api_url(url: str) -> bool:
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme != "https" or parsed.netloc.lower() != "api.github.com":
-        return False
-    parts = [part for part in parsed.path.split("/") if part]
-    return len(parts) == 5 and parts[0] == "repos" and parts[3] == "releases" and parts[4] == "latest"
 
 
 def _release_timeout_seconds() -> float:

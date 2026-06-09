@@ -11,6 +11,7 @@ try:
 except ImportError:
     yaml = None
 
+from citation_text_utils import is_citation_token
 from _profile_utils import PROFILE_ALIASES, load_profile_bundle
 from _thesis_utils import (
     NSMAP,
@@ -18,8 +19,18 @@ from _thesis_utils import (
     build_document_model,
     build_style_map,
     get_paragraph_text,
+    parse_int,
 )
 from frontmatter_utils import is_keyword_paragraph_text as is_keyword_paragraph_text_shared, is_keywords_text
+from sections._xml_helpers import get_run_text, is_superscript
+from text_spacing_utils import (
+    CJK_CHAR_RE,
+    DIGIT_CHAR_RE,
+    NUM_CJK_EXCEPTIONS,
+    NUM_CJK_LEFT_EXCEPTIONS,
+    needs_num_cjk_space as _needs_num_cjk_space,
+    starts_with_num_cjk_exception as _starts_with_num_cjk_exception,
+)
 from thesis_rules.lnu_runtime import BASE_RULE_DEFINITIONS
 
 
@@ -124,46 +135,12 @@ SEVERITY_SCORES = {
 FRONTMATTER_SECTIONS = {"abstract_cn", "abstract_en", "toc"}
 CAPTION_EN_MODULES = {"body_caption_en", "appendix_caption_en"}
 CAPTION_NOTE_MODULES = {"body_caption_note", "appendix_caption_note"}
-CJK_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
-DIGIT_CHAR_RE = re.compile(r"\d")
 TEXT_COMPACT_SPACE_RE = re.compile(
     r"(?<=[\u4e00-\u9fff])[\u0020\u00a0\u3000]+(?=[A-Za-z0-9])|"
     r"(?<=[A-Za-z0-9])[\u0020\u00a0\u3000]+(?=[\u4e00-\u9fff])"
 )
 TEXT_PUNCT_SPACE_RE = re.compile(r"[\u0020\u00a0\u3000]+(?=[，。；：！？、])|(?<=[，。；：！？、])[\u0020\u00a0\u3000]+")
-NUM_CJK_EXCEPTIONS = sorted(
-    [
-        "组件",
-        "批次",
-        "年月日",
-        "年",
-        "月",
-        "日",
-        "时",
-        "分",
-        "秒",
-        "度",
-        "℃",
-        "个",
-        "只",
-        "件",
-        "台",
-        "条",
-        "块",
-        "片",
-        "张",
-        "幅",
-        "套",
-        "段",
-        "页",
-        "%",
-        "％",
-    ],
-    key=len,
-    reverse=True,
-)
-NUM_CJK_LEFT_EXCEPTIONS = {"第", "图", "表", "式"}
 
 _STRAIN_SUFFIX_T_RE = re.compile(r"\b\d+\s*T[\u4e00-\u9fff]")
 _EQ_LAYOUT_NUM_RE = re.compile(r"^[（(]\s*\d+(?:[.\-]\d+)*\s*[)）]$")
@@ -194,23 +171,11 @@ def is_heading_audit_context(ctx, heading_kind):
 def is_keyword_paragraph_text(text):
     return is_keyword_paragraph_text_shared(text)
 
-def _starts_with_num_cjk_exception(text, index):
-    if index < 0 or index >= len(text):
-        return False
-    return any(text.startswith(token, index) for token in NUM_CJK_EXCEPTIONS)
-
 def _needs_cjk_latin_space(text, index, left_char, right_char):
     return bool(
         (CJK_CHAR_RE.match(left_char) and LATIN_CHAR_RE.match(right_char))
         or (LATIN_CHAR_RE.match(left_char) and CJK_CHAR_RE.match(right_char))
     )
-
-def _needs_num_cjk_space(text, index, left_char, right_char):
-    if DIGIT_CHAR_RE.match(left_char) and CJK_CHAR_RE.match(right_char):
-        return not _starts_with_num_cjk_exception(text, index + 1)
-    if CJK_CHAR_RE.match(left_char) and DIGIT_CHAR_RE.match(right_char):
-        return left_char not in NUM_CJK_LEFT_EXCEPTIONS
-    return False
 
 def find_missing_spacing_pairs(text, boundary_checker):
     matches = []
@@ -332,7 +297,13 @@ def build_profile_cfg(profile_id, profile_data, settings):
     for key in ("check_snap_to_grid", "relax_body_spacing_rules"):
         if key in settings:
             cfg[key] = settings[key]
-    for key in ("relax_strain_suffix_t_spacing", "mixed_spacing_policy", "table_blank_line_mode", "acknowledgement_placeholder_text"):
+    for key in (
+        "relax_strain_suffix_t_spacing",
+        "mixed_spacing_policy",
+        "table_blank_line_mode",
+        "acknowledgement_placeholder_text",
+        "preserve_caption_soft_line_breaks",
+    ):
         if key in settings:
             cfg[key] = settings[key]
 
@@ -376,13 +347,6 @@ def get_w_attr(elem, attr_name):
     if elem is None:
         return None
     return elem.get(f"{{{W_NS}}}{attr_name}")
-
-def get_run_text(run_elem):
-    parts = []
-    for t_elem in run_elem.findall(".//w:t", NSMAP):
-        if t_elem.text:
-            parts.append(t_elem.text)
-    return "".join(parts)
 
 def is_bold(run_elem):
     r_pr = run_elem.find("w:rPr", NSMAP)
@@ -493,24 +457,9 @@ def is_run_effectively_bold(run_elem, style_map, paragraph_elem=None):
 
     return False
 
-def is_superscript(run_elem):
-    r_pr = run_elem.find("w:rPr", NSMAP)
-    if r_pr is None:
-        return False
-    vert_align = r_pr.find("w:vertAlign", NSMAP)
-    return get_w_attr(vert_align, "val") == "superscript"
-
 def is_citation_run_text(text):
     compact = re.sub(r"\s+", "", text or "")
-    return bool(re.fullmatch(r"\[\d{1,3}(?:[-,，、]\d{1,3})*\]", compact))
-
-def parse_int(value):
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+    return is_citation_token(compact)
 
 def get_non_empty_runs(p_elem):
     runs = []

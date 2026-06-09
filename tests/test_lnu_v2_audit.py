@@ -869,6 +869,31 @@ def test_lnu_ref03_flags_wrong_reference_font_size(lnu_cfg):
     assert any("字号" in msg for msg in issues)
 
 
+def test_lnu_ref05_uses_shared_body_citation_group_expansion_for_reverse_ranges():
+    body = _make_paragraph("正文引用[3-1]。")
+    title = _make_paragraph("参考文献")
+    ref1 = _make_paragraph("[1] First reference.")
+    ref2 = _make_paragraph("[2] Second reference.")
+    ref3 = _make_paragraph("[3] Third reference.")
+    contexts = [
+        _ctx(1, body, "正文引用[3-1]。", "body", "body"),
+        _ctx(2, title, "参考文献", "h1", "backmatter"),
+        _ctx(3, ref1, "[1] First reference.", "reference", "backmatter"),
+        _ctx(4, ref2, "[2] Second reference.", "reference", "backmatter"),
+        _ctx(5, ref3, "[3] Third reference.", "reference", "backmatter"),
+    ]
+    contexts[0]["effective_section"] = "body"
+
+    passed, issues, _ = audit_thesis.check_lnu_ref05(
+        _doc_with_paragraphs(body, title, ref1, ref2, ref3),
+        contexts,
+        {},
+        {},
+    )
+
+    assert passed, issues
+
+
 def test_lnu_f01_accepts_dot_separated_figure_number_with_two_half_width_spaces(lnu_cfg):
     caption = _make_paragraph("图2.1  中国企业会计监管模式")
     ctx = _ctx(1, caption, "图2.1  中国企业会计监管模式", "caption")
@@ -1022,6 +1047,35 @@ def test_lnu_ref02_rejects_space_after_reference_number_when_tab_alignment_requi
     )
     assert not passed
     assert any("制表符" in msg for msg in issues)
+
+
+@pytest.mark.parametrize("ref_text", [
+    "[0]\t郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.",
+    "[1000]\t郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.",
+    "[abc]\t郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.",
+])
+def test_lnu_ref02_rejects_invalid_number_even_when_text_tab_and_tab_stop_exist(lnu_cfg, ref_text):
+    title = _make_paragraph("参考文献")
+    ref = _make_paragraph(ref_text)
+    p_pr = ET.SubElement(ref, _w("pPr"))
+    tabs = ET.SubElement(p_pr, _w("tabs"))
+    tab = ET.SubElement(tabs, _w("tab"))
+    tab.set(_w("val"), "left")
+    tab.set(_w("pos"), "420")
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref, ref_text, "reference", "backmatter"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_ref02(
+        _doc_with_paragraphs(title, ref),
+        contexts,
+        {},
+        {**lnu_cfg, "ref_use_tab": True, "ref_hanging": 420, "ref_tab_min": 420},
+    )
+
+    assert not passed
+    assert any("格式异常" in msg for msg in issues)
 
 
 def test_lnu_ref03_rejects_nonzero_paragraph_spacing():

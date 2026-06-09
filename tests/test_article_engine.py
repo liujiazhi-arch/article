@@ -313,6 +313,21 @@ def test_apply_fix_blocks_style_conflict_heading_renumber_without_force(tmp_path
     assert not output_path.exists()
 
 
+def test_apply_fix_blocks_style_conflict_heading_renumber_when_scopes_are_omitted(tmp_path):
+    source_path = _make_style_conflict_lnu_doc(Path(tmp_path) / "article_engine_guard_all_scopes.docx")
+    output_path = Path(tmp_path) / "article_engine_guard_all_scopes_fixed.docx"
+
+    with pytest.raises(RuntimeError, match="Apply blocked by structural risk"):
+        apply_fix(
+            str(source_path),
+            output_path=str(output_path),
+            profile_path="lnu",
+            renumber_headings=True,
+        )
+
+    assert not output_path.exists()
+
+
 def test_apply_fix_allows_force_on_style_conflict_heading_renumber(tmp_path):
     source_path = _make_style_conflict_lnu_doc(Path(tmp_path) / "article_engine_guard_force.docx")
     output_path = Path(tmp_path) / "article_engine_guard_force_fixed.docx"

@@ -1,12 +1,46 @@
 from __future__ import annotations
 
 import importlib
+import ast
 import subprocess
 import sys
 import tarfile
 import tomllib
 import zipfile
 from pathlib import Path
+
+
+PACKAGING_COMMAND_TIMEOUT_SECONDS = 120
+
+
+def test_pytest_config_lives_only_in_pytest_ini():
+    project_root = Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
+    pytest_ini = (project_root / "pytest.ini").read_text(encoding="utf-8")
+
+    assert pyproject.get("tool", {}).get("pytest") is None
+    assert "[pytest]" in pytest_ini
+    assert "testpaths = tests" in pytest_ini
+
+
+def test_packaging_subprocesses_have_explicit_timeouts():
+    source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    missing_timeouts = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Attribute):
+            continue
+        if not isinstance(node.func.value, ast.Name):
+            continue
+        if node.func.value.id != "subprocess" or node.func.attr != "run":
+            continue
+        if not any(keyword.arg == "timeout" for keyword in node.keywords):
+            missing_timeouts.append(node.lineno)
+
+    assert missing_timeouts == []
 
 
 def test_pyproject_declares_python_first_metadata():
@@ -71,6 +105,7 @@ def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=PACKAGING_COMMAND_TIMEOUT_SECONDS,
     )
     wheel_path = next(wheel_dir.glob("thesis_format_tool-*.whl"))
 
@@ -92,11 +127,19 @@ def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
         "verify_release_artifact.py",
         "build_windows_local_bundle.py",
         "windows_bundle_smoke.py",
+        "windows_bundle_contract.py",
+        "smoke_workdir_utils.py",
         "install_article_local.py",
         "backmatter_title_utils.py",
+        "citation_text_utils.py",
+        "cli_json_output.py",
+        "file_hash_utils.py",
         "frontmatter_utils.py",
+        "reference_numbering_utils.py",
         "reference_section_utils.py",
+        "release_url_utils.py",
         "reorder_references_by_appearance.py",
+        "text_spacing_utils.py",
         "thesis_rules/audit_common.py",
         "thesis_rules/audit_lnu.py",
         "thesis_rules/lnu_runtime.py",
@@ -105,7 +148,13 @@ def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
         "thesis_fix/page_footer.py",
         "thesis_fix/tables_figures.py",
         "thesis_fix/toc.py",
+        "thesis_tool/apply_guard.py",
+        "thesis_tool/render_image_metrics.py",
+        "thesis_tool/workflow_renderers.py",
         "article_api/local_feedback.py",
+        "article_api/job_retention.py",
+        "article_api/retention_reports.py",
+        "article_api/route_error_handlers.py",
     }
     assert required_entries <= names
 
@@ -128,6 +177,7 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=PACKAGING_COMMAND_TIMEOUT_SECONDS,
     )
     subprocess.run(
         [sys.executable, "-m", "build", "--sdist", "--outdir", str(dist_dir)],
@@ -136,6 +186,7 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=PACKAGING_COMMAND_TIMEOUT_SECONDS,
     )
     sdist_path = next(dist_dir.glob("thesis_format_tool-*.tar.gz"))
 
@@ -157,11 +208,25 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
         "scripts/verify_release_artifact.py",
         "scripts/build_windows_local_bundle.py",
         "scripts/windows_bundle_smoke.py",
+        "scripts/windows_bundle_contract.py",
+        "scripts/smoke_workdir_utils.py",
         "scripts/install_article_local.py",
+        "scripts/citation_text_utils.py",
+        "scripts/cli_json_output.py",
+        "scripts/file_hash_utils.py",
+        "scripts/reference_numbering_utils.py",
+        "scripts/release_url_utils.py",
+        "scripts/text_spacing_utils.py",
         "scripts/thesis_rules/audit_lnu.py",
         "scripts/thesis_fix/toc.py",
+        "scripts/thesis_tool/apply_guard.py",
+        "scripts/thesis_tool/render_image_metrics.py",
+        "scripts/thesis_tool/workflow_renderers.py",
         "scripts/article_api/local_console.html",
         "scripts/article_api/local_feedback.py",
+        "scripts/article_api/job_retention.py",
+        "scripts/article_api/retention_reports.py",
+        "scripts/article_api/route_error_handlers.py",
         "config/profiles/lnu-checker-2026.yaml",
         "config/capability_matrix.md",
         "config/templates/lnu/styles.xml",
@@ -181,6 +246,7 @@ def test_wheel_install_imports_entry_modules_from_outside_repo(tmp_path):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=PACKAGING_COMMAND_TIMEOUT_SECONDS,
     )
     wheel_path = next(wheel_dir.glob("thesis_format_tool-*.whl"))
     subprocess.run(
@@ -190,6 +256,7 @@ def test_wheel_install_imports_entry_modules_from_outside_repo(tmp_path):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=PACKAGING_COMMAND_TIMEOUT_SECONDS,
     )
 
     import_script = """
@@ -203,6 +270,18 @@ for name in (
     "thesis_workbench",
     "article_api.local_app",
     "article_api.local_feedback",
+    "article_api.job_retention",
+    "article_api.retention_reports",
+    "article_api.route_error_handlers",
+    "citation_text_utils",
+    "cli_json_output",
+    "file_hash_utils",
+    "reference_numbering_utils",
+    "release_url_utils",
+    "text_spacing_utils",
+    "thesis_tool.render_analyzer",
+    "thesis_tool.render_image_metrics",
+    "thesis_tool.workflow_renderers",
     "docx_sample_intake",
     "fetch_public_docx_samples",
     "release_smoke",
@@ -212,6 +291,8 @@ for name in (
     "release_evidence_bundle",
     "build_windows_local_bundle",
     "windows_bundle_smoke",
+    "windows_bundle_contract",
+    "smoke_workdir_utils",
     "install_article_local",
 ):
     importlib.import_module(name)
@@ -229,6 +310,7 @@ assert len(load_rule_capabilities()) == 74
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        timeout=PACKAGING_COMMAND_TIMEOUT_SECONDS,
     )
 
 

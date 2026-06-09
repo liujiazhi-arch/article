@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import zipfile
 
+from cli_json_output import emit_json_payload as _emit_json
 from . import app as app_module
 from . import local_env as local_env_module
 from .local_backup import create_backup_archive, restore_backup_archive
@@ -17,19 +17,6 @@ from .profiles import build_profile_catalog as build_profile_catalog_payload
 _DEFAULT_CURRENT_COMMAND_BIN_DIR = local_env_module.current_command_bin_dir
 _current_command_bin_dir = _DEFAULT_CURRENT_COMMAND_BIN_DIR
 resolve_runtime_root = local_env_module.resolve_runtime_root
-
-
-def _emit_json(payload: dict) -> None:
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    try:
-        sys.stdout.write(text)
-        sys.stdout.flush()
-    except UnicodeEncodeError:
-        stdout_buffer = getattr(sys.stdout, "buffer", None)
-        if stdout_buffer is None:
-            raise
-        stdout_buffer.write(text.encode("utf-8"))
-        stdout_buffer.flush()
 
 
 def initialize_local_workspace(

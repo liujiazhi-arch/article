@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Any
 import zipfile
 
+from windows_bundle_contract import WINDOWS_BUNDLE_ASSET_NAME, WINDOWS_BUNDLE_SHA256_ASSET_NAME
+
 
 REQUIRED_RELEASE_ASSETS = [
-    "article-local-windows.zip",
-    "article-local-windows.zip.sha256",
+    WINDOWS_BUNDLE_ASSET_NAME,
+    WINDOWS_BUNDLE_SHA256_ASSET_NAME,
 ]
 
 WINDOWS_REQUIRED_PASS_PHRASES = [
@@ -76,28 +78,53 @@ def _check_windows_report(path: Path) -> dict[str, Any]:
     }
 
 
+def _check_http_smoke_payload(
+    *,
+    payload_status: str | None,
+    http_smoke: dict[str, Any],
+    source_status_label: str,
+    http_status_label: str,
+    ready_label: str,
+    job_status_label: str,
+    download_label: str,
+    download_bytes: int | None = None,
+) -> tuple[int, list[str]]:
+    normalized_download_bytes = int(
+        download_bytes if download_bytes is not None else http_smoke.get("download_bytes") or 0
+    )
+    missing_or_failed: list[str] = []
+    if payload_status != "ok":
+        missing_or_failed.append(source_status_label)
+    if http_smoke.get("status") != "ok":
+        missing_or_failed.append(http_status_label)
+    if http_smoke.get("ready") != "ready":
+        missing_or_failed.append(ready_label)
+    if http_smoke.get("job_status") != "succeeded":
+        missing_or_failed.append(job_status_label)
+    if normalized_download_bytes <= 0:
+        missing_or_failed.append(download_label)
+    return normalized_download_bytes, missing_or_failed
+
+
 def _check_release_smoke(path: Path) -> dict[str, Any]:
     payload = _read_json(path)
     checks = dict(payload.get("checks", {}))
     doctor = dict(checks.get("doctor", {}))
     profiles = dict(checks.get("profiles", {}))
     http_smoke = dict(checks.get("http_smoke", {}))
-    download_bytes = int(http_smoke.get("download_bytes") or 0)
-    missing_or_failed: list[str] = []
-    if payload.get("status") != "ok":
-        missing_or_failed.append("release smoke status")
+    download_bytes, missing_or_failed = _check_http_smoke_payload(
+        payload_status=payload.get("status"),
+        http_smoke=http_smoke,
+        source_status_label="release smoke status",
+        http_status_label="http_smoke",
+        ready_label="http_smoke ready",
+        job_status_label="http_smoke apply job",
+        download_label="http_smoke output download",
+    )
     if doctor.get("status") != "ok":
         missing_or_failed.append("doctor")
     if profiles.get("status") != "ok":
         missing_or_failed.append("profiles")
-    if http_smoke.get("status") != "ok":
-        missing_or_failed.append("http_smoke")
-    if http_smoke.get("ready") != "ready":
-        missing_or_failed.append("http_smoke ready")
-    if http_smoke.get("job_status") != "succeeded":
-        missing_or_failed.append("http_smoke apply job")
-    if download_bytes <= 0:
-        missing_or_failed.append("http_smoke output download")
     return {
         "status": "ok" if not missing_or_failed else "failed",
         "path": str(path),
@@ -111,20 +138,18 @@ def _check_windows_bundle_smoke(path: Path) -> dict[str, Any]:
     checks = dict(payload.get("checks", {}))
     doctor = dict(checks.get("doctor", {}))
     http_smoke = dict(checks.get("http_smoke", {}))
-    download_bytes = int(payload.get("download_bytes") or http_smoke.get("download_bytes") or 0)
-    missing_or_failed: list[str] = []
-    if payload.get("status") != "ok":
-        missing_or_failed.append("windows bundle smoke status")
+    download_bytes, missing_or_failed = _check_http_smoke_payload(
+        payload_status=payload.get("status"),
+        http_smoke=http_smoke,
+        source_status_label="windows bundle smoke status",
+        http_status_label="windows bundle http_smoke",
+        ready_label="windows bundle http_smoke ready",
+        job_status_label="windows bundle apply job",
+        download_label="windows bundle output download",
+        download_bytes=int(payload.get("download_bytes") or http_smoke.get("download_bytes") or 0),
+    )
     if doctor.get("status") != "ok":
         missing_or_failed.append("windows bundle doctor")
-    if http_smoke.get("status") != "ok":
-        missing_or_failed.append("windows bundle http_smoke")
-    if http_smoke.get("ready") != "ready":
-        missing_or_failed.append("windows bundle http_smoke ready")
-    if http_smoke.get("job_status") != "succeeded":
-        missing_or_failed.append("windows bundle apply job")
-    if download_bytes <= 0:
-        missing_or_failed.append("windows bundle output download")
     return {
         "status": "ok" if not missing_or_failed else "failed",
         "path": str(path),

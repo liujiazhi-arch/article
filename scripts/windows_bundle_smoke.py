@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 from typing import Any, Sequence
 import zipfile
+
+from cli_json_output import build_failed_json_payload as _build_failed_payload
+from cli_json_output import emit_json_payload as _emit_payload
+from smoke_workdir_utils import prepare_work_dir
+from windows_bundle_contract import PYTHON_ENTRY as BUNDLE_PYTHON_ENTRY
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -30,14 +33,8 @@ def _json_run(
     return release_smoke._json_run(command, cwd=cwd, timeout=timeout)
 
 
-def _prepare_work_dir(work_dir: Path) -> None:
-    if work_dir.exists():
-        shutil.rmtree(work_dir)
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-
 def _locate_bundle_root(extracted_root: Path) -> Path:
-    candidates = sorted(path.parent.parent.parent for path in extracted_root.rglob("app/Scripts/python.exe"))
+    candidates = sorted(path.parent.parent.parent for path in extracted_root.rglob(BUNDLE_PYTHON_ENTRY))
     unique_candidates = []
     seen: set[Path] = set()
     for candidate in candidates:
@@ -48,7 +45,7 @@ def _locate_bundle_root(extracted_root: Path) -> Path:
     if len(unique_candidates) != 1:
         locations = [str(candidate) for candidate in unique_candidates]
         raise RuntimeError(
-            "Expected exactly one Windows bundle root containing app/Scripts/python.exe; "
+            f"Expected exactly one Windows bundle root containing {BUNDLE_PYTHON_ENTRY}; "
             f"found {len(unique_candidates)}: {locations}"
         )
     return unique_candidates[0]
@@ -67,7 +64,7 @@ def run_windows_bundle_smoke(
     if not bundle_zip_path.exists():
         raise RuntimeError(f"Windows bundle zip does not exist: {bundle_zip_path}")
 
-    _prepare_work_dir(smoke_dir)
+    prepare_work_dir(smoke_dir)
     with zipfile.ZipFile(bundle_zip_path) as archive:
         archive.extractall(smoke_dir)
 
@@ -129,71 +126,35 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _format_timeout_error(exc: subprocess.TimeoutExpired) -> dict[str, Any]:
-    return {
-        "status": "failed",
-        "error": {
-            "type": "command_timeout",
-            "message": "Windows bundle smoke command timed out.",
-            "command": [str(item) for item in (exc.cmd or [])],
-            "timeout_seconds": float(exc.timeout),
-        },
-        "next_steps": [
-            "Retry with a larger --command-timeout-seconds value if the Windows runner is slow.",
-            "Inspect the bundled article_api.local_app doctor or serve command output in CI.",
-        ],
-    }
+_WINDOWS_TIMEOUT_NEXT_STEPS = [
+    "Retry with a larger --command-timeout-seconds value if the Windows runner is slow.",
+    "Inspect the bundled article_api.local_app doctor or serve command output in CI.",
+]
 
+_WINDOWS_COMMAND_FAILED_NEXT_STEPS = [
+    "Inspect the failed bundled Python command and rebuild the Windows bundle after fixing packaging or runtime issues.",
+]
 
-def _format_called_process_error(exc: subprocess.CalledProcessError) -> dict[str, Any]:
-    return {
-        "status": "failed",
-        "error": {
-            "type": "command_failed",
-            "message": str(exc),
-            "command": [str(item) for item in (exc.cmd or [])],
-            "returncode": exc.returncode,
-            "stdout": exc.stdout,
-            "stderr": exc.stderr,
-        },
-        "next_steps": [
-            "Inspect the failed bundled Python command and rebuild the Windows bundle after fixing packaging or runtime issues.",
-        ],
-    }
+_WINDOWS_GENERAL_ERROR_NEXT_STEPS = [
+    "Inspect the extracted bundle layout and rerun the Windows bundle smoke after fixing the artifact.",
+]
 
 
 def _format_windows_bundle_error(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, subprocess.TimeoutExpired):
-        return _format_timeout_error(exc)
+        return _build_failed_payload(
+            exc,
+            next_steps=_WINDOWS_TIMEOUT_NEXT_STEPS,
+            timeout_type="command_timeout",
+            timeout_message="Windows bundle smoke command timed out.",
+        )
     if isinstance(exc, subprocess.CalledProcessError):
-        return _format_called_process_error(exc)
-    return {
-        "status": "failed",
-        "error": {
-            "type": exc.__class__.__name__,
-            "message": str(exc),
-        },
-        "next_steps": [
-            "Inspect the extracted bundle layout and rerun the Windows bundle smoke after fixing the artifact.",
-        ],
-    }
-
-
-def _emit_payload(payload: dict[str, Any], *, json_output: Path | None = None) -> None:
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    if json_output is not None:
-        json_output = json_output.expanduser().resolve()
-        json_output.parent.mkdir(parents=True, exist_ok=True)
-        json_output.write_text(text, encoding="utf-8")
-    try:
-        sys.stdout.write(text)
-        sys.stdout.flush()
-    except UnicodeEncodeError:
-        stdout_buffer = getattr(sys.stdout, "buffer", None)
-        if stdout_buffer is None:
-            raise
-        stdout_buffer.write(text.encode("utf-8"))
-        stdout_buffer.flush()
+        return _build_failed_payload(
+            exc,
+            next_steps=_WINDOWS_COMMAND_FAILED_NEXT_STEPS,
+            called_process_type="command_failed",
+        )
+    return _build_failed_payload(exc, next_steps=_WINDOWS_GENERAL_ERROR_NEXT_STEPS)
 
 
 def main(argv: list[str] | None = None) -> int:
