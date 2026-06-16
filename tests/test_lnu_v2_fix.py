@@ -6,11 +6,13 @@ No real .docx files are required.
 """
 from __future__ import annotations
 
+import zipfile
 import sys
 from pathlib import Path
 
 import pytest
 import xml.etree.ElementTree as ET
+from docx import Document
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
@@ -18,6 +20,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import fix_thesis
+import audit_thesis
 from fix_thesis import (
     cleanup_frontmatter_redundant_page_breaks,
     HEADING_SPACING_DEFAULTS,
@@ -34,12 +37,15 @@ from fix_thesis import (
     fix_page_margins,
     inject_template_components,
     fix_lnu_abs03,
+    fix_lnu_abs01,
     fix_lnu_ack01,
     fix_lnu_s03,
     fix_lnu_title01,
     fix_remove_hidden_page_number_artifacts,
     fix_lnu_tb03,
     normalize_equation_explanation_symbols,
+    fix_equation_number_alignment,
+    fix_equation_reference_text,
     normalize_lnu_preface_heading_numbering,
     normalize_toc_entry_paragraphs,
     protect_object_blocks_from_pagination,
@@ -50,6 +56,7 @@ from fix_thesis import (
     renumber_body_headings,
 )
 from _thesis_utils import NSMAP, W_NS, build_document_model, get_paragraph_text
+from thesis_fix.runtime import FixExecutionContext, ScopeFlags
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -164,6 +171,49 @@ def test_parse_heading_chapter_number_prefers_real_chapter_titles():
     assert fix_thesis._parse_heading_chapter_number("23 S rRNA") is None
 
 
+def _append_math(paragraph: ET.Element) -> None:
+    run = ET.SubElement(paragraph, _w("r"))
+    omath = ET.SubElement(run, "{http://schemas.openxmlformats.org/officeDocument/2006/math}oMath")
+    math_run = ET.SubElement(omath, _w("r"))
+    text = ET.SubElement(math_run, _w("t"))
+    text.text = "x"
+
+
+def _paragraph_alignment(paragraph: ET.Element) -> str | None:
+    jc = paragraph.find("w:pPr/w:jc", NSMAP)
+    return jc.get(_w("val")) if jc is not None else None
+
+
+def test_fix_equation_number_alignment_right_aligns_following_number_paragraph():
+    formula = _make_paragraph("")
+    _append_math(formula)
+    number = _make_paragraph("（1.1）")
+    p_pr = ET.SubElement(number, _w("pPr"))
+    jc = ET.SubElement(p_pr, _w("jc"))
+    jc.set(_w("val"), "center")
+    ind = ET.SubElement(p_pr, _w("ind"))
+    ind.set(_w("firstLine"), "480")
+    root = _make_doc_root(formula, number)
+
+    changed = fix_equation_number_alignment(root, {"eq_number_sep": "."})
+
+    assert changed == 1
+    assert _paragraph_alignment(number) == "right"
+    assert number.find("w:pPr/w:ind", NSMAP).get(_w("firstLine")) == "0"
+
+
+def test_fix_equation_number_alignment_does_not_change_inline_math_body_text():
+    paragraph = _make_paragraph("计算中 ")
+    _append_math(paragraph)
+    paragraph.append(_make_run(" 表示剪切速率。"))
+    root = _make_doc_root(paragraph)
+
+    changed = fix_equation_number_alignment(root, {"eq_number_sep": "."})
+
+    assert changed == 0
+    assert _paragraph_alignment(paragraph) is None
+
+
 # ---------------------------------------------------------------------------
 # test_fix_abs_title_spacing
 # ---------------------------------------------------------------------------
@@ -271,6 +321,22 @@ def test_fix_reference_paragraph_normalizes_leading_zero_number(lnu_cfg):
     normalized = get_paragraph_text(p)
     assert normalized.startswith("[1]")
     assert "Some reference text." in normalized
+
+
+def test_fix_lnu_ref04_preserves_run_formatting_when_adding_marker():
+    references = _make_paragraph("参考文献")
+    reference = ET.Element(_w("p"))
+    reference.append(_make_run("[1] Zhang S. "))
+    reference.append(_make_run("Journal of Research.", bold=True))
+    document = _make_doc_root(references, reference)
+
+    fixed = fix_thesis.fix_lnu_ref04(document, {})
+
+    runs = reference.findall("w:r", NSMAP)
+    assert fixed == 1
+    assert runs[0].find("w:t", NSMAP).text == "[1] Zhang S. "
+    assert runs[1].find("w:t", NSMAP).text == "Journal of Research[J]."
+    assert runs[1].find("w:rPr/w:b", NSMAP) is not None
 
 
 def test_fix_half_width_punct_in_cjk_converts_body_only_and_skips_caption_and_reference():
@@ -631,6 +697,35 @@ def test_renumber_lnu_captions_uses_zero_chapter_for_preface_section():
     assert get_paragraph_text(body_caption).strip() == "图1.1  实验流程图"
 
 
+def test_renumber_lnu_captions_preserves_run_formatting():
+    heading = _make_paragraph("第1章 测试", bold=True)
+    heading_pr = ET.SubElement(heading, _w("pPr"))
+    heading_style = ET.SubElement(heading_pr, _w("pStyle"))
+    heading_style.set(_w("val"), "Heading1")
+
+    caption = ET.Element(_w("p"))
+    caption_pr = ET.SubElement(caption, _w("pPr"))
+    caption_style = ET.SubElement(caption_pr, _w("pStyle"))
+    caption_style.set(_w("val"), "Caption")
+    caption.append(_make_run("图1-1  "))
+    caption.append(_make_run("测试图标题", bold=True))
+
+    document = _make_doc_root(heading, caption)
+    style_map = {
+        "Heading1": {"outlineLvl": 0, "name": "heading 1", "basedOn": None},
+        "Caption": {"name": "caption", "basedOn": None},
+    }
+
+    changed = fix_thesis.renumber_lnu_captions(document, style_map)
+
+    runs = caption.findall("w:r", NSMAP)
+    assert changed == 1
+    assert len(runs) == 2
+    assert runs[0].find("w:t", NSMAP).text == "图1.1  "
+    assert runs[1].find("w:t", NSMAP).text == "测试图标题"
+    assert runs[1].find("w:rPr/w:b", NSMAP) is not None
+
+
 def test_lnu_compact_text_restores_heading_gap_after_compacting_mixed_text():
     heading = _make_paragraph("1.2 CRISPR 技术基础")
 
@@ -813,6 +908,19 @@ def test_fix_abstract_section_accepts_spaced_cn_title():
     sz_elem = p.find(".//w:sz", NSMAP)
     assert sz_elem is not None
     assert sz_elem.get(_w("val")) == "32"
+
+
+def test_fix_lnu_abs01_centers_title(lnu_cfg):
+    p = _make_paragraph("摘  要", sz=28)
+    p_pr = ET.SubElement(p, _w("pPr"))
+    jc = ET.SubElement(p_pr, _w("jc"))
+    jc.set(_w("val"), "left")
+    doc = _make_doc_root(p)
+
+    fixed = fix_lnu_abs01(doc, lnu_cfg)
+
+    assert fixed == 1
+    assert p.find("w:pPr/w:jc", NSMAP).get(_w("val")) == "center"
 
 
 def test_fix_lnu_abs03_accepts_title_case_abstract():
@@ -1033,7 +1141,15 @@ def test_fix_insert_toc_removes_raw_toc_block_and_inserts_before_body(lnu_runtim
     assert texts.index("目  录") > texts.index("Key words: alpha；beta")
     assert texts.index("目  录") < texts.index("第1章 绪论")
     assert not any(text.endswith("1") and "Abstract" in text for text in texts)
-    assert not any(text.endswith("1") and "第1章" in text for text in texts)
+    toc_texts = [
+        get_paragraph_text(p).strip()
+        for p in body.findall("w:p", NSMAP)
+        if p.find("w:pPr/w:pStyle", NSMAP) is not None
+        and p.find("w:pPr/w:pStyle", NSMAP).get(_w("val")) in {"TOC1", "TOC2", "TOC3"}
+    ]
+    assert "第1章 绪论" in toc_texts
+    assert "1.1 研究背景" in toc_texts
+    assert not any("Abstract" in text for text in toc_texts)
     assert body_texts[0] == "第1章 绪论"
     toc_title = next(p for p in body.findall("w:p", NSMAP) if get_paragraph_text(p).strip() == "目  录")
     page_break_before = toc_title.find("w:pPr/w:pageBreakBefore", NSMAP)
@@ -1062,10 +1178,37 @@ def test_fix_insert_toc_starts_at_preface_not_abstracts(lnu_runtime):
 
     body = doc.find("w:body", NSMAP)
     texts = [get_paragraph_text(elem).strip() for elem in body.findall("w:p", NSMAP)]
-    assert texts.index("目  录") == texts.index("序言") - 4
+    assert texts.index("目  录") < texts.index("序言")
+    toc_texts = [
+        get_paragraph_text(p).strip()
+        for p in body.findall("w:p", NSMAP)
+        if p.find("w:pPr/w:pStyle", NSMAP) is not None
+        and p.find("w:pPr/w:pStyle", NSMAP).get(_w("val")) in {"TOC1", "TOC2", "TOC3"}
+    ]
+    assert toc_texts == ["序言", "1.1 研究背景"]
     assert texts.index("摘  要") < texts.index("目  录")
     instr_text = "".join((instr.text or "") for instr in doc.findall(".//w:instrText", NSMAP))
     assert 'TOC \\o "1-3"' in instr_text
+
+
+def test_fix_insert_toc_marks_generated_page_number_for_review_without_existing_number(lnu_runtime):
+    heading = _make_paragraph("第1章 绪论")
+    body_para = _make_paragraph("这是正文。")
+    p_pr = ET.SubElement(heading, _w("pPr"))
+    p_style = ET.SubElement(p_pr, _w("pStyle"))
+    p_style.set(_w("val"), "Heading1")
+    doc = _make_doc_root(heading, body_para)
+
+    fix_insert_toc(doc, {"toc_auto": True, "toc_title": "目录", "toc_max_level": 3}, runtime=lnu_runtime)
+
+    toc_entry = next(
+        p for p in doc.findall(".//w:p", NSMAP)
+        if p.find("w:pPr/w:pStyle", NSMAP) is not None
+        and p.find("w:pPr/w:pStyle", NSMAP).get(_w("val")) == "TOC1"
+    )
+    assert get_paragraph_text(toc_entry) == "第1章 绪论"
+    runs = toc_entry.findall("w:r", NSMAP)
+    assert len(runs) == 1
 
 
 def test_fix_insert_toc_scopes_word_field_to_body_bookmark(lnu_runtime):
@@ -1113,6 +1256,285 @@ def test_fix_insert_toc_scopes_word_field_to_body_bookmark(lnu_runtime):
     ]
     assert len(bookmark_ends) == 1
     assert body_para.find("w:bookmarkEnd", NSMAP) is bookmark_ends[0]
+
+
+def test_fix_insert_toc_prefills_refreshable_field_result_with_lnu_styles(lnu_runtime):
+    preface = _make_paragraph("序言")
+    body_h1 = _make_paragraph("第1章 正文格式说明")
+    body_h2 = _make_paragraph("1.1 论文格式基本要求")
+    body_h3 = _make_paragraph("1.1.1 标题示例")
+    body_para = _make_paragraph("这是正文。")
+
+    for paragraph, style_id in (
+        (preface, "Heading1"),
+        (body_h1, "Heading1"),
+        (body_h2, "Heading2"),
+        (body_h3, "Heading3"),
+    ):
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+        p_style = ET.SubElement(p_pr, _w("pStyle"))
+        p_style.set(_w("val"), style_id)
+
+    doc = _make_doc_root(preface, body_h1, body_h2, body_h3, body_para)
+
+    fix_insert_toc(
+        doc,
+        {
+            "toc_auto": True,
+            "toc_title": "目录",
+            "toc_max_level": 3,
+            "toc_title_font": "黑体",
+            "toc_title_size": 32,
+            "toc_entry_font": "宋体",
+            "toc_entry_size": 22,
+            "toc_level1_font": "黑体",
+            "toc_level1_size": 28,
+            "toc_entry_line": 276,
+            "toc_level1_after_pt": 5,
+            "toc_level2_after_pt": 5,
+            "toc_level3_after_pt": 5,
+            "toc_tab_pos": 9000,
+        },
+        runtime=lnu_runtime,
+    )
+
+    body = doc.find("w:body", NSMAP)
+    paragraphs = body.findall("w:p", NSMAP)
+    toc_entries = [
+        p for p in paragraphs
+        if p.find("w:pPr/w:pStyle", NSMAP) is not None
+        and p.find("w:pPr/w:pStyle", NSMAP).get(_w("val")) in {"TOC1", "TOC2", "TOC3"}
+    ]
+    entry_texts = [get_paragraph_text(p) for p in toc_entries]
+
+    assert entry_texts == [
+        "序言",
+        "第1章 正文格式说明",
+        "1.1 论文格式基本要求",
+        "1.1.1 标题示例",
+    ]
+    assert [p.find("w:pPr/w:pStyle", NSMAP).get(_w("val")) for p in toc_entries] == [
+        "TOC1",
+        "TOC1",
+        "TOC2",
+        "TOC3",
+    ]
+
+    begin_idx = next(
+        idx for idx, p in enumerate(paragraphs)
+        if any(fld.get(_w("fldCharType")) == "begin" for fld in p.findall(".//w:fldChar", NSMAP))
+    )
+    end_idx = next(
+        idx for idx, p in enumerate(paragraphs)
+        if any(fld.get(_w("fldCharType")) == "end" for fld in p.findall(".//w:fldChar", NSMAP))
+    )
+    entry_indexes = [paragraphs.index(p) for p in toc_entries]
+    assert all(begin_idx < idx < end_idx for idx in entry_indexes)
+
+    toc_title = next(p for p in paragraphs if get_paragraph_text(p).strip() == "目  录")
+    title_run = toc_title.find("w:r", NSMAP)
+    title_fonts = title_run.find("w:rPr/w:rFonts", NSMAP)
+    title_size = title_run.find("w:rPr/w:sz", NSMAP)
+    assert title_fonts.get(_w("eastAsia")) == "黑体"
+    assert title_size.get(_w("val")) == "32"
+    assert title_run.find("w:rPr/w:b", NSMAP) is None
+    assert title_run.find("w:rPr/w:bCs", NSMAP) is None
+
+    for index, entry in enumerate(toc_entries):
+        style_id = entry.find("w:pPr/w:pStyle", NSMAP).get(_w("val"))
+        spacing = entry.find("w:pPr/w:spacing", NSMAP)
+        tab = entry.find("w:pPr/w:tabs/w:tab", NSMAP)
+        first_run = entry.find("w:r", NSMAP)
+        first_fonts = first_run.find("w:rPr/w:rFonts", NSMAP)
+        first_size = first_run.find("w:rPr/w:sz", NSMAP)
+
+        assert spacing is not None
+        assert spacing.get(_w("before")) == "0"
+        assert spacing.get(_w("after")) == "100"
+        assert spacing.get(_w("line")) == "276"
+        assert spacing.get(_w("lineRule")) == "auto"
+        assert tab is not None
+        assert tab.get(_w("val")) == "right"
+        assert tab.get(_w("leader")) == "dot"
+        assert tab.get(_w("pos")) == "9000"
+        assert first_fonts.get(_w("ascii")) == "Times New Roman"
+        assert first_fonts.get(_w("hAnsi")) == "Times New Roman"
+        if style_id == "TOC1":
+            assert first_fonts.get(_w("eastAsia")) == "黑体"
+            assert first_size.get(_w("val")) == "28"
+            assert first_run.find("w:rPr/w:b", NSMAP) is None
+            assert first_run.find("w:rPr/w:bCs", NSMAP) is None
+        else:
+            assert first_fonts.get(_w("eastAsia")) == "宋体"
+            assert first_size.get(_w("val")) == "22"
+            assert first_run.find("w:rPr/w:b", NSMAP) is None
+            assert first_run.find("w:rPr/w:bCs", NSMAP) is None
+        if index == 0:
+            assert entry.find("w:pPr/w:ind", NSMAP) is None
+        elif style_id == "TOC2":
+            assert entry.find("w:pPr/w:ind", NSMAP).get(_w("left")) == "420"
+        elif style_id == "TOC3":
+            assert entry.find("w:pPr/w:ind", NSMAP).get(_w("left")) == "840"
+
+
+def test_lnu_runtime_keeps_frontmatter_roman_and_body_decimal_page_numbering(lnu_runtime):
+    assert lnu_runtime.cfg["cover_page_number"] is False
+    assert lnu_runtime.cfg["frontmatter_page_number_format"] == "upperRoman"
+    assert lnu_runtime.cfg["frontmatter_page_number_start"] == 1
+    assert lnu_runtime.cfg["frontmatter_page_number_wrap"] == "plain"
+    assert lnu_runtime.cfg["body_page_number_format"] == "decimal"
+    assert lnu_runtime.cfg["body_page_number_start"] == 1
+    assert lnu_runtime.cfg["body_page_number_wrap"] == "hyphen_wrap"
+
+
+def test_toc_prepass_preserves_existing_visible_toc_page_numbers(lnu_runtime):
+    toc_title = _make_paragraph("目  录")
+    manual_h1 = _make_paragraph("第1章 实验材料与方法\t5")
+    manual_h2 = _make_paragraph("1.1 实验材料与试剂\t6")
+    body_h1 = _make_paragraph("第1章 实验材料与方法")
+    body_h2 = _make_paragraph("1.1 实验材料与试剂")
+    body_para = _make_paragraph("这是正文。")
+    for paragraph, style_id in ((body_h1, "Heading1"), (body_h2, "Heading2")):
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+        p_style = ET.SubElement(p_pr, _w("pStyle"))
+        p_style.set(_w("val"), style_id)
+
+    doc = _make_doc_root(toc_title, manual_h1, manual_h2, body_h1, body_h2, body_para)
+    runtime = fix_thesis.build_fix_runtime(profile_path="lnu", scopes=["toc"], toc=True)
+    ctx = fix_thesis._rebuild_fix_context(doc, {}, runtime)
+
+    updated_ctx, _toc_parts = fix_thesis._apply_document_level_prepasses(ctx)
+
+    body = updated_ctx.document_root.find("w:body", NSMAP)
+    toc_texts = [
+        get_paragraph_text(p).strip()
+        for p in body.findall("w:p", NSMAP)
+        if p.find("w:pPr/w:pStyle", NSMAP) is not None
+        and p.find("w:pPr/w:pStyle", NSMAP).get(_w("val")) in {"TOC1", "TOC2", "TOC3"}
+    ]
+    assert toc_texts == ["第1章 实验材料与方法\t5", "1.1 实验材料与试剂\t6"]
+
+
+def test_apply_paragraph_fix_skips_short_body_other_paragraph(monkeypatch, lnu_runtime):
+    paragraph = _make_paragraph("1")
+    node = type(
+        "ParagraphNode",
+        (),
+        {
+            "elem": paragraph,
+            "in_table": False,
+            "section": "body",
+            "container_section": "body",
+            "text": "1",
+            "kind": "other",
+            "module": "body_other",
+        },
+    )()
+    ctx = FixExecutionContext(
+        document_root=_make_doc_root(paragraph),
+        style_map={},
+        runtime=lnu_runtime,
+        cfg=lnu_runtime.cfg,
+        temp_dir=None,
+        document_model=None,
+        sections={},
+        paragraph_sections={},
+        protected_ids=set(),
+        editable_text_ids={id(paragraph)},
+        scope_flags=ScopeFlags(
+            page=False,
+            abstract=False,
+            toc=False,
+            headings=False,
+            body=True,
+            figures=False,
+            references=False,
+            acknowledgement=False,
+            appendix=False,
+        ),
+    )
+    calls = []
+    monkeypatch.setattr(fix_thesis, "fix_body_paragraph", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    fix_thesis._apply_paragraph_fix(node, ctx)
+
+    assert calls == []
+
+
+def test_apply_paragraph_fix_formats_body_other_with_clear_text_signal(monkeypatch, lnu_runtime):
+    paragraph = _make_paragraph("这是一段足够长的正文内容")
+    node = type(
+        "ParagraphNode",
+        (),
+        {
+            "elem": paragraph,
+            "in_table": False,
+            "section": "body",
+            "container_section": "body",
+            "text": "这是一段足够长的正文内容",
+            "kind": "other",
+            "module": "body_other",
+        },
+    )()
+    ctx = FixExecutionContext(
+        document_root=_make_doc_root(paragraph),
+        style_map={},
+        runtime=lnu_runtime,
+        cfg=lnu_runtime.cfg,
+        temp_dir=None,
+        document_model=None,
+        sections={},
+        paragraph_sections={},
+        protected_ids=set(),
+        editable_text_ids={id(paragraph)},
+        scope_flags=ScopeFlags(
+            page=False,
+            abstract=False,
+            toc=False,
+            headings=False,
+            body=True,
+            figures=False,
+            references=False,
+            acknowledgement=False,
+            appendix=False,
+        ),
+    )
+    calls = []
+    monkeypatch.setattr(fix_thesis, "fix_body_paragraph", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    fix_thesis._apply_paragraph_fix(node, ctx)
+
+    assert len(calls) == 1
+
+
+def test_toc_prepass_does_not_duplicate_inherited_page_numbers(lnu_runtime):
+    toc_title = _make_paragraph("目  录")
+    manual_h1 = _make_paragraph("第1章 实验材料与方法\t5")
+    manual_h2 = _make_paragraph("1.1 实验材料与试剂\t6")
+    body_h1 = _make_paragraph("第1章 实验材料与方法")
+    body_h2 = _make_paragraph("1.1 实验材料与试剂")
+    body_para = _make_paragraph("这是正文。")
+    for paragraph, style_id in ((body_h1, "Heading1"), (body_h2, "Heading2")):
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+        p_style = ET.SubElement(p_pr, _w("pStyle"))
+        p_style.set(_w("val"), style_id)
+
+    doc = _make_doc_root(toc_title, manual_h1, manual_h2, body_h1, body_h2, body_para)
+    runtime = fix_thesis.build_fix_runtime(profile_path="lnu", scopes=["toc"], toc=True)
+    ctx = fix_thesis._rebuild_fix_context(doc, {}, runtime)
+
+    updated_ctx, _toc_parts = fix_thesis._apply_document_level_prepasses(ctx)
+    fix_thesis._apply_text_cleanup_passes(updated_ctx)
+
+    body = updated_ctx.document_root.find("w:body", NSMAP)
+    toc_texts = [
+        get_paragraph_text(p).strip()
+        for p in body.findall("w:p", NSMAP)
+        if p.find("w:pPr/w:pStyle", NSMAP) is not None
+        and p.find("w:pPr/w:pStyle", NSMAP).get(_w("val")) in {"TOC1", "TOC2", "TOC3"}
+    ]
+    assert all(text.count("\t") == 1 for text in toc_texts)
+    assert toc_texts == ["第1章 实验材料与方法\t5", "1.1 实验材料与试剂\t6"]
 
 
 def test_fix_insert_toc_bookmark_runs_from_preface_through_acknowledgement(lnu_runtime):
@@ -1234,7 +1656,17 @@ def test_fix_insert_toc_ignores_numeric_body_style_ids(lnu_runtime):
     assert "TOCField" in toc_style_ids
     assert "TOCEnd" in toc_style_ids
     assert "TOCPageBreak" in toc_style_ids
-    assert not any(style_id in {"TOC1", "TOC2", "TOC3"} for style_id in toc_style_ids)
+    assert "TOC1" in toc_style_ids
+    assert "TOC2" in toc_style_ids
+    toc_texts = [
+        get_paragraph_text(p).strip()
+        for p in body.findall("w:p", NSMAP)
+        if p.find("w:pPr/w:pStyle", NSMAP) is not None
+        and p.find("w:pPr/w:pStyle", NSMAP).get(_w("val")) in {"TOC1", "TOC2", "TOC3"}
+    ]
+    assert "第1章 绪论" in toc_texts
+    assert "1.1 研究背景" in toc_texts
+    assert not any("这是正文，不应进入目录" in text for text in toc_texts)
     assert any(get_paragraph_text(p).strip() == "这是正文，不应进入目录。" for p in body.findall("w:p", NSMAP))
 
 
@@ -1276,8 +1708,8 @@ def test_ensure_visible_toc_inserts_plain_entries_without_toc_field(lnu_runtime)
     assert "TOC1" in toc_styles
     assert "TOC2" in toc_styles
     assert "TOCPageBreak" in toc_styles
-    assert any(text.startswith("第1章 绪论") and "待核对" in text for text in texts)
-    assert any(text.startswith("1.1 研究背景") and "待核对" in text for text in texts)
+    assert any(text.startswith("第1章 绪论") for text in texts)
+    assert any(text.startswith("1.1 研究背景") for text in texts)
 
 
 def test_normalize_toc_entry_paragraphs_applies_latest_lnu_line_spacing():
@@ -1345,6 +1777,43 @@ def test_normalize_toc_entry_paragraphs_adds_right_aligned_page_tab():
     assert ppr_children.index(toc_entry.find("w:pPr/w:tabs", NSMAP)) < ppr_children.index(
         toc_entry.find("w:pPr/w:spacing", NSMAP)
     )
+
+
+def test_normalize_toc_entry_paragraphs_removes_level1_indent_and_uses_11pt_for_level3():
+    toc_title = _make_paragraph("目  录")
+    toc_level1 = _make_paragraph("序言\t1")
+    toc_level1_pr = ET.SubElement(toc_level1, _w("pPr"))
+    toc_level1_style = ET.SubElement(toc_level1_pr, _w("pStyle"))
+    toc_level1_style.set(_w("val"), "TOC1")
+    toc_level1_ind = ET.SubElement(toc_level1_pr, _w("ind"))
+    toc_level1_ind.set(_w("left"), "420")
+    toc_level3 = _make_paragraph("0.1.1 明胶的来源与制备方法\t1")
+    toc_level3_pr = ET.SubElement(toc_level3, _w("pPr"))
+    toc_level3_style = ET.SubElement(toc_level3_pr, _w("pStyle"))
+    toc_level3_style.set(_w("val"), "TOC3")
+    document = _make_doc_root(toc_title, toc_level1, toc_level3)
+
+    changed = normalize_toc_entry_paragraphs(
+        document,
+        {},
+        {
+            "toc_tab_pos": 9000,
+            "toc_entry_font": "宋体",
+            "toc_entry_size": 22,
+            "toc_level1_font": "黑体",
+            "toc_level1_size": 28,
+            "toc_entry_line": 276,
+            "toc_level1_after_pt": 5,
+            "toc_level2_after_pt": 5,
+            "toc_level3_after_pt": 5,
+        },
+    )
+
+    assert changed > 0
+    assert toc_level1.find("w:pPr/w:ind", NSMAP) is None
+    level3_size = toc_level3.find("w:r/w:rPr/w:sz", NSMAP)
+    assert level3_size is not None
+    assert level3_size.get(_w("val")) == "22"
 
 
 def test_fix_insert_toc_moves_misplaced_english_keywords_back_before_toc(lnu_runtime):
@@ -1743,15 +2212,15 @@ def test_inject_template_components_copies_missing_styles(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_fix_lnu_tb03_fixes_spacing():
-    """fix_lnu_tb03 sets line=360 on a table cell paragraph with line=240."""
-    # Build: <w:tbl><w:tr><w:tc><w:p><w:pPr><w:spacing line=240></w:pPr></w:p></w:tc></w:tr></w:tbl>
+    """fix_lnu_tb03 sets line=240 on a table cell paragraph with line=360."""
+    # Build: <w:tbl><w:tr><w:tc><w:p><w:pPr><w:spacing line=360></w:pPr></w:p></w:tc></w:tr></w:tbl>
     tbl = ET.Element(_w("tbl"))
     tr = ET.SubElement(tbl, _w("tr"))
     tc = ET.SubElement(tr, _w("tc"))
     p = ET.SubElement(tc, _w("p"))
     p_pr = ET.SubElement(p, _w("pPr"))
     spacing = ET.SubElement(p_pr, _w("spacing"))
-    spacing.set(_w("line"), "240")
+    spacing.set(_w("line"), "360")
     spacing.set(_w("lineRule"), "auto")
 
     doc = ET.Element(_w("document"))
@@ -1762,5 +2231,124 @@ def test_fix_lnu_tb03_fixes_spacing():
 
     assert count >= 1, "Expected at least one paragraph to be fixed"
     line_val = spacing.get(_w("line"))
-    assert line_val == "360", f"Expected line=360 after fix, got {line_val!r}"
+    assert line_val == "240", f"Expected line=240 after fix, got {line_val!r}"
     assert spacing.get(_w("lineRule")) == "auto"
+
+
+def test_fix_table_borders_sets_inside_h():
+    tbl = ET.Element(_w("tbl"))
+    tbl_pr = ET.SubElement(tbl, _w("tblPr"))
+    tbl_borders = ET.SubElement(tbl_pr, _w("tblBorders"))
+    for name in ("top", "bottom", "left", "right", "insideV"):
+        border = ET.SubElement(tbl_borders, _w(name))
+        border.set(_w("val"), "none")
+        border.set(_w("sz"), "0")
+
+    tr = ET.SubElement(tbl, _w("tr"))
+    tc = ET.SubElement(tr, _w("tc"))
+    ET.SubElement(tc, _w("p"))
+
+    fix_thesis.fix_table_borders(tbl)
+
+    inside_h = tbl.find("w:tblPr/w:tblBorders/w:insideH", NSMAP)
+    assert inside_h is not None
+    assert inside_h.get(_w("val")) == "single"
+    assert inside_h.get(_w("sz")) == "6"
+
+
+def test_fix_equation_reference_text_normalizes_same_run_lnu_dot_reference():
+    paragraph = _make_paragraph("相关参数按式2.1计算，并由公式3.2验证。")
+
+    changed = fix_equation_reference_text(paragraph, {"eq_number_sep": "."})
+
+    assert changed == 1
+    assert get_paragraph_text(paragraph) == "相关参数按式(2.1)计算，并由公式(3.2)验证。"
+
+
+def test_fix_equation_reference_text_does_not_merge_cross_run_reference():
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("相关参数按式"))
+    paragraph.append(_make_run("2.1"))
+    paragraph.append(_make_run("计算。"))
+
+    changed = fix_equation_reference_text(paragraph, {"eq_number_sep": "."})
+
+    assert changed == 0
+    assert get_paragraph_text(paragraph) == "相关参数按式2.1计算。"
+
+
+def _write_docx_with_small_footnote(path: Path) -> None:
+    doc = Document()
+    doc.add_paragraph("正文脚注引用")
+    doc.save(path)
+
+    with zipfile.ZipFile(path, "r") as source:
+        parts = {name: source.read(name) for name in source.namelist()}
+
+    document_xml = parts["word/document.xml"].decode("utf-8")
+    document_xml = document_xml.replace(
+        "</w:p>",
+        '<w:r><w:footnoteReference w:id="2"/></w:r></w:p>',
+        1,
+    )
+    rels = parts["word/_rels/document.xml.rels"].decode("utf-8")
+    rels = rels.replace(
+        "</Relationships>",
+        '<Relationship Id="rIdFootnotesTest" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" '
+        'Target="footnotes.xml"/></Relationships>',
+    )
+    content_types = parts["[Content_Types].xml"].decode("utf-8")
+    content_types = content_types.replace(
+        "</Types>",
+        '<Override PartName="/word/footnotes.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/></Types>',
+    )
+    footnotes_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:footnotes xmlns:w="{W_NS}">'
+        '<w:footnote w:type="separator" w:id="-1"><w:p/></w:footnote>'
+        '<w:footnote w:type="continuationSeparator" w:id="0"><w:p/></w:footnote>'
+        '<w:footnote w:id="2"><w:p>'
+        '<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>1</w:t></w:r>'
+        '<w:r><w:rPr><w:sz w:val="12"/></w:rPr><w:t>脚注内容</w:t></w:r>'
+        "</w:p></w:footnote>"
+        "</w:footnotes>"
+    )
+
+    parts["word/document.xml"] = document_xml.encode("utf-8")
+    parts["word/_rels/document.xml.rels"] = rels.encode("utf-8")
+    parts["[Content_Types].xml"] = content_types.encode("utf-8")
+    parts["word/footnotes.xml"] = footnotes_xml.encode("utf-8")
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as target:
+        for name, payload in parts.items():
+            target.writestr(name, payload)
+
+
+def test_fix_docx_repairs_fn01_footnote_size_without_removing_marker(tmp_path):
+    source_path = tmp_path / "small_footnote.docx"
+    fixed_path = tmp_path / "small_footnote_fixed.docx"
+    _write_docx_with_small_footnote(source_path)
+
+    before_results, _score, _report = audit_thesis.audit_docx(str(source_path), profile_path="lnu")
+    before = {item["id"]: item for item in before_results}
+    assert before["FN01"]["passed"] is False
+
+    fix_thesis.fix_docx(str(source_path), str(fixed_path), profile_path="lnu", scopes=["page"])
+
+    after_results, _score, _report = audit_thesis.audit_docx(str(fixed_path), profile_path="lnu")
+    after = {item["id"]: item for item in after_results}
+    assert after["FN01"]["passed"] is True
+
+    with zipfile.ZipFile(fixed_path, "r") as docx_file:
+        footnotes_root = ET.fromstring(docx_file.read("word/footnotes.xml"))
+    footnote = footnotes_root.find('.//w:footnote[@w:id="2"]', NSMAP)
+    assert footnote is not None
+    assert footnote.find('.//w:rPr/w:vertAlign[@w:val="superscript"]', NSMAP) is not None
+    text_run = next(
+        run
+        for run in footnote.findall(".//w:r", NSMAP)
+        if "脚注内容" in "".join(t.text or "" for t in run.findall(".//w:t", NSMAP))
+    )
+    assert text_run.find("w:rPr/w:sz", NSMAP).get(_w("val")) == "16"

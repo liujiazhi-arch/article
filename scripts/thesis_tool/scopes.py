@@ -71,6 +71,7 @@ SCOPE_DEFINITIONS = (
             "LNU_FMT01",
             "LNU_UNIT01",
             "LNU_TEXT03",
+            "LNU_EQ05",
         ),
         aliases=("body", "paragraph", "paragraphs"),
     ),
@@ -189,6 +190,9 @@ def normalize_scope_names(scope_names) -> set[str] | None:
                 tokens.append(normalized)
 
     if not tokens:
+        return None
+
+    if "all" in tokens:
         return None
 
     resolved: set[str] = set()

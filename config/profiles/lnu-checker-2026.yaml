@@ -250,7 +250,7 @@ additions:
     scope: undergraduate
     severity: important
     check_level: Auto
-    description: "目录标题黑体三号，条目宋体小四"
+    description: "目录标题黑体三号不加粗，一级条目黑体四号不加粗，二三级条目宋体11磅"
     method: docx-structure
     evidence: "TOCHeading / TOC1-3 样式"
     fix: "fix_insert_toc()"
@@ -371,7 +371,7 @@ additions:
     scope: undergraduate
     severity: important
     check_level: Auto
-    description: "表格内容1.5倍行距"
+    description: "表格内容单倍行距"
     method: docx-structure
     evidence: "表格单元格段落 line"
     fix: "fix_lnu_tb03()"
@@ -382,7 +382,7 @@ additions:
     scope: undergraduate
     severity: minor
     check_level: Auto
-    description: "正文数字与单位间空格"
+    description: "正文数字与单位、摄氏度、百分号之间保留空格"
     method: docx-structure
     evidence: "正文文本"
     fix: "fix_lnu_unit_spacing()"
@@ -398,6 +398,17 @@ additions:
     evidence: "正文段落与正文标题文本"
     fix: "fix_lnu_compact_text(); fix_heading_num_space(); fix_lnu_unit_spacing()"
     source: latest-lnu-screenshot-2026-05-01
+
+  - id: LNU_EQ05
+    module: equation
+    scope: undergraduate
+    severity: minor
+    check_level: Auto
+    description: "公式说明变量后缀使用下标，如 W0、Wt、m1"
+    method: docx-structure
+    evidence: "式中/其中段落中的变量 run 与 w:vertAlign"
+    fix: "normalize_equation_explanation_symbols()"
+    source: lnu-final-thesis-calibration-2026-06
 
 settings:
   margin_top: 1418
@@ -444,14 +455,16 @@ settings:
   ref_line_spacing: 360
   ref_font_size: 21
   ack_font: "仿宋"
+  ack_size: 24
+  ack_line: 360
   caption_number_sep: "."
   # 辽大截图样例中编号与题名之间为两个半角空格，例如“图2.1  中国企业会计监管模式”。
   caption_label_gap_spaces: 2
   preserve_caption_soft_line_breaks: true
   figure_blank_line_twips: 360
   table_blank_line_twips: 360
-  table_cell_line: 360
-  figure_caption_line: 240
+  table_cell_line: 240
+  figure_caption_line: 360
   figure_note_line: 240
   eq_number_sep: "."
   ref_terminal_punct: "."
@@ -469,11 +482,15 @@ settings:
   toc_max_level: 3
   toc_title_font: "黑体"
   toc_title_size: 32
+  toc_title_line: 276
+  toc_title_after_pt: 5
   toc_entry_font: "宋体"
-  toc_entry_size: 24
+  toc_entry_size: 22
   toc_entry_line: 276
-  toc_level1_font: "宋体"
-  toc_level1_size: 24
+  toc_tab_pos: 9000
+  toc_indent_step: 420
+  toc_level1_font: "黑体"
+  toc_level1_size: 28
   toc_level1_after_pt: 5
   toc_level2_after_pt: 5
   toc_level3_after_pt: 5

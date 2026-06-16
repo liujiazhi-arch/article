@@ -61,6 +61,55 @@ def test_build_audit_runtime_keeps_profile_rules_isolated():
     assert "LNU_ACK01" not in fresh_baseline_rule_ids
 
 
+def test_audit_roots_accepts_checker_returning_structured_evidence():
+    root = ET.Element(_w("document"))
+    body = ET.SubElement(root, _w("body"))
+    paragraph = ET.SubElement(body, _w("p"))
+    paragraph.append(_make_run("正文W0"))
+    styles_root = ET.Element(_w("styles"))
+    evidence = [
+        {
+            "paragraph_index": 1,
+            "section": "body",
+            "module": "body_paragraph",
+            "kind": "body",
+            "text": "正文W0",
+            "tokens": [{"text": "W0", "bad_part": "0", "start": 2, "end": 4}],
+        }
+    ]
+
+    runtime = audit_thesis.AuditRuntime(
+        cfg={},
+        rule_definitions=(("X01", "结构化证据测试", "minor"),),
+        rule_checkers={"X01": lambda doc, ctxs, sm, cfg: (False, ["发现问题"], "第1段", evidence)},
+        profile_id="test",
+    )
+
+    results, _score, _report = audit_thesis.audit_roots("demo.docx", root, styles_root, runtime=runtime)
+
+    assert results[0]["id"] == "X01"
+    assert results[0]["evidence"] == evidence
+
+
+def test_audit_roots_keeps_three_value_checker_results_without_evidence_key():
+    root = ET.Element(_w("document"))
+    body = ET.SubElement(root, _w("body"))
+    paragraph = ET.SubElement(body, _w("p"))
+    paragraph.append(_make_run("正文"))
+    styles_root = ET.Element(_w("styles"))
+    runtime = audit_thesis.AuditRuntime(
+        cfg={},
+        rule_definitions=(("X02", "旧契约测试", "minor"),),
+        rule_checkers={"X02": lambda doc, ctxs, sm, cfg: (False, ["发现问题"], "第1段")},
+        profile_id="test",
+    )
+
+    results, _score, _report = audit_thesis.audit_roots("demo.docx", root, styles_root, runtime=runtime)
+
+    assert results[0]["id"] == "X02"
+    assert "evidence" not in results[0]
+
+
 def test_build_audit_runtime_applies_disabled_rules_without_global_mutation(tmp_path):
     profile_path = _write_profile(
         tmp_path,
@@ -158,7 +207,7 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["body_ascii_font"] == "Times New Roman"
         assert cfg["body_size"] == 24
         assert cfg["body_line"] == 360
-        assert cfg["table_cell_line"] == 360
+        assert cfg["table_cell_line"] == 240
         assert cfg["body_indent"] == 480
         assert cfg["h1_size"] == 32
         assert cfg["h2_size"] == 28
@@ -179,7 +228,7 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["abstract_en_body_font"] == "Times New Roman"
         assert cfg["abstract_en_body_size"] == 24
         assert cfg["abstract_en_body_line"] == 240
-        assert cfg["figure_caption_line"] == 240
+        assert cfg["figure_caption_line"] == 360
         assert cfg["figure_note_line"] == 240
         assert cfg["caption_number_sep"] == "."
         assert cfg["eq_number_sep"] == "."
@@ -188,12 +237,19 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
         assert cfg["ref_font_size"] == 21
         assert cfg["ref_line_spacing"] == 360
         assert cfg["ref_terminal_punct"] == "."
+        assert cfg["ack_size"] == 24
+        assert cfg["ack_line"] == 360
         assert cfg["pg01_format"] == "plain"
         assert cfg["cover_page_number"] is False
         assert cfg["frontmatter_page_number_format"] == "upperRoman"
         assert cfg["frontmatter_page_number_wrap"] == "plain"
         assert cfg["body_page_number_format"] == "decimal"
         assert cfg["body_page_number_wrap"] == "hyphen_wrap"
+        assert cfg["toc_level1_font"] == "黑体"
+        assert cfg["toc_level1_size"] == 28
+        assert cfg["toc_entry_font"] == "宋体"
+        assert cfg["toc_entry_size"] == 22
+        assert cfg["toc_entry_line"] == 276
         assert cfg.get("ref_number_trailing_space", True) is False
         assert cfg.get("acknowledgement_required", True) is True
         assert cfg["check_snap_to_grid"] is True
@@ -202,9 +258,10 @@ def test_lnu_profile_cfg_retains_shared_lnu_basics():
 def test_capability_matrix_matches_current_audit_runtime_rules():
     capabilities = load_rule_capabilities()
     lnu_rule_ids = {rule_id for rule_id, _, _ in audit_thesis.build_audit_runtime("lnu").rule_definitions}
+    runtime_only_render_ids = {"LNU_TOC04", "PDF_PUNCT01"}
 
     missing = sorted(rule_id for rule_id in lnu_rule_ids if rule_id not in capabilities)
-    extra = sorted(rule_id for rule_id in capabilities if rule_id not in lnu_rule_ids)
+    extra = sorted(rule_id for rule_id in capabilities if rule_id not in lnu_rule_ids and rule_id not in runtime_only_render_ids)
 
     assert missing == []
     assert extra == []

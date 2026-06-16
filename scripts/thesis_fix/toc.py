@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 
 from thesis_fix.dependencies import require
@@ -16,7 +17,6 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         _is_frontmatter_title_text,
         _toc_level_from_style_id,
         _toc_title_for_runtime,
-        build_settings_with_update_fields,
         classify_paragraph,
         detect_backmatter_bucket,
         get_paragraph_text,
@@ -31,7 +31,6 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         "_is_frontmatter_title_text",
         "_toc_level_from_style_id",
         "_toc_title_for_runtime",
-        "build_settings_with_update_fields",
         "classify_paragraph",
         "detect_backmatter_bucket",
         "get_paragraph_text",
@@ -43,9 +42,9 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
     """
     在文档顶部插入辽大格式目录。
     目录标题：黑体，三号（32 half-pts），居中。
-    目录条目：宋体，小四（24 half-pts），H1不缩进，H2缩进2字符，H3缩进4字符。
+    目录条目：一级黑体四号（28 half-pts），二三级宋体小四（24 half-pts）。
 
-    返回值：dict，key为docx内文件路径，value为bytes（用于写入settings.xml的updateFields）。
+    返回值：dict，key为docx内文件路径，value为bytes。
     如果 cfg 为 None 或 toc_auto 为 False，返回空 dict。
     """
     if cfg is None or not cfg.get("toc_auto"):
@@ -57,12 +56,12 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
 
     if repair_keywords:
         repair_misplaced_abstract_keywords(document_root, style_map=style_map)
+    existing_page_numbers = _collect_existing_toc_page_numbers(body, get_paragraph_text, W_NS)
     remove_existing_toc_artifacts(document_root)
     _remove_bookmark_range(document_root, BODY_TOC_BOOKMARK_NAME, NSMAP, W_NS)
+    body_children = list(body)
 
-    has_heading = False
-
-    for p_elem in body.findall("w:p", NSMAP):
+    def paragraph_toc_level(p_elem):
         level = None
         if style_map is not None:
             paragraph_type = classify_paragraph(p_elem, style_map)
@@ -90,14 +89,7 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
             text_level = match_heading_by_text(text)
             if text_level in {1, 2, 3}:
                 level = text_level
-        if level is None:
-            continue
-        if text:
-            has_heading = True
-            break
-
-    if not has_heading:
-        return {}
+        return level
 
     max_level = max(1, min(int(cfg.get("toc_max_level", 3) or 3), 3))
     toc_title = _toc_title_for_runtime(cfg, runtime=runtime)
@@ -123,6 +115,11 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
                 text_elem.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
         return run_elem
 
+    def add_tab_run(parent, east_asia="宋体", ascii_font="Times New Roman", size="24", bold=False):
+        run_elem = add_run(parent, east_asia=east_asia, ascii_font=ascii_font, size=size, bold=bold)
+        ET.SubElement(run_elem, f"{{{W_NS}}}tab")
+        return run_elem
+
     def make_toc_title_para():
         p_elem = ET.Element(f"{{{W_NS}}}p")
         p_pr = ET.SubElement(p_elem, f"{{{W_NS}}}pPr")
@@ -134,12 +131,15 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         set_attr(jc, "val", "center")
         spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
         set_attr(spacing, "before", "0")
-        set_attr(spacing, "after", "0")
+        set_attr(spacing, "after", str(int(float(cfg.get("toc_title_after_pt", 5) or 5) * 20)))
+        set_attr(spacing, "line", str(int(cfg.get("toc_title_line", cfg.get("toc_entry_line", 276)) or 276)))
+        set_attr(spacing, "lineRule", "auto")
         add_run(
             p_elem,
             text=toc_title,
             east_asia=str(cfg.get("toc_title_font", "黑体") or "黑体"),
             size=str(cfg.get("toc_title_size", 32) or 32),
+            bold=False,
         )
         return p_elem
 
@@ -155,7 +155,6 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         run_begin = ET.SubElement(p_elem, f"{{{W_NS}}}r")
         fld_begin = ET.SubElement(run_begin, f"{{{W_NS}}}fldChar")
         set_attr(fld_begin, "fldCharType", "begin")
-        set_attr(fld_begin, "dirty", "true")
 
         run_instr = ET.SubElement(p_elem, f"{{{W_NS}}}r")
         instr_text = ET.SubElement(run_instr, f"{{{W_NS}}}instrText")
@@ -165,6 +164,51 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         run_sep = ET.SubElement(p_elem, f"{{{W_NS}}}r")
         fld_sep = ET.SubElement(run_sep, f"{{{W_NS}}}fldChar")
         set_attr(fld_sep, "fldCharType", "separate")
+        return p_elem
+
+    def make_toc_result_entry(text, level):
+        level = max(1, min(int(level or 1), max_level))
+        p_elem = ET.Element(f"{{{W_NS}}}p")
+        p_pr = ET.SubElement(p_elem, f"{{{W_NS}}}pPr")
+        p_style = ET.SubElement(p_pr, f"{{{W_NS}}}pStyle")
+        set_attr(p_style, "val", f"TOC{level}")
+
+        if level > 1:
+            ind = ET.SubElement(p_pr, f"{{{W_NS}}}ind")
+            set_attr(ind, "left", str((level - 1) * int(cfg.get("toc_indent_step", 420) or 420)))
+            set_attr(ind, "firstLine", "0")
+
+        tabs = ET.SubElement(p_pr, f"{{{W_NS}}}tabs")
+        tab = ET.SubElement(tabs, f"{{{W_NS}}}tab")
+        set_attr(tab, "val", "right")
+        set_attr(tab, "leader", "dot")
+        set_attr(tab, "pos", str(int(cfg.get("toc_tab_pos", 9000) or 9000)))
+
+        spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
+        set_attr(spacing, "before", "0")
+        after_pt = float(cfg.get(f"toc_level{level}_after_pt", cfg.get("toc_level1_after_pt", 5)) or 5)
+        set_attr(spacing, "after", str(int(after_pt * 20)))
+        set_attr(spacing, "line", str(int(cfg.get("toc_entry_line", 276) or 276)))
+        set_attr(spacing, "lineRule", "auto")
+
+        if level == 1:
+            entry_font = str(cfg.get("toc_level1_font", cfg.get("toc_entry_font", "黑体")) or "黑体")
+            entry_size = str(int(cfg.get("toc_level1_size", cfg.get("toc_entry_size", 28)) or 28))
+            entry_bold = False
+        else:
+            entry_font = str(cfg.get("toc_entry_font", "宋体") or "宋体")
+            entry_size = str(int(cfg.get("toc_entry_size", 22) or 22))
+            entry_bold = False
+
+        clean_text, inherited_page_number = _strip_toc_entry_page_number(text)
+        page_number = existing_page_numbers.get(
+            _toc_page_lookup_key(clean_text),
+            inherited_page_number or "",
+        )
+        add_run(p_elem, text=clean_text, east_asia=entry_font, size=entry_size, bold=entry_bold)
+        if page_number:
+            add_tab_run(p_elem, east_asia=entry_font, size=entry_size, bold=entry_bold)
+            add_run(p_elem, text=page_number, east_asia=entry_font, size=entry_size, bold=entry_bold)
         return p_elem
 
     def make_toc_field_end():
@@ -193,14 +237,6 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         set_attr(br_elem, "type", "page")
         return p_elem
 
-    new_paragraphs = [
-        make_toc_title_para(),
-        make_toc_field_begin(),
-        make_toc_field_end(),
-        make_page_break_para(),
-    ]
-
-    body_children = list(body)
     insert_index = None
 
     for idx, child in enumerate(body_children):
@@ -211,7 +247,7 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
             continue
         if _is_any_keywords_text(text):
             continue
-        if classify_paragraph(child, style_map or {}) != "h1":
+        if paragraph_toc_level(child) != 1:
             continue
         if _is_frontmatter_title_text(text):
             continue
@@ -220,8 +256,30 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         insert_index = idx
         break
     if insert_index is None:
-        sect_pr = body.find("w:sectPr", NSMAP)
-        insert_index = list(body).index(sect_pr) if sect_pr is not None else len(body_children)
+        return {}
+
+    toc_headings = []
+    for child in body_children[insert_index:]:
+        if child.tag != f"{{{W_NS}}}p":
+            continue
+        text = get_paragraph_text(child).strip()
+        if not text:
+            continue
+        level = paragraph_toc_level(child)
+        if level is None or level > max_level:
+            continue
+        toc_headings.append((text, level))
+
+    if not toc_headings:
+        return {}
+
+    new_paragraphs = [
+        make_toc_title_para(),
+        make_toc_field_begin(),
+        *(make_toc_result_entry(text, level) for text, level in toc_headings),
+        make_toc_field_end(),
+        make_page_break_para(),
+    ]
 
     bookmark_added = _add_body_toc_bookmark(
         document_root,
@@ -238,7 +296,57 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
     for offset, para in enumerate(new_paragraphs):
         body.insert(insert_index + offset, para)
 
-    return {"word/settings.xml": build_settings_with_update_fields()}
+    return {}
+
+
+def _toc_page_lookup_key(text):
+    return re.sub(r"[\s\u3000]+", "", str(text or "")).strip().lower()
+
+
+def _extract_visible_toc_entry_text_and_page(text):
+    stripped = str(text or "").strip()
+    if not stripped:
+        return None
+    tab_match = re.match(r"^(.*?)\t\s*([0-9A-Za-zivxlcdmIVXLCDM]+)\s*$", stripped)
+    if tab_match is not None:
+        return tab_match.group(1).strip(), tab_match.group(2).strip()
+    leader_match = re.match(r"^(.*?)[\.·•…]{2,}\s*([0-9A-Za-zivxlcdmIVXLCDM]+)\s*$", stripped)
+    if leader_match is not None:
+        return leader_match.group(1).strip(), leader_match.group(2).strip()
+    return None
+
+
+def _strip_toc_entry_page_number(text):
+    extracted = _extract_visible_toc_entry_text_and_page(text)
+    if extracted is None:
+        return str(text or "").strip(), None
+    return extracted
+
+
+def _collect_existing_toc_page_numbers(body, get_paragraph_text, w_ns):
+    page_numbers = {}
+    in_toc = False
+    for child in list(body):
+        if child.tag != f"{{{w_ns}}}p":
+            if in_toc:
+                break
+            continue
+        text = str(get_paragraph_text(child) or "").strip()
+        normalized = _toc_page_lookup_key(text)
+        if normalized == "目录":
+            in_toc = True
+            continue
+        if not in_toc:
+            continue
+        if not text:
+            continue
+        extracted = _extract_visible_toc_entry_text_and_page(text)
+        if extracted is None:
+            break
+        entry_text, page_number = extracted
+        if entry_text:
+            page_numbers.setdefault(_toc_page_lookup_key(entry_text), page_number)
+    return page_numbers
 
 
 def _remove_bookmark_range(document_root, bookmark_name, nsmap, w_ns):

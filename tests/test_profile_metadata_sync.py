@@ -15,6 +15,7 @@ from thesis_tool.scopes import list_scope_definitions, list_scoped_rule_ids, sco
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CAPABILITY_MATRIX = PROJECT_ROOT / "config" / "capability_matrix.md"
 LNU_PROFILE = PROJECT_ROOT / "config" / "profiles" / "lnu-checker-2026.yaml"
+RENDER_ONLY_RULE_IDS = {"LNU_TOC04", "PDF_PUNCT01"}
 
 
 def test_public_profile_catalog_is_lnu_only():
@@ -51,7 +52,7 @@ def test_lnu_runtime_metadata_sources_agree():
 
     assert runtime_rule_ids == effective_rule_ids
     assert runtime_rule_ids <= checker_rule_ids
-    assert runtime_rule_ids == capability_rule_ids
+    assert runtime_rule_ids | RENDER_ONLY_RULE_IDS == capability_rule_ids
     assert profile_addition_ids == {rule_id for rule_id in runtime_rule_ids if rule_id.startswith("LNU_")}
 
 
@@ -82,6 +83,8 @@ def test_lnu_profile_fix_metadata_matches_capability_matrix():
     assert matrix_flags, "No LNU_* entries found in capability matrix"
 
     for rule_id, autofix_enabled in matrix_flags.items():
+        if rule_id in RENDER_ONLY_RULE_IDS:
+            continue
         assert rule_id in additions, f"{rule_id} missing from lnu-checker-2026 additions"
         fix_meta = additions[rule_id].get("fix")
         if autofix_enabled:

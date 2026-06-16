@@ -16,6 +16,7 @@ from frontmatter_utils import (
 )
 from thesis_rules.audit_checkers import *
 from thesis_rules.audit_checkers import (
+    _compact_table_cell_text,
     _needs_cjk_latin_space,
     _needs_num_cjk_space,
 )
@@ -98,8 +99,7 @@ def check_t01(document_root, contexts, style_map):
                 continue
             if not cjk_re.search(run_text):
                 continue  # 纯ASCII run 无需检查 eastAsia
-            r_fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
-            east_asia = get_w_attr(r_fonts, "eastAsia")
+            east_asia = get_effective_run_font(run_elem, style_map, ctx["elem"], attr_name="eastAsia")
             if east_asia not in ("宋体", "SimSun"):
                 bad_runs.append(
                     f"第{ctx['index']}段存在 {len(bad_runs) + 1} 处正文 run 的 eastAsia 不是宋体/SimSun，示例{excerpt(run_text)}"
@@ -127,8 +127,7 @@ def check_t01(document_root, contexts, style_map):
                 continue
             if not cjk_re.search(run_text):
                 continue
-            r_fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
-            east_asia = get_w_attr(r_fonts, "eastAsia")
+            east_asia = get_effective_run_font(run_elem, style_map, ctx["elem"], attr_name="eastAsia")
             if east_asia not in ("宋体", "SimSun"):
                 total += 1
                 affected_positions.add(ctx["index"])
@@ -154,9 +153,8 @@ def check_t02(document_root, contexts, style_map):
             run_text = get_run_text(run_elem)
             if not run_text.strip():
                 continue
-            r_fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
-            ascii_font = get_w_attr(r_fonts, "ascii")
-            hansi_font = get_w_attr(r_fonts, "hAnsi")
+            ascii_font = get_effective_run_font(run_elem, style_map, ctx["elem"], attr_name="ascii")
+            hansi_font = get_effective_run_font(run_elem, style_map, ctx["elem"], attr_name="hAnsi")
             if ascii_font != "Times New Roman" or hansi_font != "Times New Roman":
                 total += 1
                 positions.append(ctx["index"])
@@ -187,8 +185,7 @@ def check_t03(document_root, contexts, style_map, cfg):
             run_text = get_run_text(run_elem)
             if not run_text.strip():
                 continue
-            size_elem = run_elem.find("w:rPr/w:sz", NSMAP)
-            size_val = parse_int(get_w_attr(size_elem, "val"))
+            size_val = get_effective_run_size(run_elem, style_map, ctx["elem"])
             if size_val is None or not (min_size <= size_val <= max_size):
                 total += 1
                 positions.append(ctx["index"])
@@ -211,19 +208,22 @@ def check_t04(document_root, contexts, style_map, cfg=None):
         if is_formula_related_body_context(ctx):
             continue
         spacing = ctx["elem"].find("w:pPr/w:spacing", NSMAP)
-        if get_w_attr(spacing, "line") != "360" or get_w_attr(spacing, "lineRule") != "auto":
+        line_val = get_paragraph_line_spacing(ctx["elem"], style_map)
+        if line_val != 360:
+            bad_positions.append(ctx["index"])
+            continue
+        if spacing is not None and get_w_attr(spacing, "line") is not None and get_w_attr(spacing, "lineRule") != "auto":
             bad_positions.append(ctx["index"])
             continue
         if cfg and cfg.get("check_snap_to_grid"):
             snap = ctx["elem"].find("w:pPr/w:snapToGrid", NSMAP)
             snap_val = get_w_attr(snap, "val") if snap is not None else None
-            if snap_val != "0":
+            if snap_val in {"1", "true", "True", "on"}:
                 bad_positions.append(ctx["index"])
-
     if bad_positions:
         return (
             False,
-            [f"{len(bad_positions)} 个正文段落的行距不是 360 且 lineRule=auto。"],
+            [f"{len(bad_positions)} 个正文段落的行距不是 360、lineRule 不是 auto，或未关闭 snapToGrid 网格对齐。"],
             summarize_positions(bad_positions),
         )
     return True, [], "全部正文段落"
@@ -303,45 +303,87 @@ def check_sp02(document_root, contexts, style_map):
 def check_sp_cjk_latin(document_root, contexts, style_map, cfg):
     bad_positions = []
     samples = []
+    evidence = []
     for ctx in contexts:
         if ctx.get("section") != "body":
             continue
         if ctx.get("protected") or ctx.get("kind") in {"reference", "caption", "h1", "h2", "h3", "h4"}:
             continue
-        matches = find_missing_spacing_pairs(ctx.get("text", ""), _needs_cjk_latin_space)
+        matches = find_missing_spacing_pairs_with_positions(ctx.get("text", ""), _needs_cjk_latin_space)
         if cfg and cfg.get("relax_body_spacing_rules"):
-            matches = [match for match in matches if not re.search(r"\b\d+\s*T\b", match)]
+            matches = [match for match in matches if not re.search(r"\b\d+\s*T\b", match["excerpt"])]
         if cfg and cfg.get("relax_strain_suffix_t_spacing"):
-            matches = [match for match in matches if not is_relaxed_strain_suffix_t_excerpt(match)]
+            matches = [match for match in matches if not is_relaxed_strain_suffix_t_excerpt(match["excerpt"])]
         if matches:
             bad_positions.append(ctx["index"])
             if len(samples) < 5:
-                samples.append(f"第{ctx['index']}段存在中英文紧邻：{excerpt(matches[0])}")
+                samples.append(f"第{ctx['index']}段存在中英文紧邻：{excerpt(matches[0]['excerpt'])}")
+            evidence.append(
+                {
+                    "paragraph_index": ctx["index"],
+                    "section": ctx.get("section"),
+                    "module": ctx.get("module"),
+                    "kind": ctx.get("kind"),
+                    "text": ctx.get("text", ""),
+                    "tokens": [
+                        {
+                            "text": f"{match['left']}{match['right']}",
+                            "bad_part": f"{match['left']}{match['right']}",
+                            "actual": "missing_space",
+                            "expected": "space_between_cjk_latin",
+                            "start": match["start"],
+                            "end": match["end"],
+                        }
+                        for match in matches
+                    ],
+                }
+            )
     if bad_positions:
         issues = [f"{len(bad_positions)} 个正文段落存在中英文字符间距缺失。"]
         issues.extend(samples)
-        return False, issues, summarize_positions(bad_positions)
+        return False, issues, summarize_positions(bad_positions), evidence
     return True, [], "正文段落中英文间距正常"
 
 def check_sp_num_cjk(document_root, contexts, style_map, cfg):
     bad_positions = []
     samples = []
+    evidence = []
     for ctx in contexts:
         if ctx.get("section") != "body":
             continue
         if ctx.get("protected") or ctx.get("kind") in {"reference", "caption", "h1", "h2", "h3", "h4"}:
             continue
-        matches = find_missing_spacing_pairs(ctx.get("text", ""), _needs_num_cjk_space)
+        matches = find_missing_spacing_pairs_with_positions(ctx.get("text", ""), _needs_num_cjk_space)
         if cfg and cfg.get("relax_body_spacing_rules"):
-            matches = [match for match in matches if not re.search(r"(图|表|式)\d", match)]
+            matches = [match for match in matches if not re.search(r"(图|表|式)\d", match["excerpt"])]
         if matches:
             bad_positions.append(ctx["index"])
             if len(samples) < 5:
-                samples.append(f"第{ctx['index']}段存在中文与数字紧邻：{excerpt(matches[0])}")
+                samples.append(f"第{ctx['index']}段存在中文与数字紧邻：{excerpt(matches[0]['excerpt'])}")
+            evidence.append(
+                {
+                    "paragraph_index": ctx["index"],
+                    "section": ctx.get("section"),
+                    "module": ctx.get("module"),
+                    "kind": ctx.get("kind"),
+                    "text": ctx.get("text", ""),
+                    "tokens": [
+                        {
+                            "text": f"{match['left']}{match['right']}",
+                            "bad_part": f"{match['left']}{match['right']}",
+                            "actual": "missing_space",
+                            "expected": "space_between_number_and_cjk",
+                            "start": match["start"],
+                            "end": match["end"],
+                        }
+                        for match in matches
+                    ],
+                }
+            )
     if bad_positions:
         issues = [f"{len(bad_positions)} 个正文段落存在中文与数字间距缺失。"]
         issues.extend(samples)
-        return False, issues, summarize_positions(bad_positions)
+        return False, issues, summarize_positions(bad_positions), evidence
     return True, [], "正文段落中文与数字间距正常"
 
 def check_heading(contexts, heading_kind, expected_jc, require_size, expected_font=None, require_bold=False):
@@ -679,7 +721,16 @@ def check_r05(document_root, contexts, style_map, cfg):
         )
     return True, [], "全部参考文献段落"
 
-def check_caption_format(contexts, prefix, label, cfg):
+def _caption_title_runs(p_elem):
+    runs = []
+    for run_elem in p_elem.findall(".//w:r", NSMAP):
+        runs.append(run_elem)
+        if run_elem.find("w:br", NSMAP) is not None or run_elem.find("w:cr", NSMAP) is not None:
+            break
+    return runs
+
+
+def check_caption_format(contexts, prefix, label, cfg, style_map=None):
     captions = [ctx for ctx in contexts if ctx["kind"] == "caption" and ctx["text"].strip().startswith(prefix)]
     bad_positions = []
     samples = []
@@ -693,7 +744,11 @@ def check_caption_format(contexts, prefix, label, cfg):
         if jc_val != "center":
             problems.append(f"对齐={jc_val or 'left(default)'}")
 
-        run_sizes = [get_run_size(run_elem) for run_elem in get_non_empty_runs(ctx["elem"])]
+        run_sizes = [
+            get_effective_run_size(run_elem, style_map, ctx["elem"])
+            for run_elem in _caption_title_runs(ctx["elem"])
+            if get_run_text(run_elem).strip()
+        ]
         if not run_sizes or any(size is None or not (min_size <= size <= max_size) for size in run_sizes):
             problems.append(f"字号不在 {min_size}~{max_size}")
 
@@ -712,10 +767,10 @@ def check_caption_format(contexts, prefix, label, cfg):
     return True, [], f"全部{label}"
 
 def check_f01(document_root, contexts, style_map, cfg):
-    return check_caption_format(contexts, "图", "图题", cfg)
+    return check_caption_format(contexts, "图", "图题", cfg, style_map)
 
 def check_f02(document_root, contexts, style_map, cfg):
-    return check_caption_format(contexts, "表", "表题", cfg)
+    return check_caption_format(contexts, "表", "表题", cfg, style_map)
 
 def check_tb01(document_root, contexts, style_map):
     tables = get_non_equation_layout_tables(document_root)
@@ -1179,8 +1234,8 @@ def check_kw01(document_root, contexts, style_map, cfg):
             if expected_separator.strip() == "；":
                 if "；" not in payload or ";" in payload:
                     problems.append("分隔符应为中文分号“；”")
-            elif ";" not in payload:
-                problems.append(f"分隔符应为“{expected_separator.strip()}”")
+            elif ";" not in payload and "；" not in payload:
+                problems.append(f"分隔符应为“{expected_separator.strip()}”或中文分号“；”")
         elif "；" not in payload and ";" not in payload:
             problems.append("缺少分号分隔")
         if not (cfg["kw_min"] <= len(keywords) <= cfg["kw_max"]):
@@ -1262,36 +1317,233 @@ def check_eq01(document_root, contexts, style_map):
         return False, issues, summarize_positions(bad_positions)
     return True, [], "全部公式段落"
 
-def check_eq02(document_root, contexts, style_map, cfg=None):
-    """公式编号 (X-Y) 应右对齐（右制表位或段落右对齐）。"""
-    sep = re.escape(cfg.get("eq_number_sep", "-") if cfg else "-")
-    eq_num_re = re.compile(r"\(\d+" + sep + r"\d+\)")
-    bad_positions = []
-    samples = []
-    for ctx in contexts:
-        has_math = ctx["elem"].find(".//m:oMath", MNSMAP) is not None
+def _has_right_tab(p_elem):
+    tabs = p_elem.find("w:pPr/w:tabs", NSMAP)
+    if tabs is None:
+        return False
+    return any(get_w_attr(tab, "val") == "right" for tab in tabs.findall("w:tab", NSMAP))
+
+
+def _equation_number_patterns(cfg):
+    sep = re.escape((cfg or {}).get("eq_number_sep", "-"))
+    strict = re.compile(rf"^[（(]\s*(\d+){sep}(\d+)\s*[)）]$")
+    loose = re.compile(r"^[（(]\s*(\d+)([.\-])(\d+)\s*[)）]$")
+    inline = re.compile(rf"[（(]\s*(\d+){sep}(\d+)\s*[)）]")
+    inline_loose = re.compile(r"[（(]\s*(\d+)([.\-])(\d+)\s*[)）]")
+    return strict, loose, inline, inline_loose
+
+
+def _equation_number_alignment_ok(p_elem, style_map):
+    jc_val = get_paragraph_alignment(p_elem, style_map)
+    return jc_val in ("right", "distribute") or _has_right_tab(p_elem)
+
+
+def _ctx_for_paragraph(p_elem, ctx_by_elem):
+    return ctx_by_elem.get(id(p_elem))
+
+
+def _equation_record(position, number_text, major, minor, number_p, source):
+    return {
+        "position": position,
+        "number_text": number_text,
+        "major": major,
+        "minor": minor,
+        "number_p": number_p,
+        "source": source,
+    }
+
+
+def _collect_equation_table_records(document_root, contexts, strict_num_re, loose_num_re):
+    ctx_by_elem = {id(ctx.get("elem")): ctx for ctx in contexts if ctx.get("elem") is not None}
+    records = []
+    table_paragraph_ids = set()
+    format_issues = []
+    for tbl in document_root.findall(".//w:tbl", NSMAP):
+        if not is_equation_layout_table(tbl):
+            continue
+        cells = tbl.findall("w:tr/w:tc", NSMAP)
+        number_p = cells[-1].find("w:p", NSMAP) if cells else None
+        number_text = _compact_table_cell_text(cells[-1]) if cells else ""
+        for p_elem in tbl.findall(".//w:p", NSMAP):
+            table_paragraph_ids.add(id(p_elem))
+        ctx = None
+        for p_elem in tbl.findall(".//w:p", NSMAP):
+            candidate = _ctx_for_paragraph(p_elem, ctx_by_elem)
+            if candidate is not None:
+                ctx = candidate
+                break
+        loose_match = loose_num_re.fullmatch(number_text)
+        strict_match = strict_num_re.fullmatch(number_text)
+        if loose_match and not strict_match:
+            position = ctx.get("index") if ctx else None
+            format_issues.append((position, number_text))
+            continue
+        if strict_match:
+            position = ctx.get("index") if ctx else None
+            records.append(
+                _equation_record(
+                    position,
+                    number_text,
+                    int(strict_match.group(1)),
+                    int(strict_match.group(2)),
+                    number_p,
+                    "table",
+                )
+            )
+    return records, table_paragraph_ids, format_issues
+
+
+def _collect_inline_equation_records(contexts, table_paragraph_ids, inline_num_re, inline_loose_num_re):
+    records = []
+    missing_positions = []
+    format_issues = []
+    consumed_number_context_ids = set()
+    for index, ctx in enumerate(contexts):
+        p_elem = ctx.get("elem")
+        if p_elem is None or id(p_elem) in table_paragraph_ids:
+            continue
+        if id(ctx) in consumed_number_context_ids:
+            continue
+        has_math = (
+            p_elem.find(".//m:oMath", MNSMAP) is not None
+            or p_elem.find(".//m:oMathPara", MNSMAP) is not None
+        )
         if not has_math:
             continue
-        para_text = ctx["text"]
-        if not eq_num_re.search(para_text):
+        text = re.sub(r"\s+", "", ctx.get("text") or get_paragraph_text(p_elem))
+        strict_match = inline_num_re.search(text)
+        if strict_match:
+            records.append(
+                _equation_record(
+                    ctx.get("index"),
+                    strict_match.group(0),
+                    int(strict_match.group(1)),
+                    int(strict_match.group(2)),
+                    p_elem,
+                    "paragraph",
+                )
+            )
             continue
-        tabs = ctx["elem"].find("w:pPr/w:tabs", NSMAP)
-        has_right_tab = False
-        if tabs is not None:
-            for tab in tabs.findall("w:tab", NSMAP):
-                if get_w_attr(tab, "val") == "right":
-                    has_right_tab = True
-                    break
-        jc_val = get_paragraph_alignment(ctx["elem"])
-        if not has_right_tab and jc_val not in ("right", "distribute"):
-            bad_positions.append(ctx["index"])
-            if len(samples) < 3:
-                samples.append(f"第{ctx['index']}段含公式编号但无右对齐制表位")
-    if bad_positions:
-        issues = [f"{len(bad_positions)} 个含编号公式段落缺少右对齐制表位。"]
-        issues.extend(samples)
-        return False, issues, summarize_positions(bad_positions)
-    return True, [], "全部含编号公式段落"
+        if inline_loose_num_re.search(text):
+            format_issues.append((ctx.get("index"), text))
+            continue
+        next_record = _record_from_following_number_context(ctx, contexts, index, inline_num_re, table_paragraph_ids)
+        if next_record is not None:
+            records.append(next_record)
+            consumed_number_context_ids.add(id(contexts[index + 1]))
+            continue
+        if _is_display_equation_without_number(ctx, text):
+            missing_positions.append(ctx.get("index"))
+    return records, missing_positions, format_issues
+
+
+def _record_from_following_number_context(ctx, contexts, index, inline_num_re, table_paragraph_ids):
+    if index + 1 >= len(contexts):
+        return None
+    next_ctx = contexts[index + 1]
+    next_elem = next_ctx.get("elem")
+    if next_elem is None or id(next_elem) in table_paragraph_ids:
+        return None
+    number_text = re.sub(r"\s+", "", next_ctx.get("text") or get_paragraph_text(next_elem))
+    match = inline_num_re.fullmatch(number_text)
+    if not match:
+        return None
+    return _equation_record(
+        next_ctx.get("index") or ctx.get("index"),
+        match.group(0),
+        int(match.group(1)),
+        int(match.group(2)),
+        next_elem,
+        "following_paragraph",
+    )
+
+
+def _is_display_equation_without_number(ctx, compact_text):
+    if not compact_text:
+        return True
+    if len(compact_text) <= 3:
+        return True
+    if re.fullmatch(r"[A-Za-zα-ωΑ-Ω]\d*", compact_text):
+        return True
+    return False
+
+
+def _check_equation_number_sequence(records, cfg):
+    sep = (cfg or {}).get("eq_number_sep", "-")
+    issues = []
+    positions = []
+    previous_by_major = {}
+    for record in sorted(records, key=lambda item: item["position"] or 0):
+        major = record["major"]
+        minor = record["minor"]
+        previous = previous_by_major.get(major)
+        if previous is not None:
+            prev_minor = previous["minor"]
+            if minor <= prev_minor:
+                issues.append(
+                    f"第{record['position']}段公式编号顺序异常：{record['number_text']} 出现在 {previous['number_text']} 之后。"
+                )
+                if record["position"] is not None:
+                    positions.append(record["position"])
+            elif minor != prev_minor + 1:
+                expected = f"({major}{sep}{prev_minor + 1})"
+                issues.append(
+                    f"第{record['position']}段公式编号可能跳号：{previous['number_text']} 后出现 {record['number_text']}，应核对是否缺少 {expected}。"
+                )
+                if record["position"] is not None:
+                    positions.append(record["position"])
+        previous_by_major[major] = record
+    return issues, positions
+
+
+def check_eq02(document_root, contexts, style_map, cfg=None):
+    """公式编号应右对齐，并按同一章内出现顺序连续递增。"""
+    strict_num_re, loose_num_re, inline_num_re, inline_loose_num_re = _equation_number_patterns(cfg)
+    records, table_paragraph_ids, table_format_issues = _collect_equation_table_records(
+        document_root, contexts, strict_num_re, loose_num_re
+    )
+    inline_records, missing_positions, inline_format_issues = _collect_inline_equation_records(
+        contexts, table_paragraph_ids, inline_num_re, inline_loose_num_re
+    )
+    records.extend(inline_records)
+
+    bad_positions = []
+    issues = []
+    for record in records:
+        if record["number_p"] is not None and _equation_number_alignment_ok(record["number_p"], style_map):
+            continue
+        position = record["position"]
+        if position is not None:
+            bad_positions.append(position)
+            issues.append(f"第{position}段公式编号 {record['number_text']} 未右对齐。")
+        else:
+            issues.append(f"公式编号 {record['number_text']} 未右对齐。")
+
+    if missing_positions:
+        positions = [pos for pos in missing_positions if pos is not None]
+        bad_positions.extend(positions)
+        issues.append(f"{len(missing_positions)} 个公式块缺少公式编号。")
+        for pos in positions[:3]:
+            issues.append(f"第{pos}段含公式但缺少公式编号。")
+
+    format_issues = table_format_issues + inline_format_issues
+    if format_issues:
+        expected = "(X.Y)" if (cfg or {}).get("eq_number_sep") == "." else "(X-Y)"
+        for position, number_text in format_issues[:3]:
+            label = f"第{position}段" if position is not None else "公式块"
+            issues.append(f"{label}公式编号格式异常：{number_text}，应为 {expected}。")
+            if position is not None:
+                bad_positions.append(position)
+
+    sequence_issues, sequence_positions = _check_equation_number_sequence(records, cfg)
+    if sequence_issues:
+        issues.extend(sequence_issues[:3])
+        bad_positions.extend(sequence_positions)
+
+    if issues:
+        summary_positions = [pos for pos in bad_positions if pos is not None]
+        return False, issues, summarize_positions(summary_positions)
+    return True, [], "全部公式编号"
 
 def check_eq03(document_root, contexts, style_map, cfg=None):
     """正文中引用公式应使用 profile 约定的 '式(X-Y)' / '式(X.Y)' 格式。"""
@@ -1399,9 +1651,8 @@ def check_f05(document_root, contexts, style_map):
             run_text = get_run_text(run_elem)
             if not run_text.strip():
                 continue
-            r_fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
-            east_asia = get_w_attr(r_fonts, "eastAsia")
-            ascii_font = get_w_attr(r_fonts, "ascii")
+            east_asia = get_effective_run_font(run_elem, style_map, ctx["elem"], attr_name="eastAsia")
+            ascii_font = get_effective_run_font(run_elem, style_map, ctx["elem"], attr_name="ascii")
             has_cjk = bool(CJK_CHAR_RE.search(run_text))
             has_latin_or_digit = bool(re.search(r"[A-Za-z0-9]", run_text))
             east_asia_ok = east_asia in ("宋体", "SimSun")

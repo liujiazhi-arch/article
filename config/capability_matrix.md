@@ -14,9 +14,10 @@
 
 补充约定：
 
-- 本矩阵只记录公开 LNU runtime 当前启用的 74 条规则。
+- 本矩阵只记录公开 LNU runtime 当前启用的 75 条规则。
 - `CN-Common.yaml` 中被 LNU profile 禁用的内部基线规则不进入此表。
 - 对 `config/profiles/lnu-checker-2026.yaml` 中已接入 runtime 的 `additions` 规则，若此表“自动修复”为 `✓`，对应条目应提供非空 `fix` 元数据说明；若为 `✗`，则保持 `fix: null` 或省略。
+- PDF 复核项不进入 `audit_thesis.py` 结构 runtime；只有用户提供 Word/WPS 导出的 PDF 时，`thesis_workbench.py audit --rendered-pdf` 或 `render-verify --rendered-pdf` 才会报告。
 
 ---
 
@@ -43,8 +44,8 @@
 | PU01 | 中文正文不含英文半角标点 | Semi | docx-structure | ✓ | ✓ |
 | PU02 | 省略号规范 | Semi | docx-structure | ✓ | ✓ |
 | EQ01 | 公式段落居中 | Auto | docx-structure | ✓ | ✓ |
-| EQ02 | 公式编号右对齐 | Semi | docx-structure | ✗ | ✓ |
-| EQ03 | 正文公式引用格式 | Manual | docx-structure | ✗ | ✓ |
+| EQ02 | 公式编号右对齐 | Semi | docx-structure | ✓ | ✓ |
+| EQ03 | 正文公式引用格式 | Semi | docx-structure | ✓ | ✓ |
 
 ## 标题
 
@@ -82,7 +83,7 @@
 | R01 | 参考文献悬挂缩进 | Auto | docx-structure | ✓ | ✓ |
 | R03 | 参考文献行距 | Auto | docx-structure | ✓ | ✓ |
 | R04 | 参考文献编号不使用上标 | Auto | docx-structure | ✓ | ✓ |
-| R05 | 参考文献编号格式 | Auto | docx-structure | ✗ | ✓ |
+| R05 | 参考文献编号格式 | Auto | docx-structure | ✓ | ✓ |
 | KW01 | 关键词数量与样式 | Auto | docx-structure | ✓ | ✓ |
 | KW02 | 关键词末尾标点 | Auto | docx-structure | ✓ | ✓ |
 
@@ -99,7 +100,7 @@
 | LNU_FMT02 | 图片嵌入型/表格无环绕 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB01 | 表格外框1.5pt内线0.5pt | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB02 | 表格内容宋体五号 | Auto | docx-structure | ✓ | ✓ |
-| LNU_TB03 | 表格内容1.5倍行距 | Auto | docx-structure | ✓ | ✓ |
+| LNU_TB03 | 表格内容单倍行距 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB04 | 表块留白与表题贴表 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF01 | 参考文献英文半角标点 | Semi | docx-structure | ✓ | ✓ |
 | LNU_REF02 | 参考文献编号制表位对齐格式 | Auto | docx-structure | ✓ | ✓ |
@@ -114,6 +115,7 @@
 | LNU_TEXT01 | 摘要混排空格紧凑化 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TEXT02 | 目录条目混排空格紧凑化 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TEXT03 | 正文混排空格紧凑化 | Auto | docx-structure | ✓ | ✓ |
+| LNU_EQ05 | 公式说明变量后缀下标 | Auto | docx-structure | ✓ | ✓ |
 | LNU_ACK01 | 致谢正文格式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_H01 | 标题编号与文字间距 | Auto | docx-structure | ✓ | ✓ |
 | LNU_CONC01 | 末章标题含结论 | Manual | docx-structure | ✗ | ✓ |
@@ -122,4 +124,11 @@
 | LNU_TOC01 | 目录标题与条目样式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TOC02 | 目录条目段后5磅 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TOC03 | 目录区段存在并可核对页码 | Auto | docx-structure | ✓ | ✓ |
-| LNU_UNIT01 | 数字与单位间空格 | Auto | docx-structure | ✓ | ✓ |
+| LNU_UNIT01 | 数字与单位/摄氏度/百分号间空格 | Auto | docx-structure | ✓ | ✓ |
+
+## PDF 渲染复核项（按需启用）
+
+| ID | 描述 | check_level | method | 自动修复 | 实现状态 |
+|----|------|------------|--------|----------|----------|
+| LNU_TOC04 | 目录页码与正文渲染页一致 | Semi | rendered-layout | ✗ | ✓ |
+| PDF_PUNCT01 | PDF 孤立标点 | Semi | rendered-layout | ✗ | ✓ |

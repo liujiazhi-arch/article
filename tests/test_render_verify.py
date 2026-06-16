@@ -1,10 +1,32 @@
 from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 from docx import Document
 import pytest
 
 import thesis_tool.render_verify as render_verify_module
+
+
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+
+
+def test_render_verify_module_script_can_show_help_from_repo_root():
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "thesis_tool" / "render_verify.py"),
+            "--help",
+        ],
+        cwd=SCRIPTS_DIR.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--rendered-pdf" in result.stdout
 
 
 def test_find_external_tool_prefers_existing_env_path(monkeypatch, tmp_path):
@@ -85,6 +107,36 @@ def test_word_pdf_export_timeout_explains_word_automation_block(monkeypatch, tmp
 
     with pytest.raises(RuntimeError, match="Word 自动化没有完成"):
         render_verify_module._export_docx_to_pdf_with_word(str(source_path), str(output_pdf))
+
+
+def test_build_pdf_toc_page_number_report_detects_mismatch(monkeypatch, tmp_path):
+    rendered_pdf = tmp_path / "toc_mismatch.pdf"
+    rendered_pdf.write_bytes(b"%PDF")
+
+    def fake_extract_pdf_page_texts(pdf_path: str | None, *, page_count: int | None = None):
+        assert pdf_path == str(rendered_pdf)
+        assert page_count is None
+        return (
+            {
+                1: "目录\n第1章 绪论 ........ 1",
+                2: "第1章 绪论\n这是正文\n2",
+            },
+            {
+                "source": "pdf",
+                "available": True,
+                "page_text_available_count": 2,
+                "page_text_extraction_warning_count": 0,
+                "warnings": [],
+            },
+        )
+
+    monkeypatch.setattr(render_verify_module, "_extract_pdf_page_texts", fake_extract_pdf_page_texts)
+
+    report = render_verify_module.build_pdf_toc_page_number_report(str(rendered_pdf))
+
+    assert report["summary"]["toc_page_number_mismatch_count"] == 1
+    assert report["findings"][0]["id"] == "toc_page_number_mismatch"
+    assert "第1章 绪论" in report["findings"][0]["message"]
 
 
 def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypatch, tmp_path):
@@ -181,8 +233,8 @@ def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypat
     assert report["page_count"] == 1
     assert report["page_images"][0].endswith("page-1.png")
     assert report["evidence_source"] == "word-pdf"
-    assert report["render_findings"][0]["id"] == "large_blank_region"
-    assert report["render_summary"]["large_blank_count"] == 1
+    assert report["render_findings"] == []
+    assert report["render_summary"]["finding_count"] == 0
     assert report["structure_readiness"] == "structure-ready"
     assert report["readiness"] == "render-check-required"
     assert report["preflight_status"] == "warning"
@@ -190,15 +242,181 @@ def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypat
     assert report["wild_doc"]["detected"] is True
     assert report["wild_doc"]["signals"][0]["id"] == "toc_structure"
     assert report["summary"]["wild_doc_signal_count"] == 2
-    assert report["summary"]["render_finding_count"] == 1
-    assert report["summary"]["render_highest_severity"] == "warning"
+    assert report["summary"]["render_finding_count"] == 0
+    assert report["summary"]["render_highest_severity"] is None
     report_path = Path(report["report_path"])
     assert report_path.name == "render_verify_report.md"
     assert report_path.exists()
+    assert Path(report["render_conclusion_report_path"]).exists()
+    assert Path(report["render_ai_review_context_path"]).exists()
     report_text = report_path.read_text(encoding="utf-8")
+    render_conclusion_text = Path(report["render_conclusion_report_path"]).read_text(encoding="utf-8")
+    render_ai_text = Path(report["render_ai_review_context_path"]).read_text(encoding="utf-8")
     assert "文件: render_verify_source.docx" in report_text
-    assert "自动页图判读" in report_text
+    assert "自动页图判读" not in report_text
+    assert "large_blank_region" not in report_text
+    assert "大块连续空白" not in report_text
+    assert "large_blank_region" not in render_conclusion_text
+    assert "大块空白" not in render_conclusion_text
+    assert "Render Findings" in render_ai_text
     assert not report_text.lstrip().startswith("{")
+
+
+def test_filter_user_visible_render_findings_hides_all_large_blank_variants():
+    visible = render_verify_module._filter_user_visible_render_findings(
+        [
+            {"id": "large_blank_region", "message": "页底存在大块连续空白。"},
+            {"id": "large_blank_bottom", "message": "页底空白过大。"},
+            {"id": "large_blank_middle", "message": "页面中部空白过大。"},
+            {"id": "isolated_punctuation", "message": "页面文本存在单独成行的标点。"},
+        ]
+    )
+
+    assert visible == [{"id": "isolated_punctuation", "message": "页面文本存在单独成行的标点。"}]
+
+
+def test_build_evidence_items_validates_bbox_and_keeps_unlocatable_findings(tmp_path):
+    page1 = tmp_path / "page-1.png"
+    page2 = tmp_path / "page-2.png"
+    page1.write_bytes(b"png")
+    page2.write_bytes(b"png")
+
+    items = render_verify_module._build_evidence_items(
+        [
+            {
+                "id": "isolated_punctuation",
+                "rule_id": "render.isolated_punctuation",
+                "severity": "warning",
+                "page": 2,
+                "bbox": {"x": 0.12, "y": 0.64, "w": 0.72, "h": 0.18},
+                "message": "页面文本存在单独成行的标点，疑似换行或排版挤压导致。",
+                "suggested_action": "回到 WPS/Word 检查该处换行、字距和段落排版，调整后重新导出 PDF。",
+                "image_path": str(page2),
+            },
+            {
+                "id": "pdf_text_missing",
+                "severity": "info",
+                "page": 1,
+                "bbox": {"x": 1.2, "y": 0.2, "w": 0.2, "h": 0.2},
+                "message": "PDF 文本不可读",
+            },
+            {
+                "id": "manual_review",
+                "severity": "warning",
+                "page": 1,
+                "message": "需要人工复核页面",
+            },
+        ],
+        page_images=[str(page1), str(page2)],
+    )
+
+    assert items[0] == {
+        "page": 2,
+        "screenshot_path": str(page2.resolve()),
+        "rule_id": "render.isolated_punctuation",
+        "bbox": {"x": 0.12, "y": 0.64, "w": 0.72, "h": 0.18},
+        "message": "页面文本存在单独成行的标点，疑似换行或排版挤压导致。",
+        "severity": "warning",
+        "next_action": "回到 WPS/Word 检查该处换行、字距和段落排版，调整后重新导出 PDF。",
+    }
+    assert items[1]["screenshot_path"] == str(page1.resolve())
+    assert items[1]["bbox"] is None
+    assert items[1]["message"] == "PDF 文本不可读"
+    assert items[2]["bbox"] is None
+    assert items[2]["next_action"] == "回到 DOCX 调整对应版式问题后重新导出 PDF。"
+
+
+def test_build_render_verify_report_adds_evidence_items(monkeypatch, tmp_path):
+    source_path = tmp_path / "render_verify_evidence_source.docx"
+    doc = Document()
+    doc.add_heading("Render Verify", level=1)
+    doc.save(source_path)
+
+    def fake_run_render_engine(input_docx: str, output_dir: str, renderer: str) -> dict:
+        page_dir = Path(output_dir) / "word_pdf_pages"
+        page_dir.mkdir(parents=True, exist_ok=True)
+        (page_dir / "page-1.png").write_bytes(b"png")
+        (page_dir / "page-2.png").write_bytes(b"png")
+        pdf_path = Path(output_dir) / "render_verify_word.pdf"
+        pdf_path.write_bytes(b"pdf")
+        return {
+            "engine": "word-pdf",
+            "page_dir": str(page_dir),
+            "pdf_path": str(pdf_path),
+            "fallback_used": False,
+            "warnings": [],
+        }
+
+    def fake_analyze_page_images(page_images, **kwargs):
+        return {
+            "findings": [
+                {
+                    "id": "isolated_punctuation",
+                    "rule_id": "render.isolated_punctuation",
+                    "severity": "warning",
+                    "page": 2,
+                    "bbox": {"x": 0.08, "y": 0.72, "w": 0.84, "h": 0.2},
+                    "message": "页面文本存在单独成行的标点，疑似换行或排版挤压导致。",
+                    "actionable": True,
+                    "suggested_action": "回到 WPS/Word 检查该处换行、字距和段落排版，调整后重新导出 PDF。",
+                    "image_path": page_images[1],
+                },
+                {
+                    "id": "manual_review",
+                    "severity": "info",
+                    "page": 1,
+                    "message": "需要人工复核页面。",
+                },
+            ],
+            "summary": {
+                "finding_count": 2,
+                "highest_severity": "warning",
+                "blank_page_count": 0,
+                "render_suspect_count": 0,
+                "actionable_finding_count": 1,
+            },
+            "layout_score": {"score": 100, "penalty": 0, "actionable_finding_count": 0},
+        }
+
+    monkeypatch.setattr(render_verify_module, "_run_render_engine", fake_run_render_engine)
+    monkeypatch.setattr(render_verify_module, "analyze_page_images", fake_analyze_page_images)
+    monkeypatch.setattr(
+        render_verify_module,
+        "build_document_preflight",
+        lambda *args, **kwargs: {
+            "preflight_status": "ready",
+            "toc_status": "generated_toc",
+            "preface_status": "not_detected",
+            "heading_renumber_guard": {"status": "clear"},
+            "style_conflict_count": 0,
+            "table_heading_risk_count": 0,
+            "recommended_actions": [],
+            "diagnostics": {"toc": {"status": "generated_toc"}, "heading_renumber_guard": {"status": "clear"}},
+        },
+    )
+    monkeypatch.setattr(
+        render_verify_module,
+        "build_scope_verify",
+        lambda *args, **kwargs: {
+            "profile_id": "lnu-checker-2026",
+            "requested_profile": "lnu",
+            "fallback_used": False,
+            "profile_display": "lnu-checker-2026 (requested: lnu)",
+            "selected_scopes": ["figures_tables"],
+            "overall_status": "verified",
+            "readiness": "structure-ready",
+            "manual_review_rule_ids": [],
+            "unsupported_rule_ids": [],
+        },
+    )
+
+    report = render_verify_module.build_render_verify_report(str(source_path), profile_path="lnu")
+
+    assert report["summary"]["evidence_item_count"] == 2
+    assert report["evidence_items"][0]["rule_id"] == "render.isolated_punctuation"
+    assert report["evidence_items"][0]["bbox"] == {"x": 0.08, "y": 0.72, "w": 0.84, "h": 0.2}
+    assert report["evidence_items"][0]["screenshot_path"].endswith("page-2.png")
+    assert report["evidence_items"][1]["bbox"] is None
 
 
 def test_extract_pdf_page_texts_splits_pdftotext_form_feeds(monkeypatch, tmp_path):
@@ -324,6 +542,174 @@ def test_build_render_verify_report_passes_pdf_texts_to_analyzer(monkeypatch, tm
     assert report["summary"]["layout_score"] == 100
 
 
+def test_build_render_verify_report_flags_toc_declared_page_mismatch(monkeypatch, tmp_path):
+    source_path = tmp_path / "render_verify_toc_source.docx"
+    doc = Document()
+    doc.add_heading("Render Verify", level=1)
+    doc.save(source_path)
+
+    def fake_run_render_engine(input_docx: str, output_dir: str, renderer: str) -> dict:
+        page_dir = Path(output_dir) / "word_pdf_pages"
+        page_dir.mkdir(parents=True, exist_ok=True)
+        for page_number in range(1, 5):
+            (page_dir / f"page-{page_number}.png").write_bytes(b"png")
+        pdf_path = Path(output_dir) / "render_verify_word.pdf"
+        pdf_path.write_bytes(b"pdf")
+        return {
+            "engine": "word-pdf",
+            "page_dir": str(page_dir),
+            "pdf_path": str(pdf_path),
+            "fallback_used": False,
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(render_verify_module, "_run_render_engine", fake_run_render_engine)
+    monkeypatch.setattr(
+        render_verify_module,
+        "_extract_pdf_page_texts",
+        lambda pdf_path, *, page_count: (
+            {
+                1: "目 录\n摘要 ...... 2\n1 绪论 ...... 2\n2 材料与方法",
+                2: "摘要\n本文研究论文格式检查工具。",
+                3: "1 绪论\n研究背景与意义。\n- 3 -",
+                4: "2 材料与方法\n实验设置。\n- 4 -",
+            },
+            {
+                "source": "pdf",
+                "available": True,
+                "page_text_available_count": 4,
+                "page_text_extraction_warning_count": 0,
+                "warnings": [],
+            },
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        render_verify_module,
+        "analyze_page_images",
+        lambda page_images, **kwargs: {
+            "findings": [],
+            "summary": {
+                "finding_count": 0,
+                "highest_severity": None,
+                "blank_page_count": 0,
+                "large_blank_count": 0,
+                "render_suspect_count": 0,
+            },
+            "layout_score": {"score": 100, "penalty": 0, "actionable_finding_count": 0},
+        },
+    )
+    monkeypatch.setattr(
+        render_verify_module,
+        "build_document_preflight",
+        lambda *args, **kwargs: {
+            "preflight_status": "ready",
+            "toc_status": "generated_toc",
+            "preface_status": "not_detected",
+            "heading_renumber_guard": {"status": "clear"},
+            "style_conflict_count": 0,
+            "table_heading_risk_count": 0,
+            "recommended_actions": [],
+            "diagnostics": {"toc": {"status": "generated_toc"}, "heading_renumber_guard": {"status": "clear"}},
+        },
+    )
+    monkeypatch.setattr(
+        render_verify_module,
+        "build_scope_verify",
+        lambda *args, **kwargs: {
+            "profile_id": "lnu-checker-2026",
+            "requested_profile": "lnu",
+            "fallback_used": False,
+            "profile_display": "lnu-checker-2026 (requested: lnu)",
+            "selected_scopes": ["toc"],
+            "overall_status": "verified",
+            "readiness": "structure-ready",
+            "manual_review_rule_ids": [],
+            "unsupported_rule_ids": [],
+        },
+    )
+
+    report = render_verify_module.build_render_verify_report(str(source_path), profile_path="lnu", scopes=["toc"])
+
+    mismatch = next(item for item in report["render_findings"] if item["id"] == "toc_page_number_mismatch")
+    assert mismatch["page"] == 1
+    assert mismatch["declared_page"] == 2
+    assert mismatch["actual_page"] == 3
+    assert mismatch["toc_entry"] == "1 绪论"
+    assert "目录页码不一致" in mismatch["message"]
+    assert report["summary"]["render_finding_count"] == 2
+    assert any(item["rule_id"] == "render.toc_page_number_mismatch" for item in report["evidence_items"])
+
+    unconfirmed = next(item for item in report["render_findings"] if item["id"] == "toc_page_number_unconfirmed")
+    assert unconfirmed["toc_entry"] == "2 材料与方法"
+    assert unconfirmed["severity"] == "warning"
+    assert "缺少页码" in unconfirmed["message"]
+
+
+def test_toc_page_number_check_uses_printed_page_number_not_pdf_index():
+    findings = render_verify_module._build_toc_page_number_findings(
+        {
+            1: "目 录\n1 绪论 ...... 1",
+            2: "摘 要\n摘要正文\nI",
+            3: "1 绪论\n研究背景与意义。\n- 1 -",
+        }
+    )
+
+    assert findings == []
+
+
+def test_toc_page_number_check_does_not_treat_heading_number_as_printed_page_number():
+    findings = render_verify_module._build_toc_page_number_findings(
+        {
+            1: "目 录\n1 绪论 ...... 1",
+            2: "1 绪论\n研究背景与意义。",
+        }
+    )
+
+    assert findings == [
+        {
+            "id": "toc_page_number_unconfirmed",
+            "rule_id": "render.toc_page_number_unconfirmed",
+            "classification": "render_integrity",
+            "severity": "warning",
+            "page": 1,
+            "toc_entry": "1 绪论",
+            "declared_page": 1,
+            "actual_page": None,
+            "message": "目录条目“1 绪论”已定位到 PDF 第 2 页，但未读取到该页显示页码，需人工复核。",
+            "actionable": False,
+            "suggested_scope": "toc",
+            "suggested_action": "打开 PDF 对照目录和正文标题页码。",
+        }
+    ]
+
+
+def test_toc_page_number_check_warns_when_heading_not_located():
+    findings = render_verify_module._build_toc_page_number_findings(
+        {
+            1: "目录\n1 绪论 ...... 2",
+            2: "摘要\n本文研究论文格式检查工具。",
+        }
+    )
+
+    assert findings == [
+        {
+            "id": "toc_page_number_unconfirmed",
+            "rule_id": "render.toc_page_number_unconfirmed",
+            "classification": "render_integrity",
+            "severity": "warning",
+            "page": 1,
+            "toc_entry": "1 绪论",
+            "declared_page": 2,
+            "actual_page": None,
+            "message": "目录条目“1 绪论”未能在后续 PDF 页面中确认对应标题，需人工复核。",
+            "actionable": False,
+            "suggested_scope": "toc",
+            "suggested_action": "打开 PDF 对照目录和正文标题页码。",
+        }
+    ]
+
+
 def test_external_rendered_pdf_uses_neutral_manual_pdf_evidence_source(monkeypatch, tmp_path):
     pdf_path = tmp_path / "word-export.pdf"
     pdf_path.write_bytes(b"%PDF")
@@ -353,8 +739,8 @@ def test_build_render_review_items_explains_likely_causes():
     items = render_verify_module._build_render_review_items(diagnostics, verification)
     text = "\n".join(items)
 
-    assert "大块空白" in text
-    assert "对象塞不进当前页" in text
+    assert "大块空白" not in text
+    assert "对象塞不进当前页" not in text
     assert "图表挤页" in text
     assert "首次引用位置过晚" in text
     assert "标题孤页" in text
@@ -504,8 +890,8 @@ def test_render_render_verify_report_includes_review_summary():
     assert "Layout Score: 82 (penalty 18)" in rendered
     assert "PDF文本页数: 2" in rendered
     assert "渲染 PDF: /tmp/render-proof/render_verify_word.pdf" in rendered
-    assert "自动页图判读：" in rendered
-    assert "large_blank_region [warning]" in rendered
+    assert "自动页图判读：" not in rendered
+    assert "large_blank_region [warning]" not in rendered
     assert "可提交状态: render-check-required" in rendered
     assert "预检状态: warning" in rendered
     assert "渲染证据状态: render-review-required" in rendered
@@ -513,6 +899,7 @@ def test_render_render_verify_report_includes_review_summary():
     assert "复核范围: headings, figures_tables" in rendered
     assert "野生文档信号：" in rendered
     assert "table_heading_candidates [warning]" in rendered
+    assert "逐页检查页底空白" not in rendered
     assert "- 逐页检查公式横线。" in rendered
 
 
@@ -539,12 +926,13 @@ def test_render_render_verify_report_preserves_cause_oriented_review_items():
             {"id": "large_blank_region", "severity": "warning", "page": 1, "message": "页底存在大块连续空白。"}
         ],
         "review_items": [
-            "大块空白常见于对象塞不进当前页、段前/段后距、分页符或对象锚点位置不当。",
+            "图表挤页常见于首次引用位置过晚、对象块过大，或图题注整体绑定到后页。",
             "如果不进入候选稿排障，建议回 Word/WPS 检查图片环绕、分页符和段落间距设置。",
         ],
     }
 
     rendered = render_verify_module.render_render_verify_report(report)
 
-    assert "对象塞不进当前页" in rendered
+    assert "大块空白" not in rendered
+    assert "对象塞不进当前页" not in rendered
     assert "检查图片环绕、分页符和段落间距设置" in rendered

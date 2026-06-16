@@ -13,6 +13,8 @@ from frontmatter_utils import has_toc_field_instr, is_toc_structural_style_id
 from thesis_tool.capabilities import classify_rule_action, load_rule_capabilities
 from thesis_tool.scopes import build_rule_scope_map, filter_scope_definitions, normalize_scope_names
 from thesis_tool import workflow_renderers
+from thesis_tool.conclusion_report import render_ai_review_context, render_student_conclusion_report
+from thesis_tool.issue_evidence import build_issue_groups
 
 _HEADING_KIND_TO_LEVEL = {
     "h1": 1,
@@ -42,13 +44,33 @@ def _scope_status(scope_failed: list[dict]) -> str:
         return "clean"
 
     actions = {item["action"] for item in scope_failed}
-    if "autofix" in actions:
+    if actions <= {"autofix"}:
         return "autofix_ready"
     if actions <= {"manual_review"}:
         return "manual_review"
     if actions <= {"unsupported"}:
         return "unsupported"
     return "mixed"
+
+
+def _build_scope_radar_summary(scopes: list[dict]) -> dict:
+    status_counts: dict[str, int] = {}
+    for scope in scopes:
+        status = scope.get("status") or "unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    return {
+        "scope_count": len(scopes),
+        "failed_scope_count": sum(1 for scope in scopes if scope["failed_count"] > 0),
+        "autofixable_scope_count": sum(1 for scope in scopes if scope["autofixable_count"] > 0),
+        "manual_review_count": sum(scope["manual_review_count"] for scope in scopes),
+        "unsupported_count": sum(scope["unsupported_count"] for scope in scopes),
+        "manual_confirmation_count": sum(
+            scope["manual_review_count"] + scope["unsupported_count"] for scope in scopes
+        ),
+        "unknown_count": sum(scope["unknown_count"] for scope in scopes),
+        "status_counts": status_counts,
+    }
 
 
 def classify_scope_readiness(*, autofixable: int, manual_review: int, unsupported: int) -> str:
@@ -79,7 +101,7 @@ def _collect_render_check_rules(plan: dict, *, file_path: str, profile_path: str
     return [
         {
             "id": "TOC_REFRESH_REQUIRED",
-            "name": "目录域已注入，仍需在 Word/WPS 中刷新生成可见目录",
+            "name": "目录只有域指令，缺少脚本预填的可见目录结果",
             "check_level": "Rendered",
             "scope_id": "toc",
             "scope_title": toc_scope["title"] if toc_scope is not None else "目录",
@@ -194,9 +216,71 @@ def build_scope_plan(file_path: str, profile_path: str | None = None, scopes=Non
         "failed_count": selected_failed_count,
         "total_failed_count": len(failed_results),
         "scopes": visible_scopes,
+        "scope_radar_summary": _build_scope_radar_summary(visible_scopes),
         "selected_scopes": sorted(requested_scope_ids) if requested_scope_ids else None,
         "unscoped_failed": unscoped_failed if requested_scope_ids is None else [],
         "report": report,
+    }
+
+
+def build_audit_human_reports(
+    file_path: str,
+    *,
+    profile_path: str | None = None,
+    strict_profile: bool | None = None,
+    output_dir: str,
+) -> dict:
+    results, score, report, runtime = audit_thesis.audit_docx_with_runtime(
+        file_path,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+    document_xml, styles_xml, _footnotes_xml = audit_thesis.load_docx_xml(file_path)
+    document_root = ET.fromstring(document_xml)
+    styles_root = ET.fromstring(styles_xml)
+    style_map = build_style_map(styles_root)
+    document_model = build_document_model(document_root, style_map)
+    # Keep original paragraph indexes for evidence; skip cover nodes only so
+    # nearest-heading enrichment does not attach cover text to body findings.
+    contexts = [
+        {
+            "index": node.index,
+            "text": node.text,
+            "kind": node.kind,
+            "section": node.container_section,
+            "module": node.module,
+        }
+        for node in document_model.paragraphs
+        if node.container_section != "cover"
+    ]
+    runtime_rule_ids = {rule_id for rule_id, _, _ in runtime.rule_definitions}
+    scope_definitions = filter_scope_definitions(runtime_rule_ids)
+    rule_to_scope = build_rule_scope_map(scope_definitions)
+    actions = {result["id"]: classify_audit_result_action(result) for result in results if not result.get("passed")}
+    groups = build_issue_groups(
+        results,
+        contexts,
+        actions=actions,
+        rule_to_scope=rule_to_scope,
+        source_docx=str(Path(file_path)),
+    )
+    target_dir = Path(output_dir).expanduser().resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    audit_report_path = target_dir / "audit_report.md"
+    student_report_path = target_dir / "结论报告.md"
+    ai_report_path = target_dir / "ai_review_context.md"
+    audit_report_path.write_text(report, encoding="utf-8")
+    student_report_path.write_text(render_student_conclusion_report(groups), encoding="utf-8")
+    ai_report_path.write_text(render_ai_review_context(groups), encoding="utf-8")
+    return {
+        "results": results,
+        "score": score,
+        "groups": groups,
+        "report_paths": {
+            "audit_report": str(audit_report_path),
+            "student_report": str(student_report_path),
+            "ai_review_context": str(ai_report_path),
+        },
     }
 
 
@@ -356,7 +440,7 @@ def _build_diagnostic_actions(toc: dict, preface_status: str, style_text_conflic
     if toc_status in {"manual_toc", "duplicate_toc", "no_toc"}:
         actions.append("优先处理目录：建议执行 toc scope 补全或规范可见目录，完成后人工核对页码。")
     elif toc_status == "field_only":
-        actions.append("目录结构已存在但未渲染：在 Word/WPS 中 Ctrl+A 后按 F9 刷新页码显示。")
+        actions.append("目录结构已存在但缺少可见结果：重新执行 toc scope 生成可见目录，再复核页码。")
 
     if preface_status == "zero_based_mismatch":
         actions.append("辽大序言编号异常：建议执行 headings scope，并启用 --renumber-headings。")
@@ -582,7 +666,7 @@ def build_document_normalize(
         next_steps.append("预规整后未见明显结构阻断，可继续进入 verify 或 apply。")
 
     if after.get("toc_status") == "field_only":
-        next_steps.append("目录域已就位但仍未刷新，后续请运行 render-verify，并在 Word/WPS 中刷新目录域。")
+        next_steps.append("目录仍只有域指令，需重新执行 toc scope 生成可见目录结果，再做渲染复核。")
 
     return {
         "file_path": str(Path(validated_input)),

@@ -452,7 +452,7 @@
 
   <!-- ═══════════════════════════════════════
        TOC 1-3（目录条目）
-       目录内容：宋体小四（12pt），左对齐，有前导符
+       一级目录：黑体四号；二三级目录：宋体11磅；1.15倍行距，段后5磅，有前导符
        ═══════════════════════════════════════ -->
   <w:style w:type="paragraph" w:styleId="TOC1">
     <w:name w:val="toc 1"/>
@@ -461,17 +461,17 @@
     <w:next w:val="Normal"/>
     <w:pPr>
       <w:jc w:val="left"/>
-      <w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="0"/>
+      <w:spacing w:line="276" w:lineRule="auto" w:before="0" w:after="100"/>
       <w:ind w:firstLine="0"/>
       <w:tabs>
-        <w:tab w:val="right" w:leader="dot" w:pos="8400"/>
+        <w:tab w:val="right" w:leader="dot" w:pos="9000"/>
       </w:tabs>
     </w:pPr>
     <w:rPr>
       <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"
-                w:eastAsia="宋体" w:cs="Times New Roman"/>
-      <w:sz w:val="24"/>
-      <w:szCs w:val="24"/>
+                w:eastAsia="黑体" w:cs="Times New Roman"/>
+      <w:sz w:val="28"/>
+      <w:szCs w:val="28"/>
     </w:rPr>
   </w:style>
 
@@ -482,17 +482,17 @@
     <w:next w:val="Normal"/>
     <w:pPr>
       <w:jc w:val="left"/>
-      <w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="0"/>
-      <w:ind w:left="240" w:firstLine="0"/>
+      <w:spacing w:line="276" w:lineRule="auto" w:before="0" w:after="100"/>
+      <w:ind w:left="420" w:firstLine="0"/>
       <w:tabs>
-        <w:tab w:val="right" w:leader="dot" w:pos="8400"/>
+        <w:tab w:val="right" w:leader="dot" w:pos="9000"/>
       </w:tabs>
     </w:pPr>
     <w:rPr>
       <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"
                 w:eastAsia="宋体" w:cs="Times New Roman"/>
-      <w:sz w:val="24"/>
-      <w:szCs w:val="24"/>
+      <w:sz w:val="22"/>
+      <w:szCs w:val="22"/>
     </w:rPr>
   </w:style>
 
@@ -503,22 +503,22 @@
     <w:next w:val="Normal"/>
     <w:pPr>
       <w:jc w:val="left"/>
-      <w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="0"/>
-      <w:ind w:left="480" w:firstLine="0"/>
+      <w:spacing w:line="276" w:lineRule="auto" w:before="0" w:after="100"/>
+      <w:ind w:left="840" w:firstLine="0"/>
       <w:tabs>
-        <w:tab w:val="right" w:leader="dot" w:pos="8400"/>
+        <w:tab w:val="right" w:leader="dot" w:pos="9000"/>
       </w:tabs>
     </w:pPr>
     <w:rPr>
       <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"
                 w:eastAsia="宋体" w:cs="Times New Roman"/>
-      <w:sz w:val="24"/>
-      <w:szCs w:val="24"/>
+      <w:sz w:val="22"/>
+      <w:szCs w:val="22"/>
     </w:rPr>
   </w:style>
 
-  <!-- TOC Heading（目录标题 "目录"二字）
-       黑体16pt，居中，加粗 -->
+  <!-- TOC Heading（目录标题 "目  录"）
+       黑体三号，居中，不加粗，1.15倍行距，段后5磅 -->
   <w:style w:type="paragraph" w:styleId="TOCHeading">
     <w:name w:val="TOC Heading"/>
     <w:aliases w:val="目录标题"/>
@@ -527,14 +527,12 @@
     <w:qFormat/>
     <w:pPr>
       <w:jc w:val="center"/>
-      <w:spacing w:line="360" w:lineRule="auto" w:before="240" w:after="120"/>
+      <w:spacing w:line="276" w:lineRule="auto" w:before="0" w:after="100"/>
       <w:ind w:firstLine="0"/>
     </w:pPr>
     <w:rPr>
       <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"
                 w:eastAsia="黑体" w:cs="Times New Roman"/>
-      <w:b/>
-      <w:bCs/>
       <w:sz w:val="32"/>
       <w:szCs w:val="32"/>
     </w:rPr>

@@ -66,7 +66,7 @@ DEFAULT_CFG = {
     "caption_size": 21,
     "figure_blank_line_twips": 360,
     "table_blank_line_twips": 360,
-    "table_cell_line": 360,
+    "table_cell_line": 240,
     "figure_caption_line": 360,
     "figure_note_line": 240,
     "ref_hanging": 560,
@@ -77,6 +77,8 @@ DEFAULT_CFG = {
     "caption_number_sep": "-",
     "caption_label_gap_spaces": 1,
     "ack_font": None,
+    "ack_size": 24,
+    "ack_line": 360,
     "eq_number_sep": "-",        # 公式编号分隔符，辽大为"."
     "ref_terminal_punct": None,  # None=按CJK自动判断；辽大为"."
     "pg01_format": "plain",      # 辽大为'em_dash"即—N—格式
@@ -178,6 +180,9 @@ def _needs_cjk_latin_space(text, index, left_char, right_char):
     )
 
 def find_missing_spacing_pairs(text, boundary_checker):
+    return [match["excerpt"] for match in find_missing_spacing_pairs_with_positions(text, boundary_checker)]
+
+def find_missing_spacing_pairs_with_positions(text, boundary_checker):
     matches = []
     compact_text = text or ""
     for index in range(len(compact_text) - 1):
@@ -188,7 +193,15 @@ def find_missing_spacing_pairs(text, boundary_checker):
         if boundary_checker(compact_text, index, left_char, right_char):
             start = max(0, index - 6)
             end = min(len(compact_text), index + 8)
-            matches.append(compact_text[start:end])
+            matches.append(
+                {
+                    "excerpt": compact_text[start:end],
+                    "left": left_char,
+                    "right": right_char,
+                    "start": index,
+                    "end": index + 2,
+                }
+            )
     return matches
 
 def is_relaxed_strain_suffix_t_excerpt(text: str | None) -> bool:
@@ -271,6 +284,8 @@ def build_profile_cfg(profile_id, profile_data, settings):
     for key in (
         "ref_use_tab",
         "ack_font",
+        "ack_size",
+        "ack_line",
         "caption_number_sep",
         "figure_blank_line_twips",
         "table_cell_line",
@@ -682,8 +697,8 @@ def build_paragraph_contexts(document_root, style_map):
         )
     return contexts
 
-def make_result(rule_id, rule_name, severity, passed, issues, affected):
-    return {
+def make_result(rule_id, rule_name, severity, passed, issues, affected, evidence=None):
+    result = {
         "id": rule_id,
         "name": rule_name,
         "severity": severity,
@@ -691,3 +706,6 @@ def make_result(rule_id, rule_name, severity, passed, issues, affected):
         "issues": issues,
         "affected": affected,
     }
+    if evidence:
+        result["evidence"] = evidence
+    return result

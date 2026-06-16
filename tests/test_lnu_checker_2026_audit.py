@@ -12,7 +12,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import audit_thesis
-from _thesis_utils import NSMAP, W_NS
+from _thesis_utils import NSMAP, W_NS, build_document_model, build_style_map, collect_figure_blocks, get_paragraph_text
 
 W = W_NS
 
@@ -56,6 +56,65 @@ def _set_spacing(paragraph: ET.Element, *, line: int | None = None, after: int |
     return paragraph
 
 
+def _set_centered(paragraph: ET.Element) -> ET.Element:
+    p_pr = paragraph.find("w:pPr", NSMAP)
+    if p_pr is None:
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+    jc = p_pr.find("w:jc", NSMAP)
+    if jc is None:
+        jc = ET.SubElement(p_pr, _w("jc"))
+    jc.set(_w("val"), "center")
+    return paragraph
+
+
+def _set_paragraph_style(paragraph: ET.Element, style_id: str) -> ET.Element:
+    p_pr = paragraph.find("w:pPr", NSMAP)
+    if p_pr is None:
+        p_pr = ET.SubElement(paragraph, _w("pPr"))
+    p_style = p_pr.find("w:pStyle", NSMAP)
+    if p_style is None:
+        p_style = ET.SubElement(p_pr, _w("pStyle"))
+    p_style.set(_w("val"), style_id)
+    return paragraph
+
+
+def _append_drawing(paragraph: ET.Element) -> ET.Element:
+    run = ET.SubElement(paragraph, _w("r"))
+    ET.SubElement(run, _w("drawing"))
+    return paragraph
+
+
+def _append_text_run(paragraph: ET.Element, text: str, *, sz: int | None = None) -> ET.Element:
+    run = ET.SubElement(paragraph, _w("r"))
+    if sz is not None:
+        r_pr = ET.SubElement(run, _w("rPr"))
+        sz_elem = ET.SubElement(r_pr, _w("sz"))
+        sz_elem.set(_w("val"), str(sz))
+    text_elem = ET.SubElement(run, _w("t"))
+    text_elem.text = text
+    return run
+
+
+def _append_soft_break(paragraph: ET.Element) -> ET.Element:
+    run = ET.SubElement(paragraph, _w("r"))
+    ET.SubElement(run, _w("br"))
+    return run
+
+
+def _set_run_fonts(paragraph: ET.Element) -> ET.Element:
+    for run in paragraph.findall("w:r", NSMAP):
+        r_pr = run.find("w:rPr", NSMAP)
+        if r_pr is None:
+            r_pr = ET.SubElement(run, _w("rPr"))
+        r_fonts = r_pr.find("w:rFonts", NSMAP)
+        if r_fonts is None:
+            r_fonts = ET.SubElement(r_pr, _w("rFonts"))
+        r_fonts.set(_w("eastAsia"), "宋体")
+        r_fonts.set(_w("ascii"), "Times New Roman")
+        r_fonts.set(_w("hAnsi"), "Times New Roman")
+    return paragraph
+
+
 def _checker_runtime_or_xfail():
     for profile_ref in ("lnu_checker_2026", "lnu-checker-2026", "lnu"):
         try:
@@ -92,9 +151,214 @@ def test_checker_2026_runtime_exposes_latest_image_abstract_values():
     assert int(runtime.cfg["abstract_en_body_line"]) == 240
 
 
+def test_checker_2026_runtime_uses_separate_caption_and_note_line_spacing():
+    runtime = _checker_runtime_or_xfail()
+
+    assert int(runtime.cfg["figure_caption_line"]) == 360
+    assert int(runtime.cfg["figure_note_line"]) == 240
+
+
+def test_checker_2026_classifies_explanatory_lines_after_figure_caption_as_notes():
+    title = _make_paragraph("第2章 实验结果与分析", sz=30)
+    image = _append_drawing(_make_paragraph(""))
+    caption = _set_centered(_set_spacing(_make_paragraph("图2.1  不同改性方法对鹿皮明胶溶胀率的影响", sz=21), line=360))
+    subfigure_note = _set_spacing(_make_paragraph("（A）24 h终点溶胀率；（B）0～24 h溶胀率变化", sz=21), line=240)
+    significance_note = _set_spacing(
+        _make_paragraph("不同小写字母表示组间差异显著（p<0.05）；相同小写字母表示组间差异不显著（p≥0.05）", sz=21),
+        line=240,
+    )
+    following_body = _set_spacing(_make_paragraph("各组样品24 h溶失率见图2.2。", sz=24), line=360)
+    document = _make_doc_root(title, image, caption, subfigure_note, significance_note, following_body)
+
+    model = build_document_model(document, build_style_map(ET.Element(_w("styles"))))
+    nodes_by_text = {node.text: node for node in model.paragraphs}
+    assert nodes_by_text[get_paragraph_text(subfigure_note)].module == "body_caption_note"
+    assert nodes_by_text[get_paragraph_text(significance_note)].module == "body_caption_note"
+
+    blocks = collect_figure_blocks(document, build_style_map(ET.Element(_w("styles"))))
+    assert len(blocks) == 1
+    assert [note.text for note in blocks[0]["notes"]] == [
+        get_paragraph_text(subfigure_note),
+        get_paragraph_text(significance_note),
+    ]
+
+
+def test_checker_2026_lnu_f06_accepts_caption_one_point_five_and_note_single_spacing():
+    runtime = _checker_runtime_or_xfail()
+    caption = _set_run_fonts(_set_centered(_set_spacing(_make_paragraph("图2.1  不同改性方法对鹿皮明胶溶胀率的影响", sz=21), line=360)))
+    note = _set_centered(_set_spacing(
+        _make_paragraph("不同小写字母表示组间差异显著（p<0.05）；相同小写字母表示组间差异不显著（p≥0.05）", sz=21),
+        line=240,
+    ))
+    _set_run_fonts(note)
+    contexts = [
+        {
+            "index": 1,
+            "elem": caption,
+            "text": get_paragraph_text(caption),
+            "kind": "caption",
+            "section": "body",
+            "module": "body_caption",
+            "protected": False,
+        },
+        {
+            "index": 2,
+            "elem": note,
+            "text": get_paragraph_text(note),
+            "kind": "body",
+            "section": "body",
+            "module": "body_caption_note",
+            "protected": False,
+        },
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_f06(_make_doc_root(caption, note), contexts, {}, runtime.cfg)
+
+    assert passed, issues
+
+
+def test_checker_2026_lnu_f06_checks_caption_title_before_soft_break_note():
+    runtime = _checker_runtime_or_xfail()
+    caption = _set_run_fonts(
+        _set_centered(_set_spacing(_make_paragraph("图2.2  不同改性方法对鹿皮明胶溶失率的影响", sz=21), line=360))
+    )
+    _append_soft_break(caption)
+    _append_text_run(caption, "不同小写字母表示组间差异显著（", sz=21)
+    _append_text_run(caption, "p", sz=24)
+    _append_text_run(caption, "<0.05）；相同小写字母表示组间差异不显著", sz=21)
+    _set_run_fonts(caption)
+    contexts = [
+        {
+            "index": 1,
+            "elem": caption,
+            "text": get_paragraph_text(caption),
+            "kind": "caption",
+            "section": "body",
+            "module": "body_caption",
+            "protected": False,
+        },
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_f06(_make_doc_root(caption), contexts, {}, runtime.cfg)
+
+    assert passed, issues
+
+
+def test_checker_2026_f01_checks_caption_title_before_soft_break_note():
+    runtime = _checker_runtime_or_xfail()
+    caption = _set_run_fonts(
+        _set_centered(_set_spacing(_make_paragraph("图2.2  不同改性方法对鹿皮明胶溶失率的影响", sz=21), line=360))
+    )
+    _append_soft_break(caption)
+    _append_text_run(
+        caption,
+        "不同小写字母表示组间差异显著（p<0.05）；相同小写字母表示组间差异不显著（p≥0.05）",
+        sz=24,
+    )
+    _set_run_fonts(caption)
+    contexts = [
+        {
+            "index": 1,
+            "elem": caption,
+            "text": get_paragraph_text(caption),
+            "kind": "caption",
+            "section": "body",
+            "module": "body_caption",
+            "protected": False,
+        },
+    ]
+
+    passed, issues, _ = audit_thesis.check_f01(_make_doc_root(caption), contexts, {}, runtime.cfg)
+
+    assert passed, issues
+
+
+def test_checker_2026_t01_t02_accept_body_fonts_inherited_from_paragraph_style():
+    paragraph = _set_paragraph_style(
+        _set_spacing(_make_paragraph("这是正文示例，含有 DAS-DSG 和 24 h。", sz=24), line=360),
+        "LnuBody",
+    )
+    contexts = [
+        {
+            "index": 1,
+            "elem": paragraph,
+            "text": get_paragraph_text(paragraph),
+            "kind": "body",
+            "section": "body",
+            "module": "body_paragraph",
+            "protected": False,
+        },
+    ]
+    style_map = {
+        "LnuBody": {
+            "eastAsia": "宋体",
+            "ascii": "Times New Roman",
+            "hAnsi": "Times New Roman",
+            "sz": 24,
+        }
+    }
+
+    t01_passed, t01_issues, _ = audit_thesis.check_t01(_make_doc_root(paragraph), contexts, style_map)
+    t02_passed, t02_issues, _ = audit_thesis.check_t02(_make_doc_root(paragraph), contexts, style_map)
+
+    assert t01_passed, t01_issues
+    assert t02_passed, t02_issues
+
+
+def test_checker_2026_t04_accepts_valid_line_spacing_without_explicit_snap_to_grid():
+    runtime = _checker_runtime_or_xfail()
+    paragraph = _set_spacing(_make_paragraph("这是正文示例。", sz=24), line=360)
+    contexts = [
+        {
+            "index": 1,
+            "elem": paragraph,
+            "text": get_paragraph_text(paragraph),
+            "kind": "body",
+            "section": "body",
+            "module": "body_paragraph",
+            "protected": False,
+        },
+    ]
+
+    passed, issues, _ = audit_thesis.check_t04(_make_doc_root(paragraph), contexts, {}, runtime.cfg)
+
+    assert passed, issues
+
+
+def test_checker_2026_f05_accepts_caption_fonts_inherited_from_paragraph_style():
+    caption = _set_paragraph_style(
+        _set_centered(_set_spacing(_make_paragraph("图2.6  不同改性方法对鹿皮明胶起泡性的影响", sz=21), line=360)),
+        "LnuCaption",
+    )
+    contexts = [
+        {
+            "index": 1,
+            "elem": caption,
+            "text": get_paragraph_text(caption),
+            "kind": "caption",
+            "section": "body",
+            "module": "body_caption",
+            "protected": False,
+        },
+    ]
+    style_map = {
+        "LnuCaption": {
+            "eastAsia": "宋体",
+            "ascii": "Times New Roman",
+            "hAnsi": "Times New Roman",
+            "sz": 21,
+        }
+    }
+
+    passed, issues, _ = audit_thesis.check_f05(_make_doc_root(caption), contexts, style_map)
+
+    assert passed, issues
+
+
 def test_checker_2026_abs01_accepts_zero_spacing_after():
     runtime = _checker_runtime_or_xfail()
     paragraph = _set_spacing(_make_paragraph("摘要", sz=32), line=360, after=0)
+    _set_centered(paragraph)
     document = _make_doc_root(paragraph)
 
     passed, issues, _ = audit_thesis.check_lnu_abs01(document, [], {}, runtime.cfg)
@@ -175,7 +439,7 @@ def test_checker_2026_ref02_accepts_reference_number_with_tab_alignment():
         },
     ]
 
-    passed, issues, _ = audit_thesis.check_lnu_ref02(_make_doc_root(title, ref), contexts, {}, runtime.cfg)
+    passed, issues, *_ = audit_thesis.check_lnu_ref02(_make_doc_root(title, ref), contexts, {}, runtime.cfg)
 
     assert passed, issues
 
@@ -196,7 +460,7 @@ def test_checker_2026_ref02_rejects_missing_tab_after_reference_number():
         },
     ]
 
-    passed, issues, _ = audit_thesis.check_lnu_ref02(_make_doc_root(title, ref), contexts, {}, runtime.cfg)
+    passed, issues, *_ = audit_thesis.check_lnu_ref02(_make_doc_root(title, ref), contexts, {}, runtime.cfg)
 
     assert not passed
     assert any("编号后应使用制表符" in issue for issue in issues)
@@ -424,6 +688,48 @@ def test_checker_2026_text02_detects_toc_entry_mixed_spacing():
 
     assert not passed
     assert any("目录条目" in issue for issue in issues)
+
+
+def test_checker_2026_text02_accepts_toc_heading_number_gap():
+    runtime = _checker_runtime_or_xfail()
+    paragraph = _make_paragraph("0.1 明胶的研究进展\t1")
+    contexts = [
+        {
+            "index": 2,
+            "elem": paragraph,
+            "text": "0.1 明胶的研究进展\t1",
+            "kind": "body",
+            "section": "toc",
+            "effective_section": "toc",
+            "module": "toc_entry",
+            "protected": False,
+        }
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_text_compact(_make_doc_root(paragraph), contexts, {}, runtime.cfg, "toc")
+
+    assert passed, issues
+
+
+def test_checker_2026_text02_accepts_toc_chapter_number_gap():
+    runtime = _checker_runtime_or_xfail()
+    paragraph = _make_paragraph("第1章 实验材料与方法\t5")
+    contexts = [
+        {
+            "index": 2,
+            "elem": paragraph,
+            "text": "第1章 实验材料与方法\t5",
+            "kind": "body",
+            "section": "toc",
+            "effective_section": "toc",
+            "module": "toc_entry",
+            "protected": False,
+        }
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_text_compact(_make_doc_root(paragraph), contexts, {}, runtime.cfg, "toc")
+
+    assert passed, issues
 
 
 def test_checker_2026_text02_detects_toc_entry_half_width_punctuation():

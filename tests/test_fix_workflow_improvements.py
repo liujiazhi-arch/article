@@ -154,6 +154,53 @@ def _inject_text_equation_layout_table(
             zf.writestr(name, payload)
 
 
+def _inject_separate_equation_number_paragraph(docx_path: Path, eq_number: str = "（1.1）") -> None:
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    m_ns = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+
+    def _w(tag: str) -> str:
+        return f"{{{w_ns}}}{tag}"
+
+    def _m(tag: str) -> str:
+        return f"{{{m_ns}}}{tag}"
+
+    with zipfile.ZipFile(docx_path, "r") as zf:
+        parts = {name: zf.read(name) for name in zf.namelist()}
+
+    root = ET.fromstring(parts["word/document.xml"])
+    body = root.find(_w("body"))
+    assert body is not None
+    sect_pr = body.find(_w("sectPr"))
+    assert sect_pr is not None
+
+    formula_p = ET.Element(_w("p"))
+    formula_p_pr = ET.SubElement(formula_p, _w("pPr"))
+    formula_jc = ET.SubElement(formula_p_pr, _w("jc"))
+    formula_jc.set(_w("val"), "center")
+    formula_run = ET.SubElement(formula_p, _w("r"))
+    omath = ET.SubElement(formula_run, _m("oMath"))
+    math_run = ET.SubElement(omath, _w("r"))
+    math_text = ET.SubElement(math_run, _w("t"))
+    math_text.text = "x"
+
+    number_p = ET.Element(_w("p"))
+    number_p_pr = ET.SubElement(number_p, _w("pPr"))
+    number_jc = ET.SubElement(number_p_pr, _w("jc"))
+    number_jc.set(_w("val"), "center")
+    number_run = ET.SubElement(number_p, _w("r"))
+    number_text = ET.SubElement(number_run, _w("t"))
+    number_text.text = eq_number
+
+    insert_at = list(body).index(sect_pr)
+    body.insert(insert_at, formula_p)
+    body.insert(insert_at + 1, number_p)
+    parts["word/document.xml"] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    with zipfile.ZipFile(docx_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, payload in parts.items():
+            zf.writestr(name, payload)
+
+
 def _inject_inline_math_into_paragraph(docx_path: Path, paragraph_text: str) -> None:
     w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     m_ns = "http://schemas.openxmlformats.org/officeDocument/2006/math"
@@ -623,7 +670,7 @@ def test_figures_scope_moves_post_figure_analysis_before_figure_block(tmp_path):
 
     assert drawing_before == "360"
     assert drawing_after in {None, "0"}
-    assert caption_line == "240"
+    assert caption_line == "360"
     assert note_line == "240"
     assert note_after == "360"
 
@@ -992,6 +1039,57 @@ def test_figures_scope_clears_borders_on_equation_layout_tables(tmp_path):
         assert border.get(qn("w:sz")) == "0"
 
 
+def test_body_scope_right_aligns_separate_equation_number_paragraphs(tmp_path):
+    source_path = Path(tmp_path) / "separate_equation_number_source.docx"
+    doc = Document()
+    doc.add_paragraph("第1章 绪论").style = doc.styles["Heading 1"]
+    doc.add_paragraph("样品溶胀率按式（1.1）计算：")
+    doc.save(source_path)
+    _inject_separate_equation_number_paragraph(source_path, "（1.1）")
+
+    assert not audit_rule_status(source_path, "EQ02", profile_path="lnu")["rule"]["passed"]
+
+    fixed_path = Path(tmp_path) / "separate_equation_number_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["body_paragraphs"],
+    )
+
+    assert audit_rule_status(fixed_path, "EQ02", profile_path="lnu")["rule"]["passed"]
+
+    with zipfile.ZipFile(fixed_path, "r") as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    number_paragraph = next(
+        p for p in root.findall(".//w:p", ns)
+        if "".join(t.text or "" for t in p.findall(".//w:t", ns)) == "（1.1）"
+    )
+    assert number_paragraph.find("w:pPr/w:jc", ns).get(qn("w:val")) == "right"
+
+
+def test_body_scope_fixes_equation_explanation_variable_subscripts(tmp_path):
+    source_path = Path(tmp_path) / "equation_explanation_source.docx"
+    doc = Document()
+    doc.add_paragraph("第1章 绪论").style = doc.styles["Heading 1"]
+    doc.add_paragraph("式中，W0为样品初始干质量，Wt为样品在浸泡t时刻质量。")
+    doc.save(source_path)
+
+    assert not audit_rule_status(source_path, "LNU_EQ05", profile_path="lnu")["rule"]["passed"]
+
+    fixed_path = Path(tmp_path) / "equation_explanation_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["body_paragraphs"],
+    )
+
+    assert audit_rule_status(fixed_path, "LNU_EQ05", profile_path="lnu")["rule"]["passed"]
+
+
 def test_figures_scope_clears_borders_on_text_equation_layout_tables(tmp_path):
     source_path = Path(tmp_path) / "text_equation_layout_table_source.docx"
     doc = Document()
@@ -1312,7 +1410,7 @@ def test_figures_scope_formats_english_caption_and_explanatory_note_separately(t
     assert fixed_english_caption.alignment == WD_ALIGN_PARAGRAPH.CENTER
     assert en_line == "240"
     assert fixed_note.text.startswith("注：图2.1(B)")
-    assert fixed_note.alignment == WD_ALIGN_PARAGRAPH.LEFT
+    assert fixed_note.alignment == WD_ALIGN_PARAGRAPH.CENTER
     assert note_before == "0"
     assert note_line == "240"
 
@@ -1548,9 +1646,37 @@ def test_toc_scope_inserts_visible_toc_without_word_field(tmp_path):
 
     assert "目  录" in texts
     assert texts.index("目  录") < texts.index("第1章 绪论")
-    assert any(text.startswith("第1章 绪论") and "待核对" in text for text in texts)
-    assert any(text.startswith("1.1") and "研究背景" in text and "待核对" in text for text in texts)
+    assert any(text.startswith("第1章 绪论") for text in texts)
+    assert any(text.startswith("1.1") and "研究背景" in text for text in texts)
+    assert not any("待核对" in text for text in texts)
     assert 'TOC \\o "1-3"' not in document_xml
+
+
+def test_toc_scope_preserves_existing_visible_toc_page_numbers(tmp_path):
+    source_path = Path(tmp_path) / "visible_toc_existing_pages_source.docx"
+    fixed_path = Path(tmp_path) / "visible_toc_existing_pages_fixed.docx"
+    doc = Document()
+    doc.add_paragraph("封面信息")
+    doc.add_paragraph("目  录")
+    doc.add_paragraph("第1章 绪论\t3")
+    doc.add_paragraph("1.1 研究背景\t4")
+    doc.add_paragraph("第1章 绪论")
+    doc.add_paragraph("1.1 研究背景")
+    doc.add_paragraph("这是正文。")
+    doc.save(source_path)
+
+    fix_thesis.fix_docx(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["toc"],
+    )
+
+    texts = [paragraph.text.strip() for paragraph in Document(fixed_path).paragraphs]
+
+    assert any(text.startswith("第1章 绪论") and text.endswith("3") for text in texts)
+    assert any(text.startswith("1.1 研究背景") and text.endswith("4") for text in texts)
+    assert not any("待核对" in text for text in texts)
 
 
 def test_fix_docx_keeps_page_break_before_reference_heading_in_default_flow(tmp_docx, tmp_path):

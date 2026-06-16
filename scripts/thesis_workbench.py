@@ -15,6 +15,7 @@ from thesis_tool.workflow import (
     build_document_diagnostics,
     build_document_normalize,
     build_document_preflight,
+    build_audit_human_reports,
     build_scoped_fix_preview,
     build_scope_plan,
     build_scope_verify,
@@ -85,6 +86,7 @@ def build_parser():
     audit_parser = subparsers.add_parser("audit", help="执行完整审查")
     audit_parser.add_argument("input_docx", help="输入 .docx 文件路径")
     add_profile_args(audit_parser)
+    audit_parser.add_argument("--report-dir", help="可选：写出学生结论报告和 AI 上下文报告的目录")
 
     preflight_parser = subparsers.add_parser("preflight", help="对野生文档做预检，先识别结构风险再决定如何修复")
     preflight_parser.add_argument("input_docx", help="输入 .docx 文件路径")
@@ -199,6 +201,15 @@ def main():
             return 0
 
         if args.command == "audit":
+            report_paths = None
+            if args.report_dir:
+                report_payload = build_audit_human_reports(
+                    args.input_docx,
+                    profile_path=args.profile,
+                    strict_profile=args.strict_profile,
+                    output_dir=args.report_dir,
+                )
+                report_paths = report_payload["report_paths"]
             results, score, _report, runtime = audit_thesis.audit_docx_with_runtime(
                 args.input_docx,
                 profile_path=args.profile,
@@ -218,6 +229,12 @@ def main():
             print(f"未通过规则: {len(failed)}")
             for result in failed:
                 print(f"- {result['id']} {result['name']}")
+                for issue in result.get("issues") or []:
+                    print(f"  - {issue}")
+            if report_paths:
+                print(f"技术报告: {report_paths['audit_report']}")
+                print(f"结论报告: {report_paths['student_report']}")
+                print(f"AI上下文: {report_paths['ai_review_context']}")
             return 0
 
         if args.command == "preflight":
@@ -322,7 +339,7 @@ def main():
             for line in _render_post_verify_notice(verification):
                 print(line)
             if args.toc:
-                print("提示: 目录为 Word 域，若页码未刷新，请在 Word 中 Ctrl+A 后按 F9 更新。")
+                print("提示: 已写入可见自动目录域结果；如后续继续改正文分页，可在 Word/WPS 中更新域后复核页码。")
             return 0
 
         if args.command == "verify":

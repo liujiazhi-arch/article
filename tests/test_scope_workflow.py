@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import audit_thesis
 from docx import Document
@@ -21,6 +22,8 @@ from thesis_tool.workflow import (
     render_document_preflight_compact,
     render_scope_plan,
     render_scope_verify,
+    _build_scope_radar_summary,
+    _scope_status,
 )
 
 from .conftest import RULE_MUTATORS, _add_heading, _set_heading, audit_rule_status, make_compliant_doc
@@ -94,7 +97,7 @@ def test_scope_plan_groups_failed_rules_by_scope(tmp_docx):
     scopes = {scope["id"]: scope for scope in plan["scopes"]}
 
     assert "H02" in scopes["headings"]["failed_rules"]
-    assert scopes["headings"]["status"] == "autofix_ready"
+    assert scopes["headings"]["status"] == "mixed"
     assert scopes["headings"]["failed_count"] >= 1
 
     assert "KW01" in scopes["abstract"]["failed_rules"]
@@ -116,8 +119,9 @@ def test_scope_plan_exposes_action_buckets(tmp_docx):
     plan = build_scope_plan(str(docx_path))
     scopes = {scope["id"]: scope for scope in plan["scopes"]}
 
-    assert scopes["headings"]["status"] == "autofix_ready"
+    assert scopes["headings"]["status"] == "mixed"
     assert scopes["headings"]["autofixable_count"] >= 1
+    assert scopes["headings"]["manual_review_count"] >= 1
     assert scopes["headings"]["unsupported_count"] == 0
 
     assert scopes["abstract"]["status"] == "manual_review"
@@ -128,6 +132,107 @@ def test_scope_plan_exposes_action_buckets(tmp_docx):
     rendered = render_scope_plan(plan)
     assert "可自动修复" in rendered
     assert "当前不支持" in rendered
+
+
+def test_scope_plan_exposes_real_scope_radar_summary(tmp_docx):
+    docx_path = _build_multi_violation_doc(
+        tmp_docx,
+        filename="scope_plan_radar_summary.docx",
+        rule_ids=("H02", "KW01"),
+    )
+
+    plan = build_scope_plan(str(docx_path))
+    summary = plan["scope_radar_summary"]
+    scopes = plan["scopes"]
+
+    assert summary["scope_count"] == len(scopes)
+    assert summary["autofixable_scope_count"] == sum(1 for scope in scopes if scope["autofixable_count"] > 0)
+    assert summary["manual_review_count"] == sum(scope["manual_review_count"] for scope in scopes)
+    assert summary["unsupported_count"] == sum(scope["unsupported_count"] for scope in scopes)
+    assert summary["manual_confirmation_count"] == sum(
+        scope["manual_review_count"] + scope["unsupported_count"] for scope in scopes
+    )
+    assert summary["failed_scope_count"] == sum(1 for scope in scopes if scope["failed_count"] > 0)
+    assert summary["status_counts"]["autofix_ready"] >= 1
+    assert summary["status_counts"]["manual_review"] >= 1
+
+
+def test_scope_radar_summary_keeps_manual_review_and_unsupported_counts_separate():
+    summary = _build_scope_radar_summary(
+        [
+            {
+                "status": "manual_review",
+                "failed_count": 1,
+                "autofixable_count": 0,
+                "manual_review_count": 1,
+                "unsupported_count": 0,
+                "unknown_count": 0,
+            },
+            {
+                "status": "unsupported",
+                "failed_count": 1,
+                "autofixable_count": 0,
+                "manual_review_count": 0,
+                "unsupported_count": 1,
+                "unknown_count": 0,
+            },
+        ]
+    )
+
+    assert summary["manual_review_count"] == 1
+    assert summary["unsupported_count"] == 1
+    assert summary["manual_confirmation_count"] == 2
+
+
+def test_scope_status_uses_mixed_when_autofix_scope_still_needs_manual_confirmation():
+    assert _scope_status(
+        [
+            {"action": "autofix"},
+            {"action": "manual_review"},
+        ]
+    ) == "mixed"
+    assert _scope_status(
+        [
+            {"action": "autofix"},
+            {"action": "unsupported"},
+        ]
+    ) == "mixed"
+
+
+def test_scope_plan_all_scope_includes_unscoped_failures(monkeypatch, tmp_path):
+    source_path = Path(tmp_path) / "scope_plan_all_unscoped.docx"
+    Document().save(source_path)
+    runtime = SimpleNamespace(
+        rule_definitions=[
+            ("H02", "二级标题格式", "important"),
+            ("UNSCOPED_X", "未来未归类规则", "minor"),
+        ],
+        profile_id="lnu-checker-2026",
+        requested_profile="lnu",
+        fallback_used=False,
+    )
+
+    def fake_audit_docx_with_runtime(*_args, **_kwargs):
+        return (
+            [
+                {"id": "H02", "name": "二级标题格式", "passed": False, "issues": [], "affected": []},
+                {"id": "UNSCOPED_X", "name": "未来未归类规则", "passed": False, "issues": [], "affected": []},
+            ],
+            98,
+            "fake report",
+            runtime,
+        )
+
+    monkeypatch.setattr(audit_thesis, "audit_docx_with_runtime", fake_audit_docx_with_runtime)
+
+    default_plan = build_scope_plan(str(source_path), profile_path="lnu")
+    all_plan = build_scope_plan(str(source_path), profile_path="lnu", scopes=["all"])
+
+    assert default_plan["failed_count"] == 2
+    assert [item["id"] for item in default_plan["unscoped_failed"]] == ["UNSCOPED_X"]
+    assert all_plan["failed_count"] == default_plan["failed_count"]
+    assert [item["id"] for item in all_plan["unscoped_failed"]] == ["UNSCOPED_X"]
+    assert all_plan["selected_scopes"] is None
 
 
 def test_scoped_fix_only_repairs_selected_scope(tmp_docx, tmp_path):
@@ -731,12 +836,15 @@ def test_build_scope_verify_marks_field_only_toc_as_render_check_required(tmp_pa
 
     verification = build_scope_verify(str(source_path), profile_path="lnu", scopes=["toc"])
 
-    assert verification["overall_status"] == "verified"
-    assert verification["readiness"] == "render-check-required"
+    assert verification["overall_status"] == "needs_fix"
+    assert verification["readiness"] == "needs-fix"
     assert verification["render_check_rule_ids"] == ["TOC_REFRESH_REQUIRED"]
+    toc_scope = next(scope for scope in verification["scopes"] if scope["id"] == "toc")
+    assert toc_scope["failed_rules"] == ["LNU_TOC01"]
+    assert any("不应加粗" in issue for item in toc_scope["failed_items"] for issue in item["issues"])
 
     rendered = render_scope_verify(verification)
-    assert "结果: 所选范围结构规则已通过，但仍需做渲染复核。" in rendered
+    assert "验证状态: needs_fix" in rendered
     assert "TOC_REFRESH_REQUIRED" in rendered
 
 

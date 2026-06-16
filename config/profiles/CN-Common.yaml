@@ -62,7 +62,7 @@ rules:
     module: page
     scope: all
     severity: minor
-    check_level: Manual
+    check_level: Semi
     description: "页眉内容（奇偶页分置）"
     expected: "奇数页：章标题；偶数页：论文题目（各校不同）"
     method: rendered-layout
@@ -469,8 +469,8 @@ rules:
     expected_pattern: "\\(\\d+-\\d+\\)"
     method: docx-structure
     evidence: "公式段落末尾run文本，右制表位"
-    notes: "能检测编号格式，但编号与公式的对应关系需人工确认"
-    fix: null
+    notes: "能检测编号格式与编号段对齐；仅把已存在的编号段右对齐，不移动公式对象"
+    fix: "fix_equation_number_alignment()"
     source: CN-Common
 
   - id: EQ03
@@ -482,8 +482,8 @@ rules:
     expected_pattern: "式\\(\\d+-\\d+\\)"
     method: docx-structure
     evidence: "正文文本正则匹配"
-    notes: "能找到引用位置，但是否与公式编号匹配需人工核对"
-    fix: null
+    notes: "只自动修复同一 run 内的明确格式错误；跨 run 引用和语义对应关系需人工核对"
+    fix: "fix_equation_reference_text()"
     source: CN-Common
 
   - id: EQ04
@@ -620,7 +620,7 @@ rules:
     method: docx-structure
     evidence: "参考文献段落文本正则匹配"
     notes: "第一阶段只检结构，不做GB/T 7714深度语义匹配"
-    fix: null
+    fix: "fix_reference_paragraph(ref_use_tab=true)"
     source: CN-Common
 
   - id: REF01

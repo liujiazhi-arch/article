@@ -52,7 +52,7 @@ from sections._xml_helpers import (
     table_row_cant_split_enabled as _table_row_cant_split_enabled,
 )
 from thesis_rules.audit_checkers import *
-from thesis_rules.audit_common import _is_toc_entry_style, _is_toc_heading_style, check_heading_num_space
+from thesis_rules.audit_common import _caption_title_runs, _is_toc_entry_style, _is_toc_heading_style, check_heading_num_space
 from thesis_rules.audit_common import _has_half_width_punct_in_cjk_context
 from thesis_rules.audit_checkers import (
     _needs_cjk_latin_space,
@@ -69,6 +69,7 @@ _CAPTION_SOFT_BREAK_ALLOWED_MODULES = {
     "appendix_caption_note",
 }
 _UNIT_RE = re.compile(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)([A-Za-z]{1,4})(?![0-9A-Za-z])")
+_CELSIUS_RE = re.compile(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)(℃)")
 _KNOWN_UNITS = {
     "g", "mg", "kg",
     "L", "mL",
@@ -78,7 +79,10 @@ _KNOWN_UNITS = {
     "Hz", "kHz", "MHz",
     "kJ", "kDa", "Da",
     "rpm",
+    "℃",
 }
+_EQ_EXPLANATION_PREFIXES = ("其中", "式中")
+_EQ_EXPLANATION_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9/])([A-Za-zΑ-Ωα-ωφΦ](?:\d+|[tr]))(?![A-Za-z0-9])")
 _TITLE_CASE_SMALL_WORDS = {
     "a",
     "an",
@@ -105,8 +109,109 @@ _TITLE_CASE_SMALL_WORDS = {
     "without",
 }
 
+def _run_is_subscript(run_elem):
+    vert = run_elem.find("w:rPr/w:vertAlign", NSMAP)
+    return vert is not None and get_w_attr(vert, "val") == "subscript"
+
+
+def _equation_explanation_run_items(p_elem):
+    items = []
+    offset = 0
+    for run_elem in p_elem.findall("w:r", NSMAP):
+        text = get_run_text(run_elem)
+        if not text:
+            continue
+        items.append(
+            {
+                "run": run_elem,
+                "text": text,
+                "start": offset,
+                "end": offset + len(text),
+            }
+        )
+        offset += len(text)
+    return items
+
+
+def _run_item_at_offset(items, offset):
+    for item in items:
+        if item["start"] <= offset < item["end"]:
+            return item
+    return None
+
+
+def _paragraph_evidence(ctx, tokens):
+    return {
+        "paragraph_index": ctx["index"],
+        "section": ctx.get("section"),
+        "module": ctx.get("module"),
+        "kind": ctx.get("kind"),
+        "text": ctx.get("text", ""),
+        "tokens": tokens,
+    }
+
+
+def _equation_explanation_bad_tokens(p_elem):
+    paragraph_text = get_paragraph_text(p_elem).strip()
+    if not paragraph_text.startswith(_EQ_EXPLANATION_PREFIXES):
+        return []
+    items = _equation_explanation_run_items(p_elem)
+    if not items:
+        return []
+    bad_tokens = []
+    compact = "".join(item["text"] for item in items)
+    for match in _EQ_EXPLANATION_TOKEN_RE.finditer(compact):
+        token = match.group(1)
+        suffix_start = match.start(1) + 1
+        suffix_end = match.end(1)
+        suffix_items = []
+        for offset in range(suffix_start, suffix_end):
+            item = _run_item_at_offset(items, offset)
+            if item is not None and item not in suffix_items:
+                suffix_items.append(item)
+        if not suffix_items or any(not _run_is_subscript(item["run"]) for item in suffix_items):
+            bad_tokens.append(
+                {
+                    "text": token,
+                    "bad_part": token[1:],
+                    "actual": "baseline",
+                    "expected": "subscript",
+                    "start": match.start(1),
+                    "end": match.end(1),
+                }
+            )
+    return bad_tokens
+
+
+def check_lnu_eq05(document_root, contexts, style_map, cfg):
+    """LNU_EQ05: 公式说明段中的变量后缀应使用下标。"""
+    bad_positions = []
+    samples = []
+    evidence = []
+    for ctx in contexts:
+        if ctx.get("in_table") or ctx.get("kind") != "body":
+            continue
+        elem = ctx.get("elem")
+        if elem is None:
+            continue
+        bad_tokens = _equation_explanation_bad_tokens(elem)
+        if not bad_tokens:
+            continue
+        bad_positions.append(ctx["index"])
+        if len(samples) < 5:
+            shown = "、".join(token["text"] for token in bad_tokens[:4])
+            samples.append(f"第{ctx['index']}段公式说明变量后缀未设为下标：{shown}")
+        evidence.append(_paragraph_evidence(ctx, bad_tokens))
+    if bad_positions:
+        issues = [f"{len(bad_positions)} 个公式说明段存在变量下标格式问题。"]
+        issues.extend(samples)
+        return False, issues, summarize_positions(bad_positions), evidence
+    return True, [], "全部公式说明变量下标"
+
 def check_lnu_ack(document_root, contexts, style_map, cfg):
     ack_font = cfg.get("ack_font")
+    ack_size = cfg.get("ack_size", 24) or 24
+    ack_line = cfg.get("ack_line", 360) or 360
     ack_required = bool(cfg.get("acknowledgement_required"))
     if not ack_font and not ack_required:
         return True, [], ""
@@ -131,26 +236,41 @@ def check_lnu_ack(document_root, contexts, style_map, cfg):
         if ctx["kind"] != "body":
             continue
 
+        para_issues = []
         for run_elem in ctx["elem"].findall(".//w:r", NSMAP):
             run_text = get_run_text(run_elem)
             if not run_text.strip():
                 continue
-            r_fonts = run_elem.find("w:rPr/w:rFonts", NSMAP)
-            east_asia = get_w_attr(r_fonts, "eastAsia")
+            east_asia = get_effective_run_font(run_elem, style_map, ctx["elem"], "eastAsia")
+            ascii_font = get_effective_run_font(run_elem, style_map, ctx["elem"], "ascii")
+            hansi_font = get_effective_run_font(run_elem, style_map, ctx["elem"], "hAnsi")
+            size_val = get_effective_run_size(run_elem, style_map, ctx["elem"])
             if east_asia != ack_font:
-                bad_positions.append(ctx["index"])
-                if len(samples) < 3:
-                    samples.append(
-                        f"第{ctx['index']}段致谢正文'{excerpt(ctx['text'])}'字体为 {east_asia}，应为 {ack_font}"
-                    )
+                para_issues.append(f"eastAsia字体={east_asia}，应为{ack_font}")
+            if ascii_font and ascii_font != "Times New Roman":
+                para_issues.append(f"ascii字体={ascii_font}")
+            if hansi_font and hansi_font != "Times New Roman":
+                para_issues.append(f"hAnsi字体={hansi_font}")
+            if size_val is not None and size_val != ack_size:
+                para_issues.append(f"字号={size_val}，应为{ack_size}")
+            if para_issues:
                 break
+
+        line_val = get_paragraph_line_spacing(ctx["elem"], style_map)
+        if line_val is not None and abs(line_val - ack_line) > 20:
+            para_issues.append(f"行距={line_val}，应为{ack_line}")
+
+        if para_issues:
+            bad_positions.append(ctx["index"])
+            if len(samples) < 3:
+                samples.append(f"第{ctx['index']}段 {'; '.join(para_issues[:2])}")
 
     if not found_ack_heading:
         if ack_required:
             return False, ["文档缺少致谢章节。"], "致谢"
         return True, [], "未发现致谢章节"
     if bad_positions:
-        issues = [f"{len(bad_positions)} 个致谢正文段落字体不是 {ack_font}。"]
+        issues = [f"{len(bad_positions)} 个致谢正文段落格式不符合要求。"]
         issues.extend(samples)
         return False, issues, summarize_positions(bad_positions)
     return True, [], "全部致谢正文"
@@ -233,7 +353,7 @@ def check_lnu_f06(document_root, contexts, style_map, cfg):
     issues = []
     affected_positions = []
 
-    def _check_caption_like_paragraph(ctx, label, expected_line, expected_alignment):
+    def _check_caption_like_paragraph(ctx, label, expected_line, expected_alignment, *, title_only=False):
         problems = []
         p_elem = ctx["elem"]
         if p_elem.find("w:pPr/w:numPr", NSMAP) is not None:
@@ -247,11 +367,13 @@ def check_lnu_f06(document_root, contexts, style_map, cfg):
                 problems.append("应顶格左对齐")
             if first_line not in {None, "0"}:
                 problems.append(f"首行缩进应为0，实际={first_line}")
-        spacing = p_elem.find("w:pPr/w:spacing", NSMAP)
-        line_val = parse_int(get_w_attr(spacing, "line"))
+        line_val = get_paragraph_line_spacing(p_elem, style_map)
         if line_val != expected_line:
             problems.append(f"行距应为{expected_line}，实际={line_val}")
-        for run_elem in get_non_empty_runs(p_elem):
+        run_elems = _caption_title_runs(p_elem) if title_only else get_non_empty_runs(p_elem)
+        for run_elem in run_elems:
+            if not get_run_text(run_elem).strip():
+                continue
             east_asia = get_effective_run_font(run_elem, style_map, p_elem, attr_name="eastAsia")
             ascii_font = get_effective_run_font(run_elem, style_map, p_elem, attr_name="ascii")
             size = get_effective_run_size(run_elem, style_map, p_elem)
@@ -267,7 +389,7 @@ def check_lnu_f06(document_root, contexts, style_map, cfg):
     for ctx in contexts:
         if ctx.get("module") not in {"body_caption", "appendix_caption"}:
             continue
-        _check_caption_like_paragraph(ctx, "图题/表题", expected_caption_line, "center")
+        _check_caption_like_paragraph(ctx, "图题/表题", expected_caption_line, "center", title_only=True)
 
     for ctx in contexts:
         if ctx.get("module") not in CAPTION_EN_MODULES:
@@ -277,7 +399,7 @@ def check_lnu_f06(document_root, contexts, style_map, cfg):
     for ctx in contexts:
         if ctx.get("module") not in CAPTION_NOTE_MODULES:
             continue
-        _check_caption_like_paragraph(ctx, "图注/表注", expected_note_line, "left")
+        _check_caption_like_paragraph(ctx, "图注/表注", expected_note_line, "center")
 
     if issues:
         header = f"{len(affected_positions)} 个图题、英文题名或图注版式不符合辽大要求。"
@@ -288,59 +410,135 @@ def check_lnu_ref01(document_root, contexts, style_map, cfg):
     """LNU_REF01: 参考文献标点应全用英文半角（不含全角标点）"""
     fullwidth = re.compile(r"[。，：；！？]")
     issues = []
-    in_ref = False
-    for ctx in contexts:
+    evidence = []
+    for ctx in iter_reference_section_contexts(contexts, skip_empty=True):
         text = ctx.get("text", "").strip()
-        if re.match(r"^参考文献\s*$", text):
-            in_ref = True
-            continue
-        if in_ref and re.match(r"^\[", text):
-            m = fullwidth.search(text)
-            if m:
-                issues.append(text[:50])
-        elif in_ref and text and not re.match(r"^\[", text):
-            in_ref = False
+        matches = list(fullwidth.finditer(text))
+        if matches:
+            issues.append(text[:50])
+            evidence.append(
+                _paragraph_evidence(
+                    ctx,
+                    [
+                        {
+                            "text": match.group(0),
+                            "bad_part": match.group(0),
+                            "actual": "fullwidth_punctuation",
+                            "expected": "halfwidth_punctuation",
+                            "start": match.start(),
+                            "end": match.end(),
+                        }
+                        for match in matches
+                    ],
+                )
+            )
     passed = len(issues) == 0
     affected = "; ".join(issues[:3]) if issues else ""
-    return passed, issues, affected
+    if passed:
+        return passed, issues, affected
+    return passed, issues, affected, evidence
 
 def check_lnu_ref02(document_root, contexts, style_map, cfg):
     """LNU_REF02: 参考文献编号格式按 profile 要求处理。"""
     use_tab = bool(cfg.get("ref_use_tab", False))
     expect_space = bool(cfg.get("ref_number_trailing_space", not use_tab))
     issues = []
-    in_ref = False
-    for ctx in contexts:
+    evidence = []
+    for ctx in iter_reference_section_contexts(contexts, skip_empty=True):
         text = ctx.get("text", "").strip()
-        if re.match(r"^参考文献\s*$", text):
-            in_ref = True
+        # 仅对以 [ 开头的条目校验编号格式，续行段落跳过
+        if not re.match(r"^\[", text):
             continue
-        if in_ref and re.match(r"^\[", text):
-            number_prefix = parse_reference_number_prefix(text)
-            if number_prefix is None:
+        number_prefix = parse_reference_number_prefix(text)
+        token = None
+        if number_prefix is None:
+            issues.append(f"格式异常: {text[:40]}")
+            token = {
+                "text": text[: min(len(text), 8)],
+                "bad_part": text[: min(len(text), 8)],
+                "actual": "invalid_reference_number",
+                "expected": "plain_reference_number",
+                "start": 0,
+                "end": min(len(text), 8),
+            }
+        elif number_prefix.has_leading_zero:
+            issues.append(f"编号补零: {text[:40]}")
+            number_text = f"[{number_prefix.number_text}]"
+            token = {
+                "text": number_text,
+                "bad_part": number_prefix.number_text,
+                "actual": "leading_zero",
+                "expected": "plain_reference_number",
+                "start": len(number_prefix.leading),
+                "end": len(number_prefix.leading) + len(number_text),
+            }
+        elif not is_plain_reference_number_prefix(number_prefix):
+            issues.append(f"格式异常: {text[:40]}")
+            number_text = f"[{number_prefix.number_text}]"
+            token = {
+                "text": number_text,
+                "bad_part": number_text,
+                "actual": "invalid_reference_number",
+                "expected": "plain_reference_number",
+                "start": len(number_prefix.leading),
+                "end": len(number_prefix.leading) + len(number_text),
+            }
+        elif use_tab:
+            tab_min = cfg.get("ref_tab_min", cfg.get("ref_hanging", 420))
+            has_valid_tab_stop = has_valid_reference_tab_stop(ctx["elem"], tab_min)
+            has_number_tab = reference_number_has_tab_separator(text) or paragraph_has_reference_tab(ctx["elem"])
+            if not has_number_tab:
+                issues.append(f"编号后应使用制表符: {text[:40]}")
+                number_text = f"[{number_prefix.number_text}]"
+                token = {
+                    "text": number_text + number_prefix.separator,
+                    "bad_part": number_prefix.separator or "",
+                    "actual": "missing_tab_after_reference_number",
+                    "expected": "tab_after_reference_number",
+                    "start": len(number_prefix.leading),
+                    "end": len(number_prefix.leading) + len(number_text) + len(number_prefix.separator),
+                }
+            elif not has_valid_tab_stop:
+                issues.append(f"缺少有效制表位: {text[:40]}")
+                number_text = f"[{number_prefix.number_text}]"
+                token = {
+                    "text": number_text,
+                    "bad_part": number_text,
+                    "actual": "missing_valid_tab_stop",
+                    "expected": "valid_reference_tab_stop",
+                    "start": len(number_prefix.leading),
+                    "end": len(number_prefix.leading) + len(number_text),
+                }
+        elif expect_space:
+            if not reference_number_has_space_separator(text):
                 issues.append(f"格式异常: {text[:40]}")
-            elif number_prefix.has_leading_zero:
-                issues.append(f"编号补零: {text[:40]}")
-            elif not is_plain_reference_number_prefix(number_prefix):
-                issues.append(f"格式异常: {text[:40]}")
-            elif use_tab:
-                tab_min = cfg.get("ref_tab_min", cfg.get("ref_hanging", 420))
-                has_valid_tab_stop = has_valid_reference_tab_stop(ctx["elem"], tab_min)
-                has_number_tab = reference_number_has_tab_separator(text) or paragraph_has_reference_tab(ctx["elem"])
-                if not has_number_tab:
-                    issues.append(f"编号后应使用制表符: {text[:40]}")
-                elif not has_valid_tab_stop:
-                    issues.append(f"缺少有效制表位: {text[:40]}")
-            elif expect_space:
-                if not reference_number_has_space_separator(text):
-                    issues.append(f"格式异常: {text[:40]}")
-            elif not reference_number_has_compact_separator(text):
-                issues.append(f"格式异常: {text[:40]}")
-        elif in_ref and text and not re.match(r"^\[", text):
-            in_ref = False
+                number_text = f"[{number_prefix.number_text}]"
+                token = {
+                    "text": number_text + number_prefix.separator,
+                    "bad_part": number_prefix.separator or "",
+                    "actual": "invalid_reference_separator",
+                    "expected": "space_after_reference_number",
+                    "start": len(number_prefix.leading),
+                    "end": len(number_prefix.leading) + len(number_text) + len(number_prefix.separator),
+                }
+        elif not reference_number_has_compact_separator(text):
+            issues.append(f"格式异常: {text[:40]}")
+            number_text = f"[{number_prefix.number_text}]"
+            token = {
+                "text": number_text + number_prefix.separator,
+                "bad_part": number_prefix.separator,
+                "actual": "invalid_reference_separator",
+                "expected": "compact_reference_number",
+                "start": len(number_prefix.leading),
+                "end": len(number_prefix.leading) + len(number_text) + len(number_prefix.separator),
+            }
+        if token:
+            evidence.append(_paragraph_evidence(ctx, [token]))
     passed = len(issues) == 0
     affected = "; ".join(issues[:3]) if issues else ""
-    return passed, issues, affected
+    if passed:
+        return passed, issues, affected
+    return passed, issues, affected, evidence
 
 def check_lnu_tb02(document_root, contexts, style_map, cfg):
     """LNU_TB02: 表格内容字号应为宋体五号（21 half-points）"""
@@ -392,6 +590,9 @@ def check_lnu_abs01(document_root, contexts, style_map, cfg):
             line_val = get_paragraph_line_spacing(p, style_map)
             if line_val is not None and abs(line_val - expected_line) > 20:
                 issues.append(f"「摘要」标题行距应为{expected_line}，实际={line_val}")
+            align = get_paragraph_alignment(p, style_map)
+            if align != "center":
+                issues.append(f"摘要标题应居中，实际={align or 'left(默认)'}")
     if not issues:
         return True, [], "摘要标题"
     return False, issues, "摘要标题段落"
@@ -439,6 +640,8 @@ def check_lnu_abs03(document_root, contexts, style_map, cfg):
         return True, [], "英文摘要区段缺失，已跳过"
 
     issues = []
+    expected_size = cfg.get("abstract_en_body_size", 24) or 24
+    expected_font = cfg.get("abstract_en_body_ascii_font", "Times New Roman") or "Times New Roman"
     expected_line = cfg.get("abstract_en_body_line") or 240
     for p in paras:
         runs = p.findall(".//w:r", NSMAP)
@@ -451,12 +654,12 @@ def check_lnu_abs03(document_root, contexts, style_map, cfg):
             if not get_run_text(r).strip():
                 continue
             sz_val = get_effective_run_size(r, style_map, p)
-            if sz_val is not None and sz_val != 24:
-                issues.append(f"英文摘要正文字号应为小四(24 half-pts)，实际={sz_val}，段落：{txt[:30]}")
+            if sz_val is not None and sz_val != expected_size:
+                issues.append(f"英文摘要正文字号应为小四({expected_size} half-pts)，实际={sz_val}，段落：{txt[:30]}")
                 break
             ascii_font = get_effective_run_font(r, style_map, p, "ascii")
-            if ascii_font is not None and ascii_font != "Times New Roman":
-                issues.append(f"英文摘要正文字体应为 Times New Roman，实际={ascii_font}，段落：{txt[:30]}")
+            if ascii_font is not None and ascii_font != expected_font:
+                issues.append(f"英文摘要正文字体应为 {expected_font}，实际={ascii_font}，段落：{txt[:30]}")
                 break
         line_val = get_paragraph_line_spacing(p, style_map)
         if line_val is not None and abs(line_val - expected_line) > 20:
@@ -517,6 +720,7 @@ def check_lnu_s03(document_root, contexts, style_map, cfg):
 def check_lnu_title01(document_root, contexts, style_map, cfg):
     """LNU_TITLE01: 摘要/目录/序言/致谢标题两字间应有两格"""
     issues = []
+    evidence = []
     for ctx in contexts:
         paragraph_kind = ctx.get("kind")
         if paragraph_kind not in ("h1", "h2", "h3", "h4"):
@@ -524,18 +728,35 @@ def check_lnu_title01(document_root, contexts, style_map, cfg):
         text = (ctx.get("text") or "").strip()
         if is_lnu_title01_single_form(text):
             issues.append(f"「{text}」标题两字间应有两个空格，如「摘  要」")
-    return (len(issues) == 0), issues, f"发现{len(issues)}处"
+            evidence.append(
+                _paragraph_evidence(
+                    ctx,
+                    [
+                        {
+                            "text": text,
+                            "bad_part": text,
+                            "actual": "single_form_title",
+                            "expected": "two_spaces_between_title_chars",
+                            "start": 0,
+                            "end": len(text),
+                        }
+                    ],
+                )
+            )
+    if not issues:
+        return True, issues, "发现0处"
+    return False, issues, f"发现{len(issues)}处", evidence
 
 def check_lnu_tb03(document_root, contexts, style_map, cfg):
-    """LNU_TB03: 表格内容应为1.5倍行距"""
+    """LNU_TB03: 表格内容应为单倍行距"""
     issues = []
-    expected_line = parse_int((cfg or {}).get("table_cell_line")) or parse_int((cfg or {}).get("body_line")) or 360
+    expected_line = parse_int((cfg or {}).get("table_cell_line")) or 240
     for tbl in document_root.findall(".//w:tbl", NSMAP):
         for cell in tbl.findall(".//w:tc", NSMAP):
             for p in cell.findall(".//w:p", NSMAP):
                 line_val = get_paragraph_line_spacing(p, style_map)
                 if line_val and line_val != expected_line:
-                    issues.append(f"表格内容行距应为1.5倍({expected_line})，实际 line={line_val}")
+                    issues.append(f"表格内容行距应为单倍({expected_line})，实际 line={line_val}")
     return (len(issues) == 0), issues, f"发现{len(issues)}处"
 
 def check_lnu_tb04(document_root, contexts, style_map, cfg):
@@ -745,13 +966,13 @@ def check_lnu_fmt02(document_root, contexts, style_map, cfg):
     return True, [], "图片均为嵌入型且表格无环绕"
 
 def check_lnu_unit01(document_root, contexts, style_map, cfg):
-    """LNU_UNIT01: 正文数字与单位间应有空格（%℃除外）"""
+    """LNU_UNIT01: 正文数字与单位、℃之间应有半角空格。"""
     issues = []
     for ctx in contexts:
         if ctx.get("kind") != "body":
             continue
         text = ctx.get("text", "")
-        for m in _UNIT_RE.finditer(text):
+        for m in list(_UNIT_RE.finditer(text)) + list(_CELSIUS_RE.finditer(text)):
             unit = m.group(2)
             if unit in _KNOWN_UNITS:
                 snippet = text[max(0, m.start() - 5):m.end() + 5]
@@ -776,12 +997,16 @@ def check_lnu_ref03(document_root, contexts, style_map, cfg):
             issues.append(f"参考文献段前应为0，实际={before_val}")
         if after_val not in (None, 0):
             issues.append(f"参考文献段后应为0，实际={after_val}")
-        jc = p.find("w:pPr/w:jc", NSMAP)
-        if get_w_attr(jc, "val") != "both":
+        jc_val = get_paragraph_alignment(p, style_map)
+        if jc_val != "both":
             issues.append("参考文献条目应设置为两端对齐。")
         suppress_auto_hyphens = p.find("w:pPr/w:suppressAutoHyphens", NSMAP)
-        suppress_val = get_w_attr(suppress_auto_hyphens, "val")
-        if suppress_auto_hyphens is None or suppress_val in {"0", "false", "False", "off"}:
+        suppress_val = get_w_attr(suppress_auto_hyphens, "val") if suppress_auto_hyphens is not None else None
+        if suppress_auto_hyphens is None:
+            p_style = get_w_attr(p.find("w:pPr/w:pStyle", NSMAP), "val")
+            if p_style and p_style in style_map:
+                suppress_val = style_map[p_style].get("suppressAutoHyphens")
+        if (suppress_auto_hyphens is None and suppress_val is None) or suppress_val in {"0", "false", "False", "off"}:
             issues.append("参考文献条目应禁用自动断字。")
         for run in p.findall(".//w:r", NSMAP):
             if not get_run_text(run).strip():
@@ -892,8 +1117,28 @@ def check_lnu_ref06(document_root, contexts, style_map, cfg):
     findings = _collect_reference_style_findings(contexts)
     title_styles = {finding.title_style for finding in findings if finding.title_style is not None}
     journal_styles = {finding.journal_style for finding in findings if finding.journal_style is not None}
+    target_title_style = (cfg or {}).get("reference_title_case_style")
+    target_journal_style = (cfg or {}).get("reference_journal_name_style")
     issues = []
     affected_positions = set()
+
+    if target_title_style in {"sentence_case", "title_case"}:
+        expected_style = "sentence case" if target_title_style == "sentence_case" else "Title Case"
+        mismatches = [
+            finding
+            for finding in findings
+            if finding.title_style is not None and finding.title_style != expected_style
+        ]
+        if mismatches:
+            issues.append(
+                f"题名大小写目标风格为 {expected_style}，发现不符合目标风格的英文题名。"
+                "本工具只报告，不自动改写专有名词、缩写、物种名或化学名。"
+            )
+            for finding in mismatches[:6]:
+                affected_positions.add(finding.index)
+                issues.append(
+                    f"  [{finding.number}] 题名「{finding.title}」；当前判断：{finding.title_style}。"
+                )
 
     if len(title_styles) > 1:
         title_items = [finding for finding in findings if finding.title_style is not None]
@@ -906,6 +1151,24 @@ def check_lnu_ref06(document_root, contexts, style_map, cfg):
             issues.append(
                 f"  [{finding.number}] 题名「{finding.title}」；当前判断：{finding.title_style}。"
             )
+
+    if target_journal_style in {"full", "abbreviated"}:
+        expected_journal_style = "全称" if target_journal_style == "full" else "缩写"
+        mismatches = [
+            finding
+            for finding in findings
+            if finding.journal_style is not None and finding.journal_style != expected_journal_style
+        ]
+        if mismatches:
+            issues.append(
+                f"期刊名目标风格为{expected_journal_style}，发现不符合目标风格的期刊名。"
+                "期刊名全称/缩写转换需人工或可靠缩写库确认。"
+            )
+            for finding in mismatches[:6]:
+                affected_positions.add(finding.index)
+                issues.append(
+                    f"  [{finding.number}] 期刊名「{finding.journal}」；当前判断：{finding.journal_style}。"
+                )
 
     if len(journal_styles) > 1:
         journal_items = [finding for finding in findings if finding.journal_style is not None]
@@ -978,12 +1241,41 @@ def check_lnu_tb01(document_root, contexts, style_map, cfg):
     issues = []
     OUTER_MIN, OUTER_MAX = 14, 22
     INNER_MIN, INNER_MAX = 4, 10
+
+    def _cell_border_ok(cell, side, min_size, max_size):
+        border = cell.find(f"w:tcPr/w:tcBorders/w:{side}", NSMAP)
+        if border is None:
+            return False
+        val = get_w_attr(border, "val")
+        if val in (None, "none", "nil"):
+            return False
+        sz_val = parse_int(get_w_attr(border, "sz"))
+        return sz_val is None or min_size <= sz_val <= max_size
+
+    def _any_cell_border_ok(cells, side, min_size, max_size):
+        return any(_cell_border_ok(cell, side, min_size, max_size) for cell in cells)
+
     tbl_count = 0
     for tbl in get_non_equation_layout_tables(document_root):
         tbl_count += 1
         tbl_borders = tbl.find("w:tblPr/w:tblBorders", NSMAP)
         if tbl_borders is None:
-            issues.append(f"第{tbl_count}个表格缺少边框定义")
+            rows = tbl.findall(".//w:tr", NSMAP)
+            if not rows:
+                issues.append(f"第{tbl_count}个表格无行")
+                continue
+
+            first_row_cells = rows[0].findall(".//w:tc", NSMAP)
+            last_row_cells = rows[-1].findall(".//w:tc", NSMAP) if len(rows) > 1 else first_row_cells
+
+            has_top = _any_cell_border_ok(first_row_cells, "top", OUTER_MIN, OUTER_MAX)
+            has_header_separator = _any_cell_border_ok(first_row_cells, "bottom", INNER_MIN, INNER_MAX)
+            has_bottom = _any_cell_border_ok(last_row_cells, "bottom", OUTER_MIN, OUTER_MAX)
+
+            if has_top and has_header_separator and has_bottom:
+                continue
+
+            issues.append(f"第{tbl_count}个表格缺少有效 cell-level 三线表横线")
             continue
         for side in ("top", "bottom"):
             border = tbl_borders.find(f"w:{side}", NSMAP)
@@ -1075,7 +1367,7 @@ def check_lnu_toc02(document_root, contexts, style_map, cfg):
         if len(issues) >= 5:
             break
     if toc_count == 0 and toc_has_field:
-        return True, [], "目录为 TOC 域，待 Word 刷新可见条目"
+        return True, [], "目录为 TOC 域，但缺少脚本预填的可见目录结果"
     return (len(issues) == 0), issues, f"检查了{toc_count}个目录条目"
 
 def check_lnu_toc01(document_root, contexts, style_map, cfg):
@@ -1121,6 +1413,10 @@ def check_lnu_toc01(document_root, contexts, style_map, cfg):
             if east_asia is not None and east_asia != expected_title_font:
                 issues.append(f"目录标题字体应为黑体，实际={east_asia}")
                 break
+        for run_elem in title_runs:
+            if is_run_effectively_bold(run_elem, style_map, title_elem):
+                issues.append("目录标题黑体不应加粗。")
+                break
 
     toc_entries = [ctx for ctx in toc_contexts if ctx.get("module") == "toc_entry"]
     toc_has_field = any(
@@ -1151,12 +1447,15 @@ def check_lnu_toc01(document_root, contexts, style_map, cfg):
                 break
             level = _toc_level(p_style)
             if level == 1:
-                expected_entry_size = cfg.get("toc_level1_size", cfg.get("toc_entry_size", 24)) if cfg else 24
+                expected_entry_size = cfg.get("toc_level1_size", cfg.get("toc_entry_size", 22)) if cfg else 22
                 expected_entry_font = cfg.get("toc_level1_font", cfg.get("toc_entry_font", "宋体")) if cfg else "宋体"
             else:
-                expected_entry_size = cfg.get("toc_entry_size", 24) if cfg else 24
+                expected_entry_size = cfg.get("toc_entry_size", 22) if cfg else 22
                 expected_entry_font = cfg.get("toc_entry_font", "宋体") if cfg else "宋体"
             for run_elem in get_non_empty_runs(p_elem):
+                if is_run_effectively_bold(run_elem, style_map, p_elem):
+                    issues.append(f"第{ctx['index']}段目录条目不应加粗。")
+                    break
                 size_val = get_effective_run_size(run_elem, style_map, p_elem)
                 if size_val is not None and size_val != expected_entry_size:
                     issues.append(f"第{ctx['index']}段目录条目字号应为{expected_entry_size} half-pts，实际={size_val}")
@@ -1280,7 +1579,7 @@ def check_lnu_text_compact(document_root, contexts, style_map, cfg, text_scope):
     label = _LNU_TEXT_SCOPE_LABELS[text_scope]
     for ctx in _iter_lnu_text_contexts(contexts, text_scope):
         text = ctx.get("text", "")
-        if ctx.get("module") == "body_heading":
+        if ctx.get("module") in {"body_heading", "toc_entry"}:
             text = _mask_lnu_allowed_heading_gap(text)
         text = _mask_lnu_allowed_unit_spaces(text)
         findings = _find_lnu_compact_text_issues(text)
@@ -1324,6 +1623,7 @@ LNU_RULE_CHECKERS = {
     "LNU_TEXT01": lambda doc, ctxs, sm, cfg: check_lnu_text_compact(doc, ctxs, sm, cfg, "abstract"),
     "LNU_TEXT02": lambda doc, ctxs, sm, cfg: check_lnu_text_compact(doc, ctxs, sm, cfg, "toc"),
     "LNU_TEXT03": lambda doc, ctxs, sm, cfg: check_lnu_text_compact(doc, ctxs, sm, cfg, "body"),
+    "LNU_EQ05": lambda doc, ctxs, sm, cfg: check_lnu_eq05(doc, ctxs, sm, cfg),
     "LNU_H01": lambda doc, ctxs, sm, cfg: check_heading_num_space(ctxs),
     "LNU_CONC01": lambda doc, ctxs, sm, cfg: check_lnu_conc01(doc, ctxs, sm, cfg),
     "LNU_S03": lambda doc, ctxs, sm, cfg: check_lnu_s03(doc, ctxs, sm, cfg),

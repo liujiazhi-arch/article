@@ -190,9 +190,21 @@ def _is_keywords_paragraph(text: str, section_name: str) -> bool:
 
 def _is_caption_note_text(text: str) -> bool:
     stripped = (text or "").strip()
-    return bool(
-        re.match(r"^注(?:[\s\u3000]*[:：]|[\s\u3000]*\d+[)）])", stripped)
-    )
+    if not stripped:
+        return False
+    if re.match(r"^注(?:[\s\u3000]*[:：]|[\s\u3000]*\d+[)）])", stripped):
+        return True
+    if re.match(r"^[（(]?[A-Z][）)]\s*\S", stripped):
+        return True
+    if re.match(r"^(不同|相同)小写字母表示", stripped):
+        return True
+    if (
+        len(stripped) <= 160
+        and re.search(r"[Pp]\s*[<≤≥>]\s*0\.0?5", stripped)
+        and re.search(r"(小写字母|显著|差异)", stripped)
+    ):
+        return True
+    return False
 
 
 def _is_english_caption_text(text: str) -> bool:

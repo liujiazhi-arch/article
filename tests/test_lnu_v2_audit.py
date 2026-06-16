@@ -88,6 +88,17 @@ def _set_paragraph_alignment(p: ET.Element, value: str) -> ET.Element:
     return p
 
 
+def _set_paragraph_style(p: ET.Element, style_id: str) -> ET.Element:
+    p_pr = p.find(_w("pPr"))
+    if p_pr is None:
+        p_pr = ET.SubElement(p, _w("pPr"))
+    p_style = p_pr.find(_w("pStyle"))
+    if p_style is None:
+        p_style = ET.SubElement(p_pr, _w("pStyle"))
+    p_style.set(_w("val"), style_id)
+    return p
+
+
 def _set_run_fonts(p: ET.Element, *, east_asia: str = "宋体", ascii_font: str = "Times New Roman") -> ET.Element:
     for run in p.findall(_w("r")):
         r_pr = run.find(_w("rPr"))
@@ -105,10 +116,14 @@ def _set_run_fonts(p: ET.Element, *, east_asia: str = "宋体", ascii_font: str 
 def _para_摘要(sz: int | None, after: int | None = None) -> ET.Element:
     """Return a paragraph whose visible text is '摘要' with given sz and spacing after."""
     p = ET.Element(_w("p"))
+    p_pr = ET.SubElement(p, _w("pPr"))
     if after is not None:
-        p_pr = ET.SubElement(p, _w("pPr"))
         spacing = ET.SubElement(p_pr, _w("spacing"))
         spacing.set(_w("after"), str(after))
+    # 补居中对齐
+    jc = ET.SubElement(p_pr, _w("jc"))
+    jc.set(_w("val"), "center")
+
     r = ET.SubElement(p, _w("r"))
     r_pr = ET.SubElement(r, _w("rPr"))
     if sz is not None:
@@ -216,6 +231,49 @@ def _make_equation_layout_table(eq_number: str = "(1.1)") -> tuple[ET.Element, E
     return tbl, math_p
 
 
+def _right_cell_paragraph(tbl: ET.Element) -> ET.Element:
+    return tbl.findall(".//w:tr/w:tc", NSMAP)[-1].find("w:p", NSMAP)
+
+
+def _make_cell_level_border_table() -> ET.Element:
+    tbl = ET.Element(_w("tbl"))
+    ET.SubElement(tbl, _w("tblPr"))
+
+    for row_index in range(2):
+        tr = ET.SubElement(tbl, _w("tr"))
+        tc = ET.SubElement(tr, _w("tc"))
+        tc_pr = ET.SubElement(tc, _w("tcPr"))
+        tc_borders = ET.SubElement(tc_pr, _w("tcBorders"))
+        if row_index == 0:
+            border_names = (("top", "18"), ("bottom", "6"))
+        else:
+            border_names = (("bottom", "18"),)
+        for border_name, size in border_names:
+            border = ET.SubElement(tc_borders, _w(border_name))
+            border.set(_w("val"), "single")
+            border.set(_w("sz"), size)
+        ET.SubElement(tc, _w("p"))
+
+    return tbl
+
+
+def _make_cell_level_border_table_with_only_vertical_borders() -> ET.Element:
+    tbl = ET.Element(_w("tbl"))
+    ET.SubElement(tbl, _w("tblPr"))
+
+    for border_name in ("left", "right"):
+        tr = ET.SubElement(tbl, _w("tr"))
+        tc = ET.SubElement(tr, _w("tc"))
+        tc_pr = ET.SubElement(tc, _w("tcPr"))
+        tc_borders = ET.SubElement(tc_pr, _w("tcBorders"))
+        border = ET.SubElement(tc_borders, _w(border_name))
+        border.set(_w("val"), "single")
+        border.set(_w("sz"), "6")
+        ET.SubElement(tc, _w("p"))
+
+    return tbl
+
+
 def _make_bad_body_paragraph(text: str = "其中，样品质量异常。") -> ET.Element:
     p = ET.Element(_w("p"))
     p_pr = ET.SubElement(p, _w("pPr"))
@@ -310,6 +368,275 @@ def test_eq03_cn_common_still_rejects_dot_number_reference():
     assert any("X-Y" in issue or "式(" in issue for issue in issues)
 
 
+def test_eq02_rejects_equation_number_without_right_alignment():
+    tbl, math_p = _make_equation_layout_table("(1.1)")
+    contexts = [_ctx(1, math_p, "x (1.1)", "body", "body")]
+
+    passed, issues, _ = audit_thesis.check_eq02(_doc_with_paragraphs(tbl), contexts, {}, {"eq_number_sep": "."})
+
+    assert not passed
+    assert any("右对齐" in issue or "制表位" in issue for issue in issues)
+
+
+def test_eq02_accepts_equation_number_with_right_tab_alignment():
+    tbl, math_p = _make_equation_layout_table("(1.1)")
+    _set_paragraph_alignment(_right_cell_paragraph(tbl), "right")
+    contexts = [_ctx(1, math_p, "x (1.1)", "body", "body")]
+
+    passed, issues, _ = audit_thesis.check_eq02(_doc_with_paragraphs(tbl), contexts, {}, {"eq_number_sep": "."})
+
+    assert passed, issues
+
+
+def test_eq02_accepts_same_paragraph_equation_number_with_right_tab_alignment():
+    p = _make_paragraph("(1.1)")
+    _append_math(p)
+    p_pr = ET.SubElement(p, _w("pPr"))
+    tabs = ET.SubElement(p_pr, _w("tabs"))
+    tab = ET.SubElement(tabs, _w("tab"))
+    tab.set(_w("val"), "right")
+    tab.set(_w("pos"), "9000")
+    contexts = [_ctx(1, p, "x (1.1)", "body", "body")]
+
+    passed, issues, _ = audit_thesis.check_eq02(_doc_with_paragraphs(p), contexts, {}, {"eq_number_sep": "."})
+
+    assert passed, issues
+
+
+def test_eq02_reports_missing_equation_number_in_formula_block():
+    p = _make_paragraph("")
+    _append_math(p)
+    contexts = [_ctx(1, p, "x", "body", "body")]
+
+    passed, issues, _ = audit_thesis.check_eq02(_doc_with_paragraphs(p), contexts, {}, {"eq_number_sep": "."})
+
+    assert not passed
+    assert any("缺少公式编号" in issue for issue in issues)
+
+
+def test_eq02_accepts_separate_formula_number_paragraph_with_right_alignment():
+    formula = _make_paragraph("")
+    _append_math(formula)
+    number = _set_paragraph_alignment(_make_paragraph("(1.1)"), "right")
+    contexts = [
+        _ctx(1, formula, "", "body", "body"),
+        _ctx(2, number, "(1.1)", "body", "body"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_eq02(
+        _doc_with_paragraphs(formula, number),
+        contexts,
+        {},
+        {"eq_number_sep": "."},
+    )
+
+    assert passed, issues
+
+
+def test_eq02_pairs_separate_formula_number_paragraph_before_reporting_alignment():
+    formula = _make_paragraph("")
+    _append_math(formula)
+    number = _set_paragraph_alignment(_make_paragraph("(1.1)"), "center")
+    contexts = [
+        _ctx(1, formula, "", "body", "body"),
+        _ctx(2, number, "(1.1)", "body", "body"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_eq02(
+        _doc_with_paragraphs(formula, number),
+        contexts,
+        {},
+        {"eq_number_sep": "."},
+    )
+
+    assert not passed
+    assert any("未右对齐" in issue for issue in issues)
+    assert not any("缺少公式编号" in issue for issue in issues)
+
+
+def test_eq02_reports_skipped_separate_formula_number_sequence():
+    formula1 = _make_paragraph("")
+    _append_math(formula1)
+    number1 = _set_paragraph_alignment(_make_paragraph("(1.1)"), "right")
+    formula2 = _make_paragraph("")
+    _append_math(formula2)
+    number2 = _set_paragraph_alignment(_make_paragraph("(1.3)"), "right")
+    contexts = [
+        _ctx(1, formula1, "", "body", "body"),
+        _ctx(2, number1, "(1.1)", "body", "body"),
+        _ctx(3, formula2, "", "body", "body"),
+        _ctx(4, number2, "(1.3)", "body", "body"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_eq02(
+        _doc_with_paragraphs(formula1, number1, formula2, number2),
+        contexts,
+        {},
+        {"eq_number_sep": "."},
+    )
+
+    assert not passed
+    assert any("跳号" in issue and "(1.2)" in issue for issue in issues)
+
+
+def test_eq02_does_not_require_number_for_inline_math_in_body_text():
+    p = _make_paragraph("计算中 ")
+    _append_math(p)
+    p.append(_make_run(" 表示剪切速率。"))
+    contexts = [_ctx(1, p, "计算中 x 表示剪切速率。", "body", "body")]
+    contexts[0]["module"] = "body_equation"
+
+    passed, issues, _ = audit_thesis.check_eq02(_doc_with_paragraphs(p), contexts, {}, {"eq_number_sep": "."})
+
+    assert passed, issues
+
+
+def test_eq02_reports_skipped_equation_number_sequence():
+    tbl1, math_p1 = _make_equation_layout_table("(1.1)")
+    _set_paragraph_alignment(_right_cell_paragraph(tbl1), "right")
+    tbl2, math_p2 = _make_equation_layout_table("(1.3)")
+    _set_paragraph_alignment(_right_cell_paragraph(tbl2), "right")
+    contexts = [
+        _ctx(1, math_p1, "x (1.1)", "body", "body"),
+        _ctx(2, math_p2, "x (1.3)", "body", "body"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_eq02(_doc_with_paragraphs(tbl1, tbl2), contexts, {}, {"eq_number_sep": "."})
+
+    assert not passed
+    assert any("跳号" in issue or "(1.2)" in issue for issue in issues)
+
+
+def test_eq02_reports_out_of_order_equation_number_sequence():
+    tbl1, math_p1 = _make_equation_layout_table("(1.2)")
+    _set_paragraph_alignment(_right_cell_paragraph(tbl1), "right")
+    tbl2, math_p2 = _make_equation_layout_table("(1.1)")
+    _set_paragraph_alignment(_right_cell_paragraph(tbl2), "right")
+    contexts = [
+        _ctx(1, math_p1, "x (1.2)", "body", "body"),
+        _ctx(2, math_p2, "x (1.1)", "body", "body"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_eq02(_doc_with_paragraphs(tbl1, tbl2), contexts, {}, {"eq_number_sep": "."})
+
+    assert not passed
+    assert any("顺序" in issue or "倒序" in issue for issue in issues)
+
+
+def test_lnu_eq05_rejects_plain_equation_explanation_variable_suffix(lnu_cfg):
+    paragraph = _make_paragraph("式中，W0为样品初始干质量，Wt为浸泡后质量。")
+    ctx = _ctx(1, paragraph, "式中，W0为样品初始干质量，Wt为浸泡后质量。", "body", "body")
+
+    passed, issues, affected, evidence = audit_thesis.check_lnu_eq05(
+        _doc_with_paragraphs(paragraph),
+        [ctx],
+        {},
+        lnu_cfg,
+    )
+
+    assert not passed
+    assert any("W0" in issue or "Wt" in issue for issue in issues)
+    assert affected == "第1段"
+    assert evidence == [
+        {
+            "paragraph_index": 1,
+            "section": "body",
+            "module": None,
+            "kind": "body",
+            "text": "式中，W0为样品初始干质量，Wt为浸泡后质量。",
+            "tokens": [
+                {"text": "W0", "bad_part": "0", "actual": "baseline", "expected": "subscript", "start": 3, "end": 5},
+                {"text": "Wt", "bad_part": "t", "actual": "baseline", "expected": "subscript", "start": 14, "end": 16},
+            ],
+        }
+    ]
+
+
+def test_lnu_eq05_accepts_subscripted_equation_explanation_variable_suffix(lnu_cfg):
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("式中，W"))
+    sub_zero = _make_run("0")
+    vert_zero = ET.SubElement(sub_zero.find("w:rPr", NSMAP), _w("vertAlign"))
+    vert_zero.set(_w("val"), "subscript")
+    paragraph.append(sub_zero)
+    paragraph.append(_make_run("为样品初始干质量，W"))
+    sub_t = _make_run("t")
+    vert_t = ET.SubElement(sub_t.find("w:rPr", NSMAP), _w("vertAlign"))
+    vert_t.set(_w("val"), "subscript")
+    paragraph.append(sub_t)
+    paragraph.append(_make_run("为浸泡后质量。"))
+    ctx = _ctx(1, paragraph, "式中，W0为样品初始干质量，Wt为浸泡后质量。", "body", "body")
+
+    passed, issues, _ = audit_thesis.check_lnu_eq05(
+        _doc_with_paragraphs(paragraph),
+        [ctx],
+        {},
+        lnu_cfg,
+    )
+
+    assert passed, issues
+
+
+def test_find_missing_spacing_pairs_with_positions_returns_boundary_offsets():
+    matches = audit_thesis.find_missing_spacing_pairs_with_positions(
+        "鹿皮gelatin样品24h后稳定",
+        lambda _text, _index, left, right: "\u4e00" <= left <= "\u9fff" and right == "g",
+    )
+
+    assert matches[0]["excerpt"] == "鹿皮gelatin"
+    assert matches[0]["left"] == "皮"
+    assert matches[0]["right"] == "g"
+    assert matches[0]["start"] == 1
+    assert matches[0]["end"] == 3
+
+
+def test_sp_cjk_latin_emits_spacing_evidence():
+    paragraph = _make_paragraph("鹿皮gelatin样品表现稳定。")
+    ctx = _ctx(7, paragraph, "鹿皮gelatin样品表现稳定。", "body", "body")
+
+    passed, issues, affected, evidence = audit_thesis.check_sp_cjk_latin(
+        _doc_with_paragraphs(paragraph),
+        [ctx],
+        {},
+        {},
+    )
+
+    assert not passed
+    assert affected == "第7段"
+    assert evidence[0]["paragraph_index"] == 7
+    assert evidence[0]["tokens"][0] == {
+        "text": "皮g",
+        "bad_part": "皮g",
+        "actual": "missing_space",
+        "expected": "space_between_cjk_latin",
+        "start": 1,
+        "end": 3,
+    }
+
+
+def test_sp_num_cjk_emits_spacing_evidence():
+    paragraph = _make_paragraph("24后溶胀率稳定。")
+    ctx = _ctx(8, paragraph, "24后溶胀率稳定。", "body", "body")
+
+    passed, issues, affected, evidence = audit_thesis.check_sp_num_cjk(
+        _doc_with_paragraphs(paragraph),
+        [ctx],
+        {},
+        {},
+    )
+
+    assert not passed
+    assert affected == "第8段"
+    assert evidence[0]["tokens"][0] == {
+        "text": "4后",
+        "bad_part": "4后",
+        "actual": "missing_space",
+        "expected": "space_between_number_and_cjk",
+        "start": 1,
+        "end": 3,
+    }
+
+
 # ---------------------------------------------------------------------------
 # LNU_ABS01 — spacing after
 # ---------------------------------------------------------------------------
@@ -361,6 +688,20 @@ def test_abs01_title_line_spacing_violation(lnu_cfg):
     passed, issues, _ = audit_thesis.check_lnu_abs01(doc, [], {}, lnu_cfg)
     assert not passed
     assert any("行距" in msg for msg in issues)
+
+
+def test_abs01_title_alignment_violation(lnu_cfg):
+    p = _set_paragraph_alignment(
+        _set_spacing(
+            _para_摘要(sz=32, after=_abstract_title_after_twips(lnu_cfg)),
+            line=int(lnu_cfg.get("abstract_title_line", 360) or 360),
+        ),
+        "left",
+    )
+    doc = _doc_with_paragraphs(p)
+    passed, issues, _ = audit_thesis.check_lnu_abs01(doc, [], {}, lnu_cfg)
+    assert not passed
+    assert any("居中" in msg for msg in issues)
 
 
 def test_abs02_accepts_effective_bold_from_paragraph_style(lnu_cfg):
@@ -441,6 +782,25 @@ def test_lnu_tb01_skips_equation_layout_table():
     passed, issues, _ = audit_thesis.check_lnu_tb01(doc, [], {}, {})
 
     assert passed, issues
+
+
+def test_lnu_tb01_accepts_cell_level_border_table_without_tbl_borders():
+    tbl = _make_cell_level_border_table()
+    doc = _doc_with_paragraphs(tbl)
+
+    passed, issues, _ = audit_thesis.check_lnu_tb01(doc, [], {}, {})
+
+    assert passed, issues
+
+
+def test_lnu_tb01_rejects_cell_level_table_without_three_line_horizontal_borders():
+    tbl = _make_cell_level_border_table_with_only_vertical_borders()
+    doc = _doc_with_paragraphs(tbl)
+
+    passed, issues, _ = audit_thesis.check_lnu_tb01(doc, [], {}, {})
+
+    assert not passed
+    assert any("cell-level" in issue or "边框" in issue for issue in issues)
 
 
 def test_f07_rejects_terminal_period_on_table_caption():
@@ -538,6 +898,44 @@ def test_body_rules_skip_protected_formula_explainer(checker_name, uses_cfg, lnu
     assert passed, issues
 
 
+def test_t03_accepts_body_size_inherited_from_paragraph_style(lnu_cfg):
+    paragraph = _set_paragraph_style(_make_paragraph("这是正文示例。"), "LnuBody")
+    contexts = [_ctx(1, paragraph, "这是正文示例。", "body")]
+    contexts[0]["module"] = "body_paragraph"
+    style_map = {"LnuBody": {"sz": 24}}
+
+    passed, issues, _ = audit_thesis.check_t03(_doc_with_paragraphs(paragraph), contexts, style_map, lnu_cfg)
+
+    assert passed, issues
+
+
+def test_t04_accepts_body_line_spacing_inherited_from_paragraph_style(lnu_cfg):
+    paragraph = _set_paragraph_style(_make_paragraph("这是正文示例。"), "LnuBody")
+    contexts = [_ctx(1, paragraph, "这是正文示例。", "body")]
+    contexts[0]["module"] = "body_paragraph"
+    style_map = {"LnuBody": {"spacing_line": 360}}
+
+    passed, issues, _ = audit_thesis.check_t04(_doc_with_paragraphs(paragraph), contexts, style_map, lnu_cfg)
+
+    assert passed, issues
+
+
+def test_t04_rejects_body_snap_to_grid_when_profile_requires_off(lnu_cfg):
+    paragraph = _set_spacing(_make_paragraph("这是正文示例。"), line=360)
+    p_pr = paragraph.find(_w("pPr"))
+    spacing = p_pr.find(_w("spacing"))
+    spacing.set(_w("lineRule"), "auto")
+    snap = ET.SubElement(p_pr, _w("snapToGrid"))
+    snap.set(_w("val"), "1")
+    contexts = [_ctx(1, paragraph, "这是正文示例。", "body")]
+    contexts[0]["module"] = "body_paragraph"
+
+    passed, issues, _ = audit_thesis.check_t04(_doc_with_paragraphs(paragraph), contexts, {}, lnu_cfg)
+
+    assert not passed
+    assert any("网格" in issue or "snapToGrid" in issue for issue in issues)
+
+
 # ---------------------------------------------------------------------------
 # LNU_ABS03 — English abstract body single line spacing
 # ---------------------------------------------------------------------------
@@ -612,6 +1010,34 @@ def test_abs03_over_spacing_violation(lnu_cfg):
     assert issues
 
 
+def test_abs03_uses_configured_body_size_and_font(lnu_cfg):
+    cfg = dict(lnu_cfg)
+    cfg["abstract_en_body_size"] = 22
+    cfg["abstract_en_body_ascii_font"] = "Arial"
+    root, p = _make_abs03_doc(_abstract_en_body_line(cfg))
+    run = p.find(".//w:r", NSMAP)
+    r_pr = run.find("w:rPr", NSMAP)
+    sz = ET.SubElement(r_pr, _w("sz"))
+    sz.set(_w("val"), "22")
+    fonts = ET.SubElement(r_pr, _w("rFonts"))
+    fonts.set(_w("ascii"), "Arial")
+    fonts.set(_w("hAnsi"), "Arial")
+
+    original_build = audit_thesis.build_document_sections
+
+    def _fake_sections(doc_root, style_map):
+        return {"abstract_en": [p], "abstract_cn": [], "toc": [], "body": [],
+                "cover": [], "backmatter": []}
+
+    audit_thesis.build_document_sections = _fake_sections
+    try:
+        passed, issues, _ = audit_thesis.check_lnu_abs03(root, [], {}, cfg)
+    finally:
+        audit_thesis.build_document_sections = original_build
+
+    assert passed, issues
+
+
 # ---------------------------------------------------------------------------
 # KW01 — kw_bold=False means bold is NOT required (checker should not flag)
 # ---------------------------------------------------------------------------
@@ -640,6 +1066,16 @@ def test_kw_cfg_not_bold_by_default(lnu_cfg):
         "protected": False,
     }
     passed, issues, _ = audit_thesis.check_kw01(doc, [ctx], style_map, lnu_cfg)
+    assert passed, issues
+
+
+def test_kw01_accepts_english_keywords_with_chinese_semicolons(lnu_cfg):
+    text = "Keywords: deer skin gelatin；chemical modification；enzymatic modification；structural properties；functional properties"
+    p = _make_paragraph(text)
+    ctx = _ctx(1, p, text, "body", "abstract_en")
+
+    passed, issues, _ = audit_thesis.check_kw01(_doc_with_paragraphs(p), [ctx], {}, lnu_cfg)
+
     assert passed, issues
 
 
@@ -804,9 +1240,29 @@ def test_lnu_title01_flags_single_form_titles():
     doc = _doc_with_paragraphs(p)
     ctx = {"index": 1, "elem": p, "text": "摘要", "kind": "h1", "section": "abstract_cn", "protected": False}
 
-    passed, issues, _ = audit_thesis.check_lnu_title01(doc, [ctx], {}, {})
+    passed, issues, affected, evidence = audit_thesis.check_lnu_title01(doc, [ctx], {}, {})
     assert not passed
+    assert affected == "发现1处"
     assert any("摘  要" in msg for msg in issues)
+    assert evidence == [
+        {
+            "paragraph_index": 1,
+            "section": "abstract_cn",
+            "module": None,
+            "kind": "h1",
+            "text": "摘要",
+            "tokens": [
+                {
+                    "text": "摘要",
+                    "bad_part": "摘要",
+                    "actual": "single_form_title",
+                    "expected": "two_spaces_between_title_chars",
+                    "start": 0,
+                    "end": 2,
+                }
+            ],
+        }
+    ]
 
 
 def test_lnu_s03_accepts_page_break_before_reference_heading():
@@ -967,17 +1423,29 @@ def test_lnu_f06_requires_english_caption_to_be_centered_five_point_single_line(
     assert any("英文图题/表题" in issue and "应居中" in issue for issue in issues)
 
 
-def test_lnu_f06_requires_explanatory_caption_note_to_be_left_aligned_five_point_single_line(lnu_cfg):
+def test_lnu_f06_requires_explanatory_caption_note_to_be_centered_five_point_single_line(lnu_cfg):
     note = _set_run_fonts(_para_with_run("注：图2.1(A) 为对照组。", sz=21))
     _set_spacing(note, line=240)
-    _set_paragraph_alignment(note, "center")
+    _set_paragraph_alignment(note, "left")
     ctx = _ctx(1, note, "注：图2.1(A) 为对照组。", "body")
     ctx["module"] = "body_caption_note"
 
     passed, issues, _ = audit_thesis.check_lnu_f06(_doc_with_paragraphs(note), [ctx], {}, lnu_cfg)
 
     assert not passed
-    assert any("图注/表注" in issue and "应顶格左对齐" in issue for issue in issues)
+    assert any("图注/表注" in issue and "应居中" in issue for issue in issues)
+
+
+def test_lnu_f06_accepts_caption_note_line_spacing_inherited_from_style(lnu_cfg):
+    note = _set_run_fonts(_para_with_run("注：图2.1(A) 为对照组。", sz=21))
+    _set_paragraph_style(note, "LnuCaptionNote")
+    ctx = _ctx(1, note, "注：图2.1(A) 为对照组。", "body")
+    ctx["module"] = "body_caption_note"
+    style_map = {"LnuCaptionNote": {"jc": "center", "spacing_line": 240}}
+
+    passed, issues, _ = audit_thesis.check_lnu_f06(_doc_with_paragraphs(note), [ctx], style_map, lnu_cfg)
+
+    assert passed, issues
 
 
 def test_lnu_ref01_rejects_fullwidth_reference_punctuation():
@@ -988,9 +1456,42 @@ def test_lnu_ref01_rejects_fullwidth_reference_punctuation():
         _ctx(2, ref, "[1] 郭光灿。量子光学[M]。北京：高等教育出版社，2005。", "reference", "backmatter"),
     ]
 
-    passed, issues, _ = audit_thesis.check_lnu_ref01(_doc_with_paragraphs(title, ref), contexts, {}, {})
+    passed, issues, affected, evidence = audit_thesis.check_lnu_ref01(_doc_with_paragraphs(title, ref), contexts, {}, {})
     assert not passed
+    assert affected == "[1] 郭光灿。量子光学[M]。北京：高等教育出版社，2005。"
     assert issues
+    assert evidence[0]["paragraph_index"] == 2
+    assert evidence[0]["tokens"][0] == {
+        "text": "。",
+        "bad_part": "。",
+        "actual": "fullwidth_punctuation",
+        "expected": "halfwidth_punctuation",
+        "start": 7,
+        "end": 8,
+    }
+
+
+def test_lnu_ref01_keeps_scanning_after_reference_continuation_line():
+    title = _make_paragraph("参考文献")
+    ref1 = _make_paragraph("[1] 郭光灿. 量子光学[M]. 北京: 高等教育出版社, 2005.")
+    continuation = _make_paragraph("    续行说明不以编号开头。")
+    ref2 = _make_paragraph("[2] 张三。食品科学[J]。2020。")
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref1, "[1] 郭光灿. 量子光学[M]. 北京: 高等教育出版社, 2005.", "reference", "backmatter"),
+        _ctx(3, continuation, "    续行说明不以编号开头。", "reference", "backmatter"),
+        _ctx(4, ref2, "[2] 张三。食品科学[J]。2020。", "reference", "backmatter"),
+    ]
+
+    passed, issues, *_ = audit_thesis.check_lnu_ref01(
+        _doc_with_paragraphs(title, ref1, continuation, ref2),
+        contexts,
+        {},
+        {},
+    )
+
+    assert not passed
+    assert any("[2]" in issue for issue in issues)
 
 
 def test_lnu_ref02_accepts_tab_after_reference_number_with_matching_tab_stop():
@@ -1009,7 +1510,7 @@ def test_lnu_ref02_accepts_tab_after_reference_number_with_matching_tab_stop():
         _ctx(2, ref, "[1]\t郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.", "reference", "backmatter"),
     ]
 
-    passed, issues, _ = audit_thesis.check_lnu_ref02(
+    passed, issues, *_ = audit_thesis.check_lnu_ref02(
         _doc_with_paragraphs(title, ref),
         contexts,
         {},
@@ -1026,9 +1527,42 @@ def test_lnu_ref02_rejects_leading_zero_reference_number():
         _ctx(2, ref, "[01] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.", "reference", "backmatter"),
     ]
 
-    passed, issues, _ = audit_thesis.check_lnu_ref02(_doc_with_paragraphs(title, ref), contexts, {}, {})
+    passed, issues, affected, evidence = audit_thesis.check_lnu_ref02(_doc_with_paragraphs(title, ref), contexts, {}, {})
     assert not passed
+    assert affected == "编号补零: [01] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005."
     assert any("编号补零" in msg for msg in issues)
+    assert evidence[0]["paragraph_index"] == 2
+    assert evidence[0]["tokens"][0] == {
+        "text": "[01]",
+        "bad_part": "01",
+        "actual": "leading_zero",
+        "expected": "plain_reference_number",
+        "start": 0,
+        "end": 4,
+    }
+
+
+def test_lnu_ref02_keeps_scanning_after_reference_continuation_line(lnu_cfg):
+    title = _make_paragraph("参考文献")
+    ref1 = _make_paragraph("[1] 郭光灿. 量子光学[M]. 北京: 高等教育出版社, 2005.")
+    continuation = _make_paragraph("    续行说明不以编号开头。")
+    ref2 = _make_paragraph("[02] 张三. 食品科学[J]. 2020.")
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref1, "[1] 郭光灿. 量子光学[M]. 北京: 高等教育出版社, 2005.", "reference", "backmatter"),
+        _ctx(3, continuation, "    续行说明不以编号开头。", "reference", "backmatter"),
+        _ctx(4, ref2, "[02] 张三. 食品科学[J]. 2020.", "reference", "backmatter"),
+    ]
+
+    passed, issues, *_ = audit_thesis.check_lnu_ref02(
+        _doc_with_paragraphs(title, ref1, continuation, ref2),
+        contexts,
+        {},
+        {"ref_use_tab": False, "ref_number_trailing_space": True},
+    )
+
+    assert not passed
+    assert any("补零" in issue for issue in issues)
 
 
 def test_lnu_ref02_rejects_space_after_reference_number_when_tab_alignment_required():
@@ -1039,7 +1573,7 @@ def test_lnu_ref02_rejects_space_after_reference_number_when_tab_alignment_requi
         _ctx(2, ref, "[1] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.", "reference", "backmatter"),
     ]
 
-    passed, issues, _ = audit_thesis.check_lnu_ref02(
+    passed, issues, *_ = audit_thesis.check_lnu_ref02(
         _doc_with_paragraphs(title, ref),
         contexts,
         {},
@@ -1067,7 +1601,7 @@ def test_lnu_ref02_rejects_invalid_number_even_when_text_tab_and_tab_stop_exist(
         _ctx(2, ref, ref_text, "reference", "backmatter"),
     ]
 
-    passed, issues, _ = audit_thesis.check_lnu_ref02(
+    passed, issues, *_ = audit_thesis.check_lnu_ref02(
         _doc_with_paragraphs(title, ref),
         contexts,
         {},
@@ -1132,6 +1666,31 @@ def test_lnu_ref03_rejects_reference_layout_without_justification_or_hyphen_supp
     assert not passed
     assert any("两端对齐" in msg for msg in issues)
     assert any("自动断字" in msg for msg in issues)
+
+
+def test_lnu_ref03_accepts_reference_layout_inherited_from_paragraph_style():
+    title = _make_paragraph("参考文献")
+    ref = _para_with_run("[1] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.", sz=21)
+    _set_paragraph_style(ref, "LnuReference")
+    p_pr = ref.find("w:pPr", NSMAP)
+    spacing = ET.SubElement(p_pr, _w("spacing"))
+    spacing.set(_w("line"), "360")
+    spacing.set(_w("before"), "0")
+    spacing.set(_w("after"), "0")
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref, "[1] 郭光灿. 量子光学[M]. 北京:高等教育出版社, 2005.", "reference", "backmatter"),
+    ]
+    style_map = {"LnuReference": {"jc": "both", "suppressAutoHyphens": "1"}}
+
+    passed, issues, _ = audit_thesis.check_lnu_ref03(
+        _doc_with_paragraphs(title, ref),
+        contexts,
+        style_map,
+        {"ref_font_size": 21, "ref_line_spacing": 360},
+    )
+
+    assert passed, issues
 
 
 def test_lnu_ref03_ignores_empty_paragraphs_inside_reference_section():
@@ -1204,6 +1763,48 @@ def test_lnu_ref06_reports_human_readable_title_and_journal_style_mismatches():
     assert evidence == "第2段、第3段、第4段"
 
 
+def test_lnu_ref06_can_enforce_configured_sentence_case_title_style():
+    title = _make_paragraph("参考文献")
+    ref_text = "[1] Smith J. Effects of Gelatin on Fish Quality[J]. Food Hydrocolloids, 2020, 100: 105."
+    ref = _make_paragraph(ref_text)
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref, ref_text, "reference", "backmatter"),
+    ]
+
+    passed, issues, evidence = audit_thesis.check_lnu_ref06(
+        _doc_with_paragraphs(title, ref),
+        contexts,
+        {},
+        {"reference_title_case_style": "sentence_case"},
+    )
+
+    assert not passed
+    assert "题名大小写目标风格为 sentence case" in "\n".join(issues)
+    assert evidence == "第2段"
+
+
+def test_lnu_ref06_can_enforce_configured_abbreviated_journal_style():
+    title = _make_paragraph("参考文献")
+    ref_text = "[1] Smith J. Effects of gelatin on fish quality[J]. Food Hydrocolloids, 2020, 100: 105."
+    ref = _make_paragraph(ref_text)
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref, ref_text, "reference", "backmatter"),
+    ]
+
+    passed, issues, evidence = audit_thesis.check_lnu_ref06(
+        _doc_with_paragraphs(title, ref),
+        contexts,
+        {},
+        {"reference_journal_name_style": "abbreviated"},
+    )
+
+    assert not passed
+    assert "期刊名目标风格为缩写" in "\n".join(issues)
+    assert evidence == "第2段"
+
+
 def test_lnu_toc02_accepts_sample_spacing(lnu_cfg):
     title = _make_paragraph("目  录")
     entry = _make_paragraph("第1章 正文格式说明\t2")
@@ -1260,11 +1861,11 @@ def test_lnu_toc01_accepts_generated_toc_styles(lnu_cfg):
     entry_run = entry.find("w:r", NSMAP)
     entry_rpr = ET.SubElement(entry_run, _w("rPr"))
     entry_fonts = ET.SubElement(entry_rpr, _w("rFonts"))
-    entry_fonts.set(_w("eastAsia"), lnu_cfg.get("toc_entry_font", "宋体"))
+    entry_fonts.set(_w("eastAsia"), lnu_cfg.get("toc_level1_font", "黑体"))
     entry_fonts.set(_w("ascii"), "Times New Roman")
     entry_fonts.set(_w("hAnsi"), "Times New Roman")
     entry_sz = ET.SubElement(entry_rpr, _w("sz"))
-    entry_sz.set(_w("val"), str(lnu_cfg.get("toc_entry_size", 24)))
+    entry_sz.set(_w("val"), str(lnu_cfg.get("toc_level1_size", 28)))
 
     contexts = [
         _ctx(1, title, "目  录", "h1", "toc"),
@@ -1277,6 +1878,56 @@ def test_lnu_toc01_accepts_generated_toc_styles(lnu_cfg):
 
     passed, issues, _ = audit_thesis.check_lnu_toc01(_doc_with_paragraphs(title, entry), contexts, {}, lnu_cfg)
     assert passed, issues
+
+
+def test_lnu_toc01_rejects_bold_toc_heading_and_level1_entry(lnu_cfg):
+    title = _make_paragraph("目  录")
+    title_ppr = ET.SubElement(title, _w("pPr"))
+    title_style = ET.SubElement(title_ppr, _w("pStyle"))
+    title_style.set(_w("val"), "TOCHeading")
+    title_jc = ET.SubElement(title_ppr, _w("jc"))
+    title_jc.set(_w("val"), "center")
+    title_run = title.find("w:r", NSMAP)
+    title_rpr = ET.SubElement(title_run, _w("rPr"))
+    title_fonts = ET.SubElement(title_rpr, _w("rFonts"))
+    title_fonts.set(_w("eastAsia"), lnu_cfg.get("toc_title_font", "黑体"))
+    title_fonts.set(_w("ascii"), "Times New Roman")
+    title_fonts.set(_w("hAnsi"), "Times New Roman")
+    title_sz = ET.SubElement(title_rpr, _w("sz"))
+    title_sz.set(_w("val"), str(lnu_cfg.get("toc_title_size", 32)))
+    ET.SubElement(title_rpr, _w("b"))
+
+    entry = _make_paragraph("第1章 正文格式说明\t2")
+    entry_ppr = ET.SubElement(entry, _w("pPr"))
+    entry_style = ET.SubElement(entry_ppr, _w("pStyle"))
+    entry_style.set(_w("val"), "TOC1")
+    entry_tabs = ET.SubElement(entry_ppr, _w("tabs"))
+    entry_tab = ET.SubElement(entry_tabs, _w("tab"))
+    entry_tab.set(_w("val"), "right")
+    entry_tab.set(_w("pos"), "9000")
+    entry_run = entry.find("w:r", NSMAP)
+    entry_rpr = ET.SubElement(entry_run, _w("rPr"))
+    entry_fonts = ET.SubElement(entry_rpr, _w("rFonts"))
+    entry_fonts.set(_w("eastAsia"), lnu_cfg.get("toc_level1_font", "黑体"))
+    entry_fonts.set(_w("ascii"), "Times New Roman")
+    entry_fonts.set(_w("hAnsi"), "Times New Roman")
+    entry_sz = ET.SubElement(entry_rpr, _w("sz"))
+    entry_sz.set(_w("val"), str(lnu_cfg.get("toc_level1_size", 28)))
+    ET.SubElement(entry_rpr, _w("b"))
+
+    contexts = [
+        _ctx(1, title, "目  录", "h1", "toc"),
+        _ctx(2, entry, "第1章 正文格式说明\t2", "body", "toc"),
+    ]
+    contexts[0]["effective_section"] = "toc"
+    contexts[0]["module"] = "toc_title"
+    contexts[1]["effective_section"] = "toc"
+    contexts[1]["module"] = "toc_entry"
+
+    passed, issues, _ = audit_thesis.check_lnu_toc01(_doc_with_paragraphs(title, entry), contexts, {}, lnu_cfg)
+
+    assert not passed
+    assert any("不应加粗" in issue for issue in issues)
 
 
 def test_lnu_toc01_accepts_field_only_toc_before_refresh(lnu_cfg):
@@ -1402,6 +2053,35 @@ def test_lnu_unit01_rejects_number_unit_without_space():
     assert any("mL" in msg for msg in issues)
 
 
+def test_lnu_unit01_allows_percent_spacing_but_rejects_celsius_without_space():
+    body = _make_paragraph("样品浓度为25 %，处理温度为100℃，另一组为6.67 %。")
+    ctx = _ctx(1, body, "样品浓度为25 %，处理温度为100℃，另一组为6.67 %。", "body", "body")
+
+    passed, issues, _ = audit_thesis.check_lnu_unit01(_doc_with_paragraphs(body), [ctx], {}, {})
+
+    assert not passed
+    assert not any("％" in msg or "%" in msg for msg in issues)
+    assert any("℃" in msg for msg in issues)
+
+
+def test_lnu_unit01_accepts_spaced_percent_and_spaced_celsius():
+    body = _make_paragraph("样品浓度为25 %，另一组为6.67 %（w/v），处理温度为100 ℃。")
+    ctx = _ctx(1, body, "样品浓度为25 %，另一组为6.67 %（w/v），处理温度为100 ℃。", "body", "body")
+
+    passed, issues, _ = audit_thesis.check_lnu_unit01(_doc_with_paragraphs(body), [ctx], {}, {})
+
+    assert passed, issues
+
+
+def test_lnu_unit01_accepts_fullwidth_spaced_percent():
+    body = _make_paragraph("样品浓度为25 %，另一组为6.67 ％。")
+    ctx = _ctx(1, body, "样品浓度为25 %，另一组为6.67 ％。", "body", "body")
+
+    passed, issues, _ = audit_thesis.check_lnu_unit01(_doc_with_paragraphs(body), [ctx], {}, {})
+
+    assert passed, issues
+
+
 def test_lnu_text03_allows_heading_number_gap_but_rejects_other_mixed_spaces(lnu_cfg):
     heading = _make_paragraph("1.2 CRISPR 技术基础")
     ctx = _ctx(1, heading, "1.2 CRISPR 技术基础", "h2", "body")
@@ -1439,6 +2119,57 @@ def test_lnu_ack_accepts_spaced_heading_and_checks_body_font(lnu_cfg):
     assert passed, issues
 
 
+def test_lnu_ack_rejects_wrong_ascii_and_hansi_font(lnu_cfg):
+    title = _make_paragraph("致  谢")
+    body = _set_spacing(_para_with_run("感谢 teachers。", sz=24), line=360)
+    r_fonts = ET.SubElement(body.find(".//w:rPr", NSMAP), _w("rFonts"))
+    r_fonts.set(_w("eastAsia"), "仿宋")
+    r_fonts.set(_w("ascii"), "Arial")
+    r_fonts.set(_w("hAnsi"), "Arial")
+    contexts = [
+        _ctx(1, title, "致  谢", "h1", "backmatter"),
+        _ctx(2, body, "感谢 teachers。", "body", "backmatter"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_ack(_doc_with_paragraphs(title, body), contexts, {}, lnu_cfg)
+    assert not passed
+    assert any("ascii" in msg or "hAnsi" in msg for msg in issues)
+
+
+def test_lnu_ack_rejects_wrong_body_size(lnu_cfg):
+    title = _make_paragraph("致  谢")
+    body = _set_spacing(_para_with_run("感谢老师指导。", sz=22), line=360)
+    r_fonts = ET.SubElement(body.find(".//w:rPr", NSMAP), _w("rFonts"))
+    r_fonts.set(_w("eastAsia"), "仿宋")
+    r_fonts.set(_w("ascii"), "Times New Roman")
+    r_fonts.set(_w("hAnsi"), "Times New Roman")
+    contexts = [
+        _ctx(1, title, "致  谢", "h1", "backmatter"),
+        _ctx(2, body, "感谢老师指导。", "body", "backmatter"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_ack(_doc_with_paragraphs(title, body), contexts, {}, lnu_cfg)
+    assert not passed
+    assert any("字号" in msg for msg in issues)
+
+
+def test_lnu_ack_rejects_wrong_line_spacing(lnu_cfg):
+    title = _make_paragraph("致  谢")
+    body = _set_spacing(_para_with_run("感谢老师指导。", sz=24), line=240)
+    r_fonts = ET.SubElement(body.find(".//w:rPr", NSMAP), _w("rFonts"))
+    r_fonts.set(_w("eastAsia"), "仿宋")
+    r_fonts.set(_w("ascii"), "Times New Roman")
+    r_fonts.set(_w("hAnsi"), "Times New Roman")
+    contexts = [
+        _ctx(1, title, "致  谢", "h1", "backmatter"),
+        _ctx(2, body, "感谢老师指导。", "body", "backmatter"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_lnu_ack(_doc_with_paragraphs(title, body), contexts, {}, lnu_cfg)
+    assert not passed
+    assert any("行距" in msg for msg in issues)
+
+
 def test_lnu_tb02_rejects_table_text_not_in_fifth_size():
     tbl = ET.Element(_w("tbl"))
     tr = ET.SubElement(tbl, _w("tr"))
@@ -1454,25 +2185,7 @@ def test_lnu_tb02_rejects_table_text_not_in_fifth_size():
     assert any("24" in msg for msg in issues)
 
 
-def test_lnu_tb03_accepts_table_line_spacing_one_point_five():
-    tbl = ET.Element(_w("tbl"))
-    tr = ET.SubElement(tbl, _w("tr"))
-    tc = ET.SubElement(tr, _w("tc"))
-    p = ET.SubElement(tc, _w("p"))
-    p_pr = ET.SubElement(p, _w("pPr"))
-    spacing = ET.SubElement(p_pr, _w("spacing"))
-    spacing.set(_w("line"), "360")
-    run = _make_run("表格内容", sz=21)
-    p.append(run)
-    doc = _make_doc_root()
-    doc.find(_w("body")).append(tbl)
-
-    passed, issues, _ = audit_thesis.check_lnu_tb03(doc, [], {}, {})
-    assert passed
-    assert issues == []
-
-
-def test_lnu_tb03_rejects_table_line_spacing_single():
+def test_lnu_tb03_accepts_table_line_spacing_single():
     tbl = ET.Element(_w("tbl"))
     tr = ET.SubElement(tbl, _w("tr"))
     tc = ET.SubElement(tr, _w("tc"))
@@ -1486,8 +2199,26 @@ def test_lnu_tb03_rejects_table_line_spacing_single():
     doc.find(_w("body")).append(tbl)
 
     passed, issues, _ = audit_thesis.check_lnu_tb03(doc, [], {}, {})
+    assert passed
+    assert issues == []
+
+
+def test_lnu_tb03_rejects_table_line_spacing_one_point_five():
+    tbl = ET.Element(_w("tbl"))
+    tr = ET.SubElement(tbl, _w("tr"))
+    tc = ET.SubElement(tr, _w("tc"))
+    p = ET.SubElement(tc, _w("p"))
+    p_pr = ET.SubElement(p, _w("pPr"))
+    spacing = ET.SubElement(p_pr, _w("spacing"))
+    spacing.set(_w("line"), "360")
+    run = _make_run("表格内容", sz=21)
+    p.append(run)
+    doc = _make_doc_root()
+    doc.find(_w("body")).append(tbl)
+
+    passed, issues, _ = audit_thesis.check_lnu_tb03(doc, [], {}, {})
     assert not passed
-    assert any("1.5倍" in msg for msg in issues)
+    assert any("单倍" in msg for msg in issues)
 
 
 def test_lnu_tb04_rejects_loose_table_caption_and_missing_post_table_gap(tmp_path):

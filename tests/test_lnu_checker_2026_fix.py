@@ -207,7 +207,7 @@ def test_fix_caption_paragraph_clears_list_marker_and_unifies_caption_style():
     fixed_spacing = paragraph.find("w:pPr/w:spacing", NSMAP)
     assert fixed_jc is not None and fixed_jc.get(_w("val")) == "center"
     assert fixed_ind is not None and fixed_ind.get(_w("firstLine")) == "0"
-    assert fixed_spacing is not None and fixed_spacing.get(_w("line")) == "240"
+    assert fixed_spacing is not None and fixed_spacing.get(_w("line")) == "360"
     for run_elem in paragraph.findall("w:r", NSMAP):
         assert run_elem.find("w:rPr/w:b", NSMAP) is None
         assert run_elem.find("w:rPr/w:bCs", NSMAP) is None
@@ -222,7 +222,7 @@ def test_fix_caption_note_paragraph_normalizes_lnu_note_prefix_to_numbered_form(
     assert get_paragraph_text(paragraph) == "注：正式实验各组样品初始投料质量均为 1.00 g。"
 
 
-def test_fix_caption_note_paragraph_left_aligns_explanatory_note_and_parenthesizes_subfigure_letters():
+def test_fix_caption_note_paragraph_centers_explanatory_note_and_parenthesizes_subfigure_letters():
     paragraph = _make_paragraph("注：图2.1A 为对照组，Fig. 2.1B 为实验组。", sz=24)
 
     fix_thesis.fix_caption_note_paragraph(paragraph, cfg=_checker_2026_cfg())
@@ -233,7 +233,7 @@ def test_fix_caption_note_paragraph_left_aligns_explanatory_note_and_parenthesiz
     ind = p_pr.find("w:ind", NSMAP)
 
     assert get_paragraph_text(paragraph) == "注：图2.1(A) 为对照组，Fig. 2.1(B) 为实验组。"
-    assert jc is not None and jc.get(_w("val")) == "left"
+    assert jc is not None and jc.get(_w("val")) == "center"
     assert ind is not None and ind.get(_w("firstLine")) == "0"
     assert spacing is not None and spacing.get(_w("line")) == "240"
 
@@ -403,6 +403,15 @@ def test_fix_lnu_compact_text_restores_allowed_unit_spacing():
     assert get_paragraph_text(paragraph) == "处理100 mL溶液并检测5 mg样本"
 
 
+def test_fix_lnu_compact_text_keeps_percent_spacing_and_restores_celsius_spacing():
+    paragraph = _make_paragraph("样品浓度为25 %，处理温度为100℃，另一组为6.67 ％。", sz=24)
+
+    changed = fix_thesis.fix_lnu_compact_text(paragraph, restore_unit_gap=True)
+
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "样品浓度为25 %，处理温度为100 ℃，另一组为6.67 ％。"
+
+
 def test_fix_lnu_compact_text_preserves_existing_unit_spacing():
     paragraph = _make_paragraph("处理100 mL溶液并检测5 mg样本", sz=24)
 
@@ -410,6 +419,40 @@ def test_fix_lnu_compact_text_preserves_existing_unit_spacing():
 
     assert changed is False
     assert get_paragraph_text(paragraph) == "处理100 mL溶液并检测5 mg样本"
+
+
+def test_fix_lnu_compact_text_preserves_percent_space_and_celsius_spacing():
+    paragraph = _make_paragraph("样品浓度为25 %，处理温度为100 ℃。", sz=24)
+
+    changed = fix_thesis.fix_lnu_compact_text(paragraph, restore_unit_gap=True)
+
+    assert changed is False
+    assert get_paragraph_text(paragraph) == "样品浓度为25 %，处理温度为100 ℃。"
+
+
+def test_fix_lnu_compact_text_preserves_percent_space_across_runs():
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("样品浓度为25 ", sz=24))
+    paragraph.append(_make_run("%，处理温度为100", sz=24))
+    paragraph.append(_make_run("℃。", sz=24))
+
+    changed = fix_thesis.fix_lnu_compact_text(paragraph, restore_unit_gap=True)
+
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "样品浓度为25 %，处理温度为100 ℃。"
+
+
+def test_fix_lnu_compact_text_preserves_percent_space_run_between_runs():
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("样品浓度为25", sz=24))
+    paragraph.append(_make_run(" ", sz=24))
+    paragraph.append(_make_run("%，处理温度为100", sz=24))
+    paragraph.append(_make_run("℃。", sz=24))
+
+    changed = fix_thesis.fix_lnu_compact_text(paragraph, restore_unit_gap=True)
+
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "样品浓度为25 %，处理温度为100 ℃。"
 
 
 def test_fix_lnu_compact_text_restores_allowed_heading_number_space():
@@ -428,6 +471,15 @@ def test_fix_half_width_punct_can_target_lnu_toc_scope():
     fix_thesis.fix_half_width_punct_in_cjk(document, allowed_ids={id(paragraph)})
 
     assert get_paragraph_text(paragraph) == "1.1 研究背景，方法\t2"
+
+
+def test_lnu_toc_compact_text_preserves_heading_number_gap():
+    paragraph = _make_paragraph("1.1研究背景\t2", sz=24)
+
+    changed = fix_thesis.fix_lnu_compact_text(paragraph, restore_heading_gap=True, restore_unit_gap=True)
+
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "1.1 研究背景\t2"
 
 
 def test_normalize_lnu_figure_block_layout_enforces_one_blank_line_gap():

@@ -81,12 +81,13 @@ LNU_RULE_DEFINITIONS = (
     ("LNU_TEXT01", "摘要混排空格紧凑化（辽大）", "minor"),
     ("LNU_TEXT02", "目录条目混排空格紧凑化（辽大）", "minor"),
     ("LNU_TEXT03", "正文混排空格紧凑化（辽大）", "minor"),
+    ("LNU_EQ05", "公式说明变量后缀下标（辽大）", "minor"),
     ("LNU_H01", "标题编号与文字间距", "important"),
     ("LNU_CONC01", "末章标题含结论（辽大）", "minor"),
     ("LNU_S03", "参考文献/致谢前分页符（辽大）", "minor"),
     ("LNU_TITLE01", "摘要等标题双空格格式（辽大）", "minor"),
-    ("LNU_TB03", "表格内容1.5倍行距（辽大）", "minor"),
-    ("LNU_UNIT01", "数字与单位间空格（辽大）", "minor"),
+    ("LNU_TB03", "表格内容单倍行距（辽大）", "minor"),
+    ("LNU_UNIT01", "数字与单位/摄氏度/百分号间空格（辽大）", "minor"),
 )
 
 LNU_DISABLED_RULE_IDS = frozenset(

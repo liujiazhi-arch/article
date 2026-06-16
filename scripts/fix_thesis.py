@@ -414,11 +414,13 @@ def _apply_lnu_compact_text_passes(ctx: FixExecutionContext):
     for node in ctx.document_model.paragraphs:
         if node.protected or node.in_table:
             continue
+        if is_generated_toc_paragraph(node.elem):
+            continue
         if ctx.scope_flags.abstract and node.module in {"abstract_cn_body", "abstract_cn_keywords"}:
             fix_lnu_compact_text(node.elem, restore_unit_gap=True)
             continue
         if ctx.scope_flags.toc and node.module in {"toc_entry", "toc_body"}:
-            fix_lnu_compact_text(node.elem, restore_unit_gap=True)
+            fix_lnu_compact_text(node.elem, restore_heading_gap=True, restore_unit_gap=True)
             continue
         if ctx.scope_flags.body and node.module == "body_paragraph":
             fix_lnu_compact_text(node.elem, restore_unit_gap=True)
@@ -472,7 +474,7 @@ def describe_fix_docx(
         "notes": [
             "本次为 dry-run，未写入任何文件。",
             "标题预处理会先为高置信度标题补齐 Heading 样式，再进入格式修复。",
-            "若启用目录重建，Word 可能仍需在打开后更新域以刷新最终显示页码。",
+            "若启用目录重建，脚本会预填可见自动目录结果；后续改动正文分页后需复核目录页码。",
         ],
     }
 
@@ -1154,7 +1156,8 @@ def fix_sp_num_cjk(p_elem, cfg=None, runtime=None):
     return _fix_spacing_between_runs(p_elem, _needs_num_cjk_space) or changed
 
 
-_UNIT_SPACE_RE = re.compile(r"(?<![A-Za-z])(\d+(?:\.\d+)?)([A-Za-z]{1,5})(?![A-Za-z])")
+_UNIT_SPACE_RE = re.compile(r"(?<![A-Za-z])(\d+(?:\.\d+)?)([A-Za-z]{1,5}|℃)(?![A-Za-z])")
+_PERCENT_UNIT_RE = re.compile(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)([%％])")
 _UNIT_SPACE_SKIP = {"e", "E", "x", "X"}
 
 
@@ -1163,14 +1166,34 @@ def _needs_num_unit_space(left_text, right_text):
         return False
     if not left_text[-1].isdigit():
         return False
-    match = re.match(r"([A-Za-z]{1,5})", right_text)
+    match = re.match(r"([A-Za-z]{1,5}|℃)", right_text)
     if match is None:
         return False
     return match.group(1) not in _UNIT_SPACE_SKIP
 
 
+def _restore_space_before_percent_between_runs(p_elem):
+    changed = False
+    while True:
+        text_nodes = _plain_text_nodes_in_paragraph(p_elem)
+        inserted = False
+        for index in range(1, len(text_nodes)):
+            right_text = text_nodes[index].text or ""
+            if not (right_text and right_text[0] in "%％"):
+                continue
+            left_text = text_nodes[index - 1].text or ""
+            if not re.search(r"(?<![0-9A-Za-z])\d+(?:\.\d+)?$", left_text):
+                continue
+            text_nodes[index].text = f" {right_text}"
+            changed = True
+            inserted = True
+            break
+        if not inserted:
+            return changed
+
+
 def fix_lnu_unit_spacing(p_elem):
-    """在正文中为“数字+单位”补一个空格，例如 15mL -> 15 mL。"""
+    """在正文中为“数字+单位/百分号”补一个空格。"""
     changed = False
     for text_elem in p_elem.findall(".//w:t", NSMAP):
         original = text_elem.text
@@ -1184,6 +1207,7 @@ def fix_lnu_unit_spacing(p_elem):
             return f"{match.group(1)} {unit}"
 
         updated = _UNIT_SPACE_RE.sub(_repl, original)
+        updated = _PERCENT_UNIT_RE.sub(r"\1 \2", updated)
         if updated != original:
             text_elem.text = updated
             changed = True
@@ -1205,6 +1229,7 @@ def fix_lnu_unit_spacing(p_elem):
             break
         if not inserted:
             break
+    changed = _restore_space_before_percent_between_runs(p_elem) or changed
     return changed
 
 
@@ -1326,7 +1351,7 @@ def normalize_toc_title_paragraph(document_root, style_map=None, cfg=None):
     for run_elem in p_elem.findall(".//w:r", NSMAP):
         if not get_run_text(run_elem).strip():
             continue
-        set_run_font(run_elem, title_font, ascii_font="Times New Roman", size=title_size, bold=True)
+        set_run_font(run_elem, title_font, ascii_font="Times New Roman", size=title_size, bold=False)
     if changed == 0 and ET.tostring(p_elem, encoding="unicode") != before_xml:
         changed = 1
     return changed
@@ -1348,16 +1373,24 @@ def normalize_toc_entry_paragraphs(document_root, style_map=None, cfg=None):
         normalized_name = name_map.get(style_val, "")
         if style_val == "TOC1" or normalized_name.endswith("toc1") or normalized_name.endswith("toc1char") or "toc1" in normalized_name:
             entry_font = str(active_cfg.get("toc_level1_font", active_cfg.get("toc_entry_font", "宋体")) or "宋体")
-            entry_size = int(active_cfg.get("toc_level1_size", active_cfg.get("toc_entry_size", 24)) or 24)
+            entry_size = int(active_cfg.get("toc_level1_size", active_cfg.get("toc_entry_size", 22)) or 22)
             expected_after = int((active_cfg.get("toc_level1_after_pt", 5) or 5) * 20)
+            entry_bold = False
         elif style_val == "TOC2" or "toc2" in normalized_name:
             entry_font = str(active_cfg.get("toc_entry_font", "宋体") or "宋体")
-            entry_size = int(active_cfg.get("toc_entry_size", 24) or 24)
+            entry_size = int(active_cfg.get("toc_entry_size", 22) or 22)
             expected_after = int((active_cfg.get("toc_level2_after_pt", 5) or 5) * 20)
+            entry_bold = False
         else:
             entry_font = str(active_cfg.get("toc_entry_font", "宋体") or "宋体")
-            entry_size = int(active_cfg.get("toc_entry_size", 24) or 24)
+            entry_size = int(active_cfg.get("toc_entry_size", 22) or 22)
             expected_after = int((active_cfg.get("toc_level3_after_pt", 5) or 5) * 20)
+            entry_bold = False
+        ind = p_pr.find("w:ind", NSMAP)
+        if style_val == "TOC1" or normalized_name.endswith("toc1") or normalized_name.endswith("toc1char") or "toc1" in normalized_name:
+            if ind is not None:
+                p_pr.remove(ind)
+                changed += 1
         spacing = get_or_create(p_pr, "w:spacing")
         expected_line = int(active_cfg.get("toc_entry_line", 276) or 276)
         if spacing.get(f"{{{W_NS}}}before") != "0":
@@ -1392,7 +1425,7 @@ def normalize_toc_entry_paragraphs(document_root, style_map=None, cfg=None):
             run_text = get_run_text(run_elem)
             if not run_text.strip():
                 continue
-            set_run_font(run_elem, entry_font, ascii_font="Times New Roman", size=entry_size, bold=False)
+            set_run_font(run_elem, entry_font, ascii_font="Times New Roman", size=entry_size, bold=entry_bold)
         if ET.tostring(p_elem, encoding="unicode") != before_xml:
             changed += 1
     return changed
@@ -1699,13 +1732,40 @@ def renumber_lnu_captions(document_root, style_map=None):
 
         if updated_paragraph_text != paragraph_text:
             text_elems = node.elem.findall(".//w:t", NSMAP)
-            if text_elems:
+            if not text_elems:
+                continue
+
+            original_prefix_match = re.match(r"^(图|表)\s*\d+(?:[.\-]\d+)?", paragraph_text)
+            if original_prefix_match:
+                prefix_len = original_prefix_match.end()
+                new_prefix_match = re.match(r"^(图|表)\d+\.\d+", updated_paragraph_text)
+                if new_prefix_match:
+                    new_prefix = new_prefix_match.group(0)
+                    _replace_caption_prefix_across_text_nodes(text_elems, prefix_len, new_prefix)
+            else:
                 text_elems[0].text = updated_paragraph_text
                 for text_elem in text_elems[1:]:
                     text_elem.text = ""
             changed += 1
 
     return changed
+
+
+def _replace_caption_prefix_across_text_nodes(text_elems, original_prefix_len, new_prefix):
+    remaining = original_prefix_len
+    inserted = False
+    for text_elem in text_elems:
+        text = text_elem.text or ""
+        if remaining <= 0:
+            break
+        if len(text) <= remaining:
+            text_elem.text = new_prefix if not inserted else ""
+            inserted = True
+            remaining -= len(text)
+            continue
+        text_elem.text = (new_prefix if not inserted else "") + text[remaining:]
+        inserted = True
+        remaining = 0
 
 
 def _run_has_soft_break(run_elem):
@@ -2572,7 +2632,7 @@ def _make_visible_toc_title_para(cfg, runtime=None):
         _toc_title_for_runtime(cfg, runtime=runtime),
         east_asia=str((cfg or {}).get("toc_title_font", "黑体") or "黑体"),
         size=int((cfg or {}).get("toc_title_size", 32) or 32),
-        bold=True,
+        bold=False,
     )
     return p_elem
 
@@ -2593,7 +2653,8 @@ def _make_visible_toc_entry_para(text, level, cfg):
 
     if level > 1:
         ind = ET.SubElement(p_pr, f"{{{W_NS}}}ind")
-        set_attr(ind, "left", str((level - 1) * 480))
+        set_attr(ind, "left", str((level - 1) * int(active_cfg.get("toc_indent_step", 420) or 420)))
+        set_attr(ind, "firstLine", "0")
 
     spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
     set_attr(spacing, "before", "0")
@@ -2604,12 +2665,13 @@ def _make_visible_toc_entry_para(text, level, cfg):
 
     if level == 1:
         entry_font = str(active_cfg.get("toc_level1_font", active_cfg.get("toc_entry_font", "宋体")) or "宋体")
-        entry_size = int(active_cfg.get("toc_level1_size", active_cfg.get("toc_entry_size", 24)) or 24)
+        entry_size = int(active_cfg.get("toc_level1_size", active_cfg.get("toc_entry_size", 22)) or 22)
+        entry_bold = False
     else:
         entry_font = str(active_cfg.get("toc_entry_font", "宋体") or "宋体")
-        entry_size = int(active_cfg.get("toc_entry_size", 24) or 24)
-    _add_plain_run(p_elem, text, east_asia=entry_font, size=entry_size)
-    _add_plain_run(p_elem, "\t待核对", east_asia=entry_font, size=entry_size)
+        entry_size = int(active_cfg.get("toc_entry_size", 22) or 22)
+        entry_bold = False
+    _add_plain_run(p_elem, text, east_asia=entry_font, size=entry_size, bold=entry_bold)
     return p_elem
 
 
@@ -2971,7 +3033,7 @@ def fix_english_caption_paragraph(p_elem, cfg=None, runtime=None):
 
 def fix_caption_note_paragraph(p_elem, cfg=None, runtime=None):
     cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
-    ensure_alignment_and_indent(p_elem, "left", no_indent=True)
+    ensure_alignment_and_indent(p_elem, "center", no_indent=True)
     p_pr = ensure_ppr(p_elem)
     for elem in list(p_pr.findall("w:numPr", NSMAP)):
         p_pr.remove(elem)
@@ -3005,6 +3067,96 @@ def fix_equation_paragraph(p_elem, runtime=None):
         set_attr(r_fonts, "ascii", "Times New Roman")
         set_attr(r_fonts, "hAnsi", "Times New Roman")
         ensure_size(run_elem, "24")
+
+
+def _equation_number_patterns(cfg):
+    sep = re.escape((cfg or {}).get("eq_number_sep", "-"))
+    strict = re.compile(rf"^[（(]\s*(\d+){sep}(\d+)\s*[)）]$")
+    inline = re.compile(rf"[（(]\s*(\d+){sep}(\d+)\s*[)）]")
+    return strict, inline
+
+
+def _compact_paragraph_text(p_elem):
+    return re.sub(r"\s+", "", get_paragraph_text(p_elem) or "")
+
+
+def _right_align_equation_number_paragraph(p_elem) -> int:
+    before = ET.tostring(p_elem, encoding="unicode")
+    ensure_alignment_and_indent(p_elem, "right")
+    return 1 if ET.tostring(p_elem, encoding="unicode") != before else 0
+
+
+def _right_align_equation_layout_table_number(tbl_elem) -> int:
+    cells = tbl_elem.findall("w:tr/w:tc", NSMAP)
+    if not cells:
+        return 0
+    changed = 0
+    for p_elem in cells[-1].findall("w:p", NSMAP):
+        if _compact_paragraph_text(p_elem):
+            changed += _right_align_equation_number_paragraph(p_elem)
+    return 1 if changed else 0
+
+
+def fix_equation_number_alignment(document_root, cfg=None) -> int:
+    """EQ02: align existing equation number paragraphs to the right without moving formulas."""
+    strict_num_re, inline_num_re = _equation_number_patterns(cfg)
+    body = document_root.find("w:body", NSMAP)
+    if body is None:
+        return 0
+
+    changed = 0
+    table_paragraph_ids = set()
+    for tbl_elem in document_root.findall(".//w:tbl", NSMAP):
+        if not audit_thesis.is_equation_layout_table(tbl_elem):
+            continue
+        for p_elem in tbl_elem.findall(".//w:p", NSMAP):
+            table_paragraph_ids.add(id(p_elem))
+        changed += _right_align_equation_layout_table_number(tbl_elem)
+
+    paragraphs = body.findall(".//w:p", NSMAP)
+    for index, p_elem in enumerate(paragraphs):
+        if id(p_elem) in table_paragraph_ids:
+            continue
+        if not paragraph_has_math(p_elem):
+            continue
+
+        text = _compact_paragraph_text(p_elem)
+        if inline_num_re.search(text):
+            changed += _right_align_equation_number_paragraph(p_elem)
+            continue
+
+        if index + 1 >= len(paragraphs):
+            continue
+        next_p = paragraphs[index + 1]
+        if id(next_p) in table_paragraph_ids:
+            continue
+        next_text = _compact_paragraph_text(next_p)
+        if strict_num_re.fullmatch(next_text):
+            changed += _right_align_equation_number_paragraph(next_p)
+    return changed
+
+
+def fix_equation_reference_text(p_elem, cfg=None) -> int:
+    """EQ03: conservatively normalize same-run formula references such as 式2.1."""
+    sep = (cfg or {}).get("eq_number_sep", "-")
+    if sep not in {".", "-"}:
+        sep = "-"
+    changed = 0
+    pattern = re.compile(r"(式|公式)(?![（(])(\d+)[.-](\d+)")
+    for text_elem in p_elem.findall(".//w:t", NSMAP):
+        original = text_elem.text
+        if not original:
+            continue
+
+        def _replace(match):
+            left, first, second = match.groups()
+            return f"{left}({first}{sep}{second})"
+
+        updated = pattern.sub(_replace, original)
+        if updated != original:
+            text_elem.text = updated
+            changed += 1
+    return changed
 
 
 def is_display_equation_paragraph(p_elem):
@@ -3316,6 +3468,13 @@ def fix_table_borders(tbl_elem):
     inside_v.set(f"{{{W_NS}}}space", "0")
     inside_v.set(f"{{{W_NS}}}color", "auto")
 
+    inside_h = tbl_borders.find("w:insideH", NSMAP)
+    if inside_h is None:
+        inside_h = ET.SubElement(tbl_borders, f"{{{W_NS}}}insideH")
+    inside_h.set(f"{{{W_NS}}}val", "single")
+    inside_h.set(f"{{{W_NS}}}sz", "6")
+    inside_h.set(f"{{{W_NS}}}color", "auto")
+
     first_row = tbl_elem.find(".//w:tr", NSMAP)
     if first_row is None:
         return
@@ -3544,10 +3703,10 @@ def fix_lnu_title01(document_root, cfg, allowed_titles=None):
 
 
 def fix_lnu_tb03(document_root, cfg):
-    """LNU_TB03: 修复表格内容为1.5倍行距"""
+    """LNU_TB03: 修复表格内容为单倍行距"""
     fixed = 0
     local_nsmap = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-    expected_line = str((cfg or {}).get("table_cell_line") or (cfg or {}).get("body_line") or 360)
+    expected_line = str((cfg or {}).get("table_cell_line") or 240)
     for tbl in document_root.findall(".//w:tbl", local_nsmap):
         if audit_thesis.is_equation_layout_table(tbl):
             continue
@@ -3624,6 +3783,7 @@ def fix_lnu_abs01(document_root, cfg):
             continue
         p_pr = ensure_ppr(p)
         ensure_spacing(p_pr, before=0, after=after_twips)
+        ensure_alignment_and_indent(p, "center", no_indent=True)
         for run in p.findall(".//w:r", NSMAP):
             if not get_run_text(run).strip():
                 continue
@@ -3831,17 +3991,22 @@ def fix_lnu_ref04(document_root, cfg):
         if marker is None:
             continue
         marker_text = f"[{marker}]"
-        updated_text = text.rstrip()
-        if updated_text.endswith((".", "。")):
-            updated_text = updated_text[:-1] + marker_text + updated_text[-1]
-        else:
-            updated_text = updated_text + marker_text
         text_nodes = p.findall(".//w:t", NSMAP)
         if not text_nodes:
             continue
-        text_nodes[0].text = updated_text
-        for text_node in text_nodes[1:]:
-            text_node.text = ""
+        last_non_empty = None
+        for text_node in reversed(text_nodes):
+            if text_node.text and text_node.text.strip():
+                last_non_empty = text_node
+                break
+        if last_non_empty is None:
+            continue
+
+        original = last_non_empty.text.rstrip()
+        if original.endswith((".", "。")):
+            last_non_empty.text = original[:-1] + marker_text + original[-1]
+        else:
+            last_non_empty.text = original + marker_text
         fixed += 1
     return fixed
 
@@ -3995,11 +4160,18 @@ def _apply_heading_numbering_prepasses(ctx: FixExecutionContext) -> None:
                 rewrite_paragraph_text_preserve_runs(p_elem, f"第{chapter_no}章 {title}")
 
 
+def _apply_equation_prepasses(ctx: FixExecutionContext) -> FixExecutionContext:
+    if not (ctx.scope_flags.body or ctx.scope_flags.appendix):
+        return ctx
+    if fix_equation_number_alignment(ctx.document_root, ctx.cfg):
+        return _refresh_fix_context(ctx)
+    return ctx
+
+
 def _apply_toc_prepasses(ctx: FixExecutionContext) -> tuple[FixExecutionContext, dict]:
     if not ctx.scope_flags.toc:
         return ctx, {}
     if ctx.cfg.get("toc_auto"):
-        remove_paragraphs_from_body(ctx.document_root, ctx.sections.get("toc", []))
         toc_parts = fix_insert_toc(
             ctx.document_root,
             ctx.cfg,
@@ -4038,6 +4210,7 @@ def _apply_document_level_prepasses(ctx: FixExecutionContext):
         fix_cover_layout(ctx.document_root, ctx.paragraph_sections, runtime=ctx.runtime)
     ctx = _apply_abstract_prepasses(ctx)
     _apply_heading_numbering_prepasses(ctx)
+    ctx = _apply_equation_prepasses(ctx)
     ctx, toc_parts = _apply_toc_prepasses(ctx)
     ctx = _apply_frontmatter_pagination_prepasses(ctx)
     return ctx, toc_parts
@@ -4284,7 +4457,10 @@ def _apply_paragraph_fix(paragraph_node, ctx: FixExecutionContext):
             fix_heading_spacing(p_elem, "h4", cfg=ctx.cfg, runtime=ctx.runtime)
     elif paragraph_type == "other" and section_name == "body":
         if ctx.scope_flags.body:
-            fix_body_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime, style_map=ctx.style_map)
+            text = get_paragraph_text(p_elem).strip()
+            if text and not text.isdigit() and len(text) > 10:
+                fix_body_paragraph(p_elem, cfg=ctx.cfg, runtime=ctx.runtime, style_map=ctx.style_map)
+                fix_equation_reference_text(p_elem, cfg=ctx.cfg)
     if ctx.scope_flags.figures and p_elem.find(".//w:drawing", NSMAP) is not None:
         fix_figure_paragraph(p_elem)
     if (
@@ -4344,6 +4520,30 @@ def _apply_post_cleanup(ctx: FixExecutionContext):
     if ctx.scope_flags.references:
         fix_remove_hidden_page_number_artifacts(ctx.document_root)
         fix_remove_trailing_empty_before_refs(ctx.document_root, ctx.style_map, body_para_ids)
+
+
+def fix_footnote_size_part(temp_dir: str | None, cfg: dict) -> bytes | None:
+    if temp_dir is None:
+        return None
+    footnotes_path = os.path.join(temp_dir, "word", "footnotes.xml")
+    if not os.path.isfile(footnotes_path):
+        return None
+
+    footnotes_root = ET.parse(footnotes_path).getroot()
+    expected_size = str(cfg.get("footnote_size", 16) or 16)
+    changed = False
+    for footnote_elem in footnotes_root.findall(".//w:footnote", NSMAP):
+        footnote_id = footnote_elem.get(f"{{{W_NS}}}id")
+        if footnote_id in {"-1", "0"}:
+            continue
+        for run_elem in footnote_elem.findall(".//w:r", NSMAP):
+            if not get_run_text(run_elem).strip():
+                continue
+            ensure_size(run_elem, expected_size)
+            changed = True
+    if not changed:
+        return None
+    return ET.tostring(footnotes_root, encoding="utf-8", xml_declaration=True)
 
 
 def _cleanup_docx_hidden_page_number_artifacts(docx_path: str) -> int:
@@ -4508,6 +4708,7 @@ def fix_docx(input_path, output_path, profile_path=None, toc=False, scopes=None,
         _apply_text_cleanup_passes(ctx)
         ctx = _rebuild_fix_context(ctx.document_root, ctx.style_map, ctx.runtime, temp_dir=temp_dir)
         _apply_post_cleanup(ctx)
+        ctx = _apply_equation_prepasses(ctx)
 
         updated_parts = fix_output_parts.build_updated_parts(
             ctx=ctx,
@@ -4515,6 +4716,10 @@ def fix_docx(input_path, output_path, profile_path=None, toc=False, scopes=None,
             footer_builder=fix_footer_page_number,
             settings_builder=build_settings_with_update_fields,
         )
+        if ctx.scope_flags.page:
+            footnotes_part = fix_footnote_size_part(ctx.temp_dir, ctx.cfg)
+            if footnotes_part is not None:
+                updated_parts["word/footnotes.xml"] = footnotes_part
         write_docx_atomically(input_path, output_path, updated_parts)
         _postprocess_lnu_reference_order(output_path, runtime, ctx.cfg)
 
@@ -4541,7 +4746,7 @@ def main():
         action="store_false",
         help="profile 加载失败时回退到默认 LNU 配置",
     )
-    parser.add_argument("--toc", action="store_true", default=False, help="在文档开头自动插入辽大格式目录（Word打开时自动更新页码）")
+    parser.add_argument("--toc", action="store_true", default=False, help="在文档开头自动插入辽大格式目录（脚本预填可见目录结果）")
     parser.add_argument("--dry-run", action="store_true", default=False, help="仅预览将触达的修复范围，不写入文件")
     parser.add_argument("--renumber-headings", action="store_true", default=False, help="显式启用正文标题重编号")
     parser.add_argument("--layout-rebalance", action="store_true", default=False, help="显式启用图表跨页排布优化，仅在 figures_tables scope 下生效")
@@ -4584,7 +4789,7 @@ def main():
     print(f"Profile: {format_profile_resolution(audit_runtime.profile_id, audit_runtime.requested_profile, audit_runtime.fallback_used)}")
     print(report)
     if args.toc:
-        print("提示: 目录为 Word 域，若页码未刷新，请在 Word 中 Ctrl+A 后按 F9 更新。")
+        print("提示: 已写入可见自动目录域结果；如后续继续改正文分页，可在 Word/WPS 中更新域后复核页码。")
 
 
 if __name__ == "__main__":

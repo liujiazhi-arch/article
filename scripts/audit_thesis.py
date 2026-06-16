@@ -177,6 +177,17 @@ def generate_markdown_report(file_path, results, score):
     return "\n".join(lines)
 
 
+def normalize_checker_output(output):
+    if len(output) == 3:
+        passed, issues, affected = output
+        evidence = []
+    elif len(output) == 4:
+        passed, issues, affected, evidence = output
+    else:
+        raise ValueError("checker must return 3 or 4 items")
+    return passed, issues, affected, evidence
+
+
 def audit_roots(file_path, document_root, styles_root, footnotes_root=None, cfg=None, runtime=None):
     if runtime is None:
         runtime = AuditRuntime(
@@ -191,10 +202,11 @@ def audit_roots(file_path, document_root, styles_root, footnotes_root=None, cfg=
     results = []
     for rule_id, rule_name, severity in runtime.rule_definitions:
         if rule_id == "FN01":
-            passed, issues, affected = runtime.rule_checkers[rule_id](document_root, contexts, style_map, cfg, footnotes_root)
+            checker_output = runtime.rule_checkers[rule_id](document_root, contexts, style_map, cfg, footnotes_root)
         else:
-            passed, issues, affected = runtime.rule_checkers[rule_id](document_root, contexts, style_map, cfg)
-        results.append(make_result(rule_id, rule_name, severity, passed, issues, affected))
+            checker_output = runtime.rule_checkers[rule_id](document_root, contexts, style_map, cfg)
+        passed, issues, affected, evidence = normalize_checker_output(checker_output)
+        results.append(make_result(rule_id, rule_name, severity, passed, issues, affected, evidence=evidence))
     score = calculate_score(results)
     report = generate_markdown_report(file_path, results, score)
     return results, score, report
