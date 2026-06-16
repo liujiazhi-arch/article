@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from article_api.render_evidence import register_render_evidence_screenshots
 from article_engine import normalize_document, preflight_document, render_verify_document
 
 
@@ -37,7 +38,7 @@ RENDER_WORKFLOW_MODES: tuple[dict[str, Any], ...] = (
         "creates_candidate_docx": True,
         "backend_action": "apply candidate with headings + figures_tables; fast mode by default, compact mode opt-in",
         "why": "它不是常规修复模式；渲染层问题需要先看 PDF 证据，候选稿不能直接覆盖原文，也不能跳过再次 PDF 复核。",
-        "best_for": "PDF 复核已经确认的复杂图表挤页、标题孤页、大块空白等排版排障。",
+        "best_for": "PDF 复核已经确认的复杂图表挤页、标题孤页和公式编号跨页等排版排障。",
     },
 )
 
@@ -194,6 +195,7 @@ def build_render_verify_payload(
         rendered_pdf=rendered_pdf,
         page_images_dir=page_images_dir,
     )
+    register_render_evidence_screenshots(payload)
     render_summary = payload.get("render_summary") or {}
     layout_score = payload.get("layout_score") or {}
     render_text_summary = payload.get("render_text_summary") or {}
@@ -216,6 +218,7 @@ def build_render_verify_payload(
                 "layout_decision_eligible": bool(payload.get("layout_decision_eligible")),
                 "render_fallback_used": bool(payload.get("render_fallback_used")),
                 "render_finding_count": len(payload.get("render_findings") or []),
+                "evidence_item_count": len(payload.get("evidence_items") or []),
                 "render_highest_severity": render_summary.get("highest_severity"),
                 "layout_score": layout_score.get("score"),
                 "layout_penalty": layout_score.get("penalty"),
@@ -223,6 +226,7 @@ def build_render_verify_payload(
                 "expected_blank_count": int(render_summary.get("expected_blank_count") or 0),
                 "object_flow_issue_count": int(render_summary.get("object_flow_issue_count") or 0),
                 "heading_break_issue_count": int(render_summary.get("heading_break_issue_count") or 0),
+                "isolated_punctuation_count": int(render_summary.get("isolated_punctuation_count") or 0),
                 "page_text_available_count": int(render_text_summary.get("page_text_available_count") or 0),
                 "page_text_extraction_warning_count": int(render_text_summary.get("page_text_extraction_warning_count") or 0),
                 "review_item_count": len(payload.get("review_items") or []),

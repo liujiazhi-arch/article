@@ -11,6 +11,7 @@ import article_api.output_naming as output_naming
 import article_api.storage as storage
 from article_api.app import (
     ApplyRequest,
+    AuditRequest,
     NormalizeRequest,
     NormalizeJobRequest,
     PreflightRequest,
@@ -26,6 +27,16 @@ from article_api.jobs import clear_jobs, job_count, wait_for_job
 from article_api.storage import clear_uploads, upload_count
 
 from .conftest import RULE_MUTATORS, make_compliant_doc
+
+
+def test_render_workflow_modes_do_not_advertise_large_blank_public_findings():
+    from article_api.response_payloads import RENDER_WORKFLOW_MODES
+
+    text = "\n".join(str(mode) for mode in RENDER_WORKFLOW_MODES)
+
+    assert "大块空白" not in text
+    assert "大面积空白" not in text
+    assert "页底空白" not in text
 
 
 class FakeHTTPException(Exception):
@@ -100,13 +111,16 @@ def test_create_app_handles_missing_fastapi_dependency():
     if fastapi_available():
         app = create_app()
         route_paths = {route.path for route in app.routes}
-        assert "/" in route_paths
+        assert "/" not in route_paths
+        assert "/assets/{asset_path:path}" not in route_paths
         assert "/health" in route_paths
         assert "/ready" in route_paths
         assert "/version" in route_paths
         assert "/updates/latest" in route_paths
         assert "/profiles" in route_paths
         assert "/render-workflow-modes" in route_paths
+        assert "/render-evidence/screenshot/{token}" in route_paths
+        assert "/render-evidence/screenshot" not in route_paths
         assert "/audit" in route_paths
         assert "/plan" in route_paths
         assert "/preflight" in route_paths
@@ -122,7 +136,7 @@ def test_create_app_handles_missing_fastapi_dependency():
         assert "/jobs/batches/recent" not in route_paths
         assert "/uploads/docx" in route_paths
         assert "/uploads/pdf" in route_paths
-        assert "/assets/lnu-emblem.jpg" in route_paths
+        assert "/assets/lnu-emblem.jpg" not in route_paths
         assert "/uploads" in route_paths
         assert "/uploads/{upload_id}" in route_paths
         assert "/uploads/{upload_id}/cleanup" in route_paths
@@ -223,6 +237,31 @@ def test_verify_request_supports_worker_control_fields():
     assert request.timeout_seconds == 4.0
 
 
+def test_audit_endpoint_returns_fields_required_for_rule_matrix(monkeypatch, tmp_docx):
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+    source_path = tmp_docx(make_compliant_doc, filename="article_api_rule_matrix.docx")
+    doc = Document(source_path)
+    RULE_MUTATORS["H02"](doc)
+    RULE_MUTATORS["KW01"](doc)
+    doc.save(source_path)
+
+    payload = routes["/audit"].endpoint(AuditRequest(file_path=str(source_path)))
+
+    assert payload["summary"]["total_rules"] == len(payload["results"])
+    assert payload["summary"]["failed_rules"] == len(payload["failed_results"])
+    result_ids = {item["id"] for item in payload["results"]}
+    assert {item["id"] for item in payload["failed_results"]}.issubset(result_ids)
+    required_keys = {"id", "name", "severity", "passed", "issues", "affected", "action"}
+    for item in payload["results"]:
+        assert required_keys.issubset(item)
+        assert isinstance(item["issues"], list)
+        assert isinstance(item["affected"], list)
+    failed_by_id = {item["id"]: item for item in payload["failed_results"]}
+    assert failed_by_id["H02"]["action"] == "autofix"
+    assert failed_by_id["KW01"]["action"] == "manual_review"
+
+
 def test_retention_sweep_request_supports_optional_thresholds():
     request = RetentionSweepRequest(job_max_age_seconds=60, upload_max_age_seconds=120, dry_run=True)
 
@@ -242,7 +281,6 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     RULE_MUTATORS["H02"](doc)
     doc.save(source_path)
 
-    console_response = routes["/"].endpoint()
     health_payload = routes["/health"].endpoint()
     version_payload = routes["/version"].endpoint()
     updates_payload = routes["/updates/latest"].endpoint()
@@ -264,189 +302,7 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     wait_for_job(create_payload["job_id"])
     summary_payload = routes["/ops/summary"].endpoint()
 
-    console_html = console_response.body.decode("utf-8")
-    assert "论文格式本地控制台" in console_html
-    assert "辽宁大学毕业论文" in console_html
-    assert "brand-mark" in console_html
-    assert "assets/lnu-emblem.jpg" in console_html
-    assert "选择 Word 论文" in console_html
-    assert "辽宁大学毕业论文格式" in console_html
-    assert "格式检查与修复" in console_html
-    assert "--topbar-height: 68px" in console_html
-    assert "font-size: 16px" in console_html
-    assert "brand-mark brand-mark-reveal" in console_html
-    assert "animation: emblemIntro" in console_html
-    assert "showBrandPulse" in console_html
-    assert "brandMark.addEventListener('animationend'" in console_html
-    assert "color-scheme: light dark" in console_html
-    assert "@media (prefers-color-scheme: dark)" in console_html
-    assert 'id="theme-toggle-button"' in console_html
-    assert 'class="theme-toggle"' in console_html
-    assert 'aria-label="切换深浅色"' in console_html
-    assert "article-console-theme" in console_html
-    assert "function applyTheme" in console_html
-    assert "function toggleTheme" in console_html
-    assert "document.documentElement.dataset.theme" in console_html
-    assert "localStorage.setItem(THEME_STORAGE_KEY" in console_html
-    assert "aria-pressed" in console_html
-    assert ':root[data-theme="dark"]' in console_html
-    assert ':root[data-theme="light"]' in console_html
-    assert '[data-theme="dark"] #view-paper .hero' in console_html
-    assert '[data-theme="dark"] #view-paper .hero::before' in console_html
-    assert '[data-theme="dark"] #view-paper .stage' in console_html
-    assert "margin-top: clamp(28px, 4vw, 52px)" in console_html
-    assert "inset: 18px max(18px, calc((100vw - var(--content-max)) / 2)) 22px" in console_html
-    assert "--shadow-sm:" in console_html
-    assert "--shadow-md:" in console_html
-    assert "--shadow-lg:" in console_html
-    assert "--shadow-blue:" in console_html
-    assert "--focus-ring:" in console_html
-    assert ":focus-visible" in console_html
-    assert "button.primary:focus-visible" in console_html
-    assert ".loading-skeleton" in console_html
-    assert "renderRecentJobsLoading" in console_html
-    assert "renderRecordLoading" in console_html
-    assert "line-height: 1.08" in console_html
-    assert '<div class="records-hero hero">' in console_html
-    assert "上传 DOCX，生成修复稿；再上传导出的 PDF 复审。" not in console_html
-    assert "一键生成修复稿" not in console_html
-    assert "生成修复方案" in console_html
-    assert "按所选范围修复" in console_html
-    assert "上传 PDF 复审" in console_html
-    assert "按这些问题生成下一版 DOCX" in console_html
-    assert "下一版 DOCX 已生成" in console_html
-    assert "任务查询" in console_html
-    assert "最近任务" in console_html
-    assert "records-stage" in console_html
-    assert "records-layout" in console_html
-    assert "records-main-stack" in console_html
-    assert "records-recent-card glass-card" in console_html
-    assert "glass-card interactive-glass" in console_html
-    assert "grid-template-columns: repeat(auto-fit, minmax(260px, 1fr))" in console_html
-    assert "recent-job-document" in console_html
-    assert "recent-job-operation" in console_html
-    assert "任务编号:" in console_html
-    assert 'id="feedback-download-link"' in console_html
-    assert 'href="/feedback/download"' in console_html
-    assert 'download="反馈包.zip"' in console_html
-    assert "导出反馈包" in console_html
-    assert "默认不含论文原文或修复稿" in console_html
-    assert "检查新版本" in console_html
-    assert "只检查软件版本，不上传论文" in console_html
-    assert "/updates/latest" in console_html
-    assert "manualUpdateCheck" in console_html
-    assert ".topbar-inner {" in console_html
-    assert "flex-wrap: wrap;" in console_html
-    assert ".update-check-note {" in console_html
-    assert "display: block;" in console_html
-    assert ".update-check-note { display: none;" not in console_html
-    assert "自动安装新版本" not in console_html
-    assert "openReportPreview" in console_html
-    assert "record-report-preview" in console_html
-    assert "data-report-download" in console_html
-    assert "报告文件已清理，已复制原路径" in console_html
-    assert "refreshRecentJobs" in console_html
-    assert "/jobs?limit=10" in console_html
-    assert "高级设置" not in console_html
-    assert "分步操作" not in console_html
-    assert "advanced-details" not in console_html
-    assert "single-profile" not in console_html
-    assert "cn-common" not in console_html
-    assert "profile: 'lnu'" not in console_html
-    assert "可选动作" not in console_html
-    assert "处理选项" not in console_html
-    assert "PDF 复审" in console_html
-    assert "检查导出的 PDF" in console_html
-    assert "开始复审" in console_html
-    assert "data-workflow-mode=\"default_user\"" not in console_html
-    assert "data-workflow-mode=\"advanced_word\"" not in console_html
-    assert "selectedWorkflowMode: 'default_user'" in console_html
-    assert 'id="scope-selection-panel"' in console_html
-    assert 'data-scope-list' in console_html
-    assert 'data-scope-checkbox' in console_html
-    assert "function renderScopeSelection" in console_html
-    assert "querySelectorAll('[data-scope-checkbox]:checked')" in console_html
-    assert "至少选择一个修复范围" in console_html
-    assert "function selectedScopes() { return SCOPES.map(([value]) => value); }" not in console_html
-    assert "async function runApplyJob" in console_html
-    assert "pollApplyJob" in console_html
-    assert "/uploads/${encodeURIComponent(state.uploaded.upload_id)}/jobs/apply" in console_html
-    assert "'/jobs/apply'" in console_html
-    assert "/jobs/${encodeURIComponent(jobId)}/artifacts/output/download" in console_html
-    assert "下载修复稿" in console_html
-    assert "function userFacingError" in console_html
-    assert "renderWorkflowStatusItems" in console_html
-    assert "formatRenderFinding" in console_html
-    assert "renderFindingItems" in console_html
-    assert "verifyIssueItems" in console_html
-    assert "formatRuleSummary" in console_html
-    assert "pollAgentCandidateJob" in console_html
-    assert "下一版 DOCX 已提交后端任务" in console_html
-    assert "后端任务仍在运行，不是页面卡死" in console_html
-    assert "正在转换 PDF 页面；30 页左右可能需要 1-3 分钟，不是页面卡住" in console_html
-    assert "需要版式复核原因" in console_html
-    assert "技术详情" in console_html
-    assert "预计下一版路径" in console_html
-    assert "等待结果整理" in console_html
-    assert "排障模式工作台" not in console_html
-    assert "返回上一步" not in console_html
-    assert "继续主流程" not in console_html
-    assert "进入排障模式" not in console_html
-    assert "candidate_mode: 'fast_candidate'" in console_html
-    assert "const AGENT_CANDIDATE_PROGRESS = { submitted: 30, running: 55, finalizing: 80, finished: 100 };" in console_html
-    assert "PDF 复审不修改 DOCX" in console_html
-    assert "详细报告" in console_html
-    assert "已向后端发送高级模式请求" not in console_html
-    assert "后端没有拿到 Word 导出的 render_verify_word.pdf" not in console_html
-    assert "PDF 复审完成" in console_html
-    assert "PDF 复审" in console_html
-    assert "上传 PDF" in console_html
-    assert "render-pdf-upload-zone" in console_html
-    assert "render-pdf-file" in console_html
-    assert "/uploads/pdf" in console_html
-    assert "高级模式" not in console_html
-    assert "Agent 候选稿模式" not in console_html
-    assert "render-manual-button" in console_html
-    assert "render-word-button" not in console_html
-    assert "render-agent-button" not in console_html
-    assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" not in console_html
-    assert "for (const id of ['preflight', 'plan'])" in console_html
-    assert "guardedRenderWorkflow('default_user')" in console_html
-    assert "原文不会被覆盖" in console_html
-    assert "总体结论" in console_html
-    assert "status-studio" in console_html
-    assert "status-flow-card glass-card" in console_html
-    assert "report-section-card" in console_html
-    assert "report-section is-primary" in console_html
-    assert "report-section is-next" in console_html
-    assert "linear-gradient(145deg, rgba(232, 244, 255" in console_html
-    assert "@keyframes panelFloatIn" in console_html
-    assert "font-size: clamp(20px, 2.2vw, 28px)" in console_html
-    assert "report-action-button" in console_html
-    assert "report-progress" in console_html
-    assert "正在修复" in console_html
-    assert "修复稿已生成" in console_html
-    assert "结构复查完成" in console_html
-    assert "source-summary" in console_html
-    assert "displayFileName" in console_html
-    assert "sourceDisplayName" in console_html
-    assert "outputFolderLabel" in console_html
-    assert "outputSummary" in console_html
-    assert "复核后排障工具" not in console_html
-    assert "先完成 PDF 版式复核后再使用" not in console_html
-    assert "查看路径" in console_html
-    assert "桌面/论文格式修复输出" in console_html
-    assert "任务状态" in console_html
-    assert "record-result-card glass-card status-glass-panel" in console_html
-    assert ".record-result-card.glass-card" in console_html
-    assert "record-detail-hero" in console_html
-    assert "record-title-main" in console_html
-    assert "record-job-id" in console_html
-    assert "record-section-card" in console_html
-    assert "等待选择任务" not in console_html
-    assert "历史任务" not in console_html
-    assert "批量任务" not in console_html
-    assert "适合发给学弟学妹使用" not in console_html
+    assert "/" not in routes
     assert health_payload["service"] == "article-api"
     assert health_payload["status"] == "ok"
     assert version_payload["version"] == "0.1.0"
@@ -531,27 +387,6 @@ def test_fake_app_profiles_route_uses_app_module_profile_catalog(monkeypatch):
             "api_version": app_module.API_VERSION,
         }
     ]
-
-
-def test_local_console_surfaces_structured_error_payloads(monkeypatch):
-    app = _build_fake_app(monkeypatch)
-    routes = _routes_by_path(app)
-
-    console_html = routes["/"].endpoint().body.decode("utf-8")
-
-    assert "error.payload = parsedPayload;" in console_html
-    assert "detail.user_message" in console_html
-    assert "detail.next_action" in console_html
-    assert "const friendlyMessage = parsedPayload ? userFacingError({ payload: parsedPayload }) : '';" in console_html
-    assert "new Error(friendlyMessage || responseText || `${response.status}`)" in console_html
-    assert "if (error && typeof error === 'object' && error.message) text = String(error.message);" in console_html
-    assert "function cleanErrorText(text)" in console_html
-    assert "replace(/(\\\\n|\\n)/g, ' ')" in console_html
-    assert "const friendly = userFacingError(error);" in console_html
-    assert "issues: [friendly]" in console_html
-    assert "items: [`失败步骤: ${STEP_INFO[id]?.[0] || id}`, friendly]" in console_html
-    assert "items: [`失败步骤: ${STEP_INFO[id][0]}`, friendly]" in console_html
-    assert "上传失败: ${userFacingError(error)}" in console_html
 
 
 def test_update_check_payload_fetches_configured_github_release_without_document_data(monkeypatch):
@@ -836,6 +671,9 @@ def test_fake_app_normalize_endpoint_returns_wild_doc_delta(monkeypatch):
 
 def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
     output_dir = tmp_path / "render-proof"
+    output_dir.mkdir()
+    (output_dir / "page-1.png").write_bytes(b"png")
+    (output_dir / "page-2.png").write_bytes(b"png")
 
     monkeypatch.setattr(
         app_module,
@@ -852,12 +690,25 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
             "render_fallback_used": False,
             "page_count": 2,
             "page_images": [str(output_dir / "page-1.png"), str(output_dir / "page-2.png")],
+            "evidence_items": [
+                {
+                    "page": 2,
+                    "screenshot_path": str(output_dir / "page-2.png"),
+                    "screenshot_url": "/render-evidence/screenshot/test-token",
+                    "rule_id": "render.object_flow",
+                    "bbox": {"x": 0.12, "y": 0.64, "w": 0.72, "h": 0.18},
+                    "message": "页底留白需要人工复核",
+                    "severity": "warning",
+                    "next_action": "回到 WPS/Word 调整图片大小或分页设置后重新导出 PDF",
+                }
+            ],
             "render_findings": [
                 {
-                    "id": "large_blank_region",
+                    "id": "isolated_punctuation",
+                    "rule_id": "render.isolated_punctuation",
                     "severity": "warning",
                     "page": 2,
-                    "message": "页底存在大块连续空白。",
+                    "message": "页面文本存在单独成行的标点，疑似换行或排版挤压导致。",
                 }
             ],
             "render_summary": {
@@ -865,14 +716,15 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
                 "highest_severity": "warning",
                 "actionable_finding_count": 1,
                 "expected_blank_count": 0,
-                "object_flow_issue_count": 1,
+                "object_flow_issue_count": 0,
                 "heading_break_issue_count": 0,
+                "isolated_punctuation_count": 1,
             },
             "layout_score": {
-                "score": 88,
-                "penalty": 12,
+                "score": 100,
+                "penalty": 0,
                 "expected_blank_count": 0,
-                "actionable_finding_count": 1,
+                "actionable_finding_count": 0,
                 "object_flow_issue_count": 1,
                 "heading_break_issue_count": 0,
                 "render_integrity_issue_count": 0,
@@ -889,7 +741,7 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
             "readiness": "render-check-required",
             "manual_review_rule_ids": ["LNU_TOC03"],
             "unsupported_rule_ids": [],
-            "review_items": ["目录需要刷新后复核页码。"],
+            "review_items": ["目录需复核页码、层级和可见目录结果。"],
             "report_path": str(output_dir / "render_verify_report.md"),
         },
     )
@@ -914,15 +766,86 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
     assert payload["summary"]["render_fallback_used"] is False
     assert payload["summary"]["render_finding_count"] == 1
     assert payload["summary"]["render_highest_severity"] == "warning"
-    assert payload["summary"]["layout_score"] == 88
-    assert payload["summary"]["layout_penalty"] == 12
+    assert payload["summary"]["layout_score"] == 100
+    assert payload["summary"]["layout_penalty"] == 0
     assert payload["summary"]["actionable_finding_count"] == 1
-    assert payload["summary"]["object_flow_issue_count"] == 1
+    assert payload["summary"]["isolated_punctuation_count"] == 1
     assert payload["summary"]["page_text_available_count"] == 2
+    assert payload["summary"]["evidence_item_count"] == 1
+    assert payload["evidence_items"][0]["rule_id"] == "render.object_flow"
+    assert payload["evidence_items"][0]["bbox"]["x"] == 0.12
+    assert payload["evidence_items"][0]["screenshot_url"].startswith("/render-evidence/screenshot/")
+    assert "path=" not in payload["evidence_items"][0]["screenshot_url"]
     assert payload["summary"]["review_item_count"] == 1
     assert payload["summary"]["manual_review_rule_count"] == 1
     assert payload["render_workflow_mode"]["id"] == "default_user"
     assert payload["selected_scopes"] == ["toc"]
+
+
+def test_render_evidence_screenshot_route_uses_registered_token(monkeypatch, tmp_path):
+    output_dir = tmp_path / "render-proof"
+    output_dir.mkdir()
+    screenshot_path = output_dir / "page-1.png"
+    screenshot_path.write_bytes(b"png")
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+
+    monkeypatch.setattr(
+        app_module,
+        "render_verify_document",
+        lambda *args, **kwargs: {
+            "document": {"path": "/tmp/demo.docx", "name": "demo.docx"},
+            "profile": {"id": "lnu-checker-2026", "requested": "lnu", "fallback_used": False, "display": "lnu"},
+            "output_dir": str(output_dir),
+            "render_engine": "manual-pdf",
+            "evidence_source": "manual-pdf",
+            "evidence_trust": "authoritative",
+            "evidence_authoritative": True,
+            "layout_decision_eligible": True,
+            "render_fallback_used": False,
+            "page_count": 1,
+            "page_images": [str(screenshot_path)],
+            "evidence_items": [
+                {
+                    "page": 1,
+                    "screenshot_path": str(screenshot_path),
+                    "rule_id": "render.object_flow",
+                    "bbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                    "message": "页底留白需要人工复核",
+                    "severity": "warning",
+                    "next_action": "回到 WPS/Word 调整图片大小或分页设置后重新导出 PDF",
+                }
+            ],
+            "render_findings": [],
+            "render_summary": {"finding_count": 0, "highest_severity": None, "actionable_finding_count": 0},
+            "layout_score": {"score": 100, "penalty": 0},
+            "render_text_summary": {"page_text_available_count": 0, "page_text_extraction_warning_count": 0},
+            "selected_scopes": ["toc"],
+            "overall_status": "verified",
+            "readiness": "render-check-required",
+            "manual_review_rule_ids": [],
+            "unsupported_rule_ids": [],
+            "review_items": [],
+            "report_path": str(output_dir / "render_verify_report.md"),
+        },
+    )
+
+    payload = app_module.build_render_verify_payload(
+        file_path="/tmp/demo.docx",
+        profile_path="lnu",
+        workflow_mode="default_user",
+        rendered_pdf="/tmp/demo.pdf",
+    )
+    screenshot_url = payload["evidence_items"][0]["screenshot_url"]
+    token = screenshot_url.rsplit("/", 1)[-1]
+
+    response = routes["/render-evidence/screenshot/{token}"].endpoint(token)
+    assert response["path"] == str(screenshot_path.resolve())
+    assert response["media_type"] == "image/png"
+    assert "path=" not in screenshot_url
+    with pytest.raises(FakeHTTPException) as exc_info:
+        routes["/render-evidence/screenshot/{token}"].endpoint(str(screenshot_path))
+    assert exc_info.value.status_code == 404
 
 
 def test_build_render_verify_payload_requires_pdf_for_default_user_mode(monkeypatch):

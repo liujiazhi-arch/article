@@ -28,6 +28,16 @@ class ApplyGuardBlockedError(RuntimeError):
         self.guard = guard
 
 
+def _list_payload_value(value: Any) -> list[Any]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
 def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
     capability = load_rule_capabilities().get(result["id"], {})
     return {
@@ -35,8 +45,8 @@ def _serialize_result(result: dict[str, Any]) -> dict[str, Any]:
         "name": result["name"],
         "severity": result.get("severity"),
         "passed": bool(result.get("passed")),
-        "issues": list(result.get("issues") or []),
-        "affected": list(result.get("affected") or []),
+        "issues": _list_payload_value(result.get("issues")),
+        "affected": _list_payload_value(result.get("affected")),
         "check_level": capability.get("check_level", "Unknown"),
         "autofix": capability.get("autofix", "?"),
         "action": classify_audit_result_action(result),
@@ -307,6 +317,7 @@ def plan_document(file_path: str, profile_path: str | None = None, scopes=None, 
     recommended_scope_order = [scope["id"] for scope in plan["scopes"] if scope["failed_count"] > 0]
 
     return {
+        "operation": "plan",
         "document": {
             "path": plan["file_path"],
             "name": Path(plan["file_path"]).name,
@@ -321,10 +332,15 @@ def plan_document(file_path: str, profile_path: str | None = None, scopes=None, 
         "summary": {
             "failed_rules": plan["failed_count"],
             "total_failed_rules": plan["total_failed_count"],
+            "autofixable_scopes": plan["scope_radar_summary"]["autofixable_scope_count"],
+            "manual_review_items": plan["scope_radar_summary"]["manual_review_count"],
+            "unsupported_items": plan["scope_radar_summary"]["unsupported_count"],
+            "manual_confirmation_items": plan["scope_radar_summary"]["manual_confirmation_count"],
         },
         "selected_scopes": plan["selected_scopes"],
         "recommended_scope_order": recommended_scope_order,
         "scopes": visible_scopes,
+        "scope_radar_summary": dict(plan["scope_radar_summary"]),
         "unscoped_failed": [
             {
                 "id": item["id"],

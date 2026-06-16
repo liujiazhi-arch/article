@@ -114,7 +114,7 @@ def run_local_browser_smoke(
     command_timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     smoke_dir = Path(work_dir).expanduser().resolve()
-    python_path = Path(python_executable).expanduser().resolve()
+    python_path = Path(python_executable).expanduser().absolute()
     pwcli_path = Path(playwright_cli).expanduser().resolve()
     timeout = float(command_timeout_seconds)
 

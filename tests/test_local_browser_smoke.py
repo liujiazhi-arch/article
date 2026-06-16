@@ -114,6 +114,66 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
     assert commands[-1] == [str(playwright_cli), "close"]
 
 
+def test_local_browser_smoke_preserves_python_symlink(monkeypatch, tmp_path):
+    local_browser_smoke = _load_local_browser_smoke()
+    commands: list[list[str]] = []
+    popen_calls: list[list[str]] = []
+    playwright_cli = tmp_path / "pwcli"
+    playwright_cli.write_text("#!/bin/sh\n", encoding="utf-8")
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    real_python = tmp_path / "python-real"
+    venv_python.parent.mkdir(parents=True)
+    real_python.write_text("#!/bin/sh\n", encoding="utf-8")
+    venv_python.symlink_to(real_python)
+
+    class FakeProcess:
+        def __init__(self, command, **_kwargs):
+            popen_calls.append([str(item) for item in command])
+
+        def terminate(self):
+            return None
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            return None
+
+    def fake_run(command, *, cwd=None, capture_output=True, text=True, check=True, timeout=None):
+        command = [str(item) for item in command]
+        commands.append(command)
+        if command[1:3] == ["click", "#report-output"]:
+            browser_download = tmp_path / "browser-smoke" / ".playwright-cli" / "downloaded.docx"
+            browser_download.parent.mkdir(parents=True, exist_ok=True)
+            browser_download.write_bytes(b"docx")
+            return type(
+                "Completed",
+                (),
+                {"stdout": f'Downloaded file downloaded.docx to "{browser_download}"', "stderr": ""},
+            )()
+        return type("Completed", (), {"stdout": "ok", "stderr": ""})()
+
+    monkeypatch.setattr(local_browser_smoke.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(local_browser_smoke.subprocess, "run", fake_run)
+    monkeypatch.setattr(local_browser_smoke, "_available_port", lambda: 54321)
+    monkeypatch.setattr(local_browser_smoke, "_wait_for_ready", lambda base_url: {"status": "ready"})
+    monkeypatch.setattr(local_browser_smoke, "_build_smoke_docx", lambda *args, **kwargs: None)
+    monkeypatch.setattr(local_browser_smoke.zipfile, "is_zipfile", lambda path: True)
+    monkeypatch.setattr(
+        local_browser_smoke,
+        "_wait_for_snapshot_text",
+        lambda playwright_cli, expected_text, **kwargs: "ok",
+    )
+
+    local_browser_smoke.run_local_browser_smoke(
+        work_dir=tmp_path / "browser-smoke",
+        python_executable=venv_python,
+        playwright_cli=playwright_cli,
+    )
+
+    assert popen_calls[0][0] == str(venv_python.absolute())
+
+
 def test_local_browser_smoke_cli_reports_missing_playwright_as_json(monkeypatch, capsys, tmp_path):
     local_browser_smoke = _load_local_browser_smoke()
 

@@ -85,14 +85,29 @@ def test_console_script_targets_resolve_to_callables():
         assert callable(target_obj), f"{script_name} target must be callable"
 
 
-def test_pyproject_includes_local_console_asset():
+def test_required_api_runtime_modules_are_tracked_by_git():
+    project_root = Path(__file__).resolve().parents[1]
+    required_paths = [
+        "scripts/article_api/render_evidence.py",
+    ]
+
+    subprocess.run(
+        ["git", "ls-files", "--error-unmatch", *required_paths],
+        check=True,
+        cwd=project_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=PACKAGING_COMMAND_TIMEOUT_SECONDS,
+    )
+
+
+def test_pyproject_does_not_package_frontend_assets_before_new_frontend_is_finalized():
     pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
     data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
 
-    assert data["tool"]["setuptools"]["package-data"]["article_api"] == [
-        "local_console.html",
-        "assets/lnu-emblem.jpg",
-    ]
+    package_data = data["tool"]["setuptools"].get("package-data", {})
+    assert "article_api" not in package_data
 
 
 def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
@@ -152,11 +167,16 @@ def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
         "thesis_tool/render_image_metrics.py",
         "thesis_tool/workflow_renderers.py",
         "article_api/local_feedback.py",
+        "article_api/render_evidence.py",
         "article_api/job_retention.py",
         "article_api/retention_reports.py",
         "article_api/route_error_handlers.py",
     }
     assert required_entries <= names
+    assert "article_api/local_console.html" not in names
+    assert "article_api/assets/lnu-emblem.jpg" not in names
+    assert "article_api/static/index.html" not in names
+    assert "article_api/static/assets/lnu-emblem.jpg" not in names
 
     required_resource_suffixes = {
         "config/profiles/lnu-checker-2026.yaml",
@@ -222,8 +242,8 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
         "scripts/thesis_tool/apply_guard.py",
         "scripts/thesis_tool/render_image_metrics.py",
         "scripts/thesis_tool/workflow_renderers.py",
-        "scripts/article_api/local_console.html",
         "scripts/article_api/local_feedback.py",
+        "scripts/article_api/render_evidence.py",
         "scripts/article_api/job_retention.py",
         "scripts/article_api/retention_reports.py",
         "scripts/article_api/route_error_handlers.py",
@@ -233,6 +253,14 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
     }
     for suffix in required_suffixes:
         assert any(name.endswith(suffix) for name in names), suffix
+    excluded_suffixes = {
+        "scripts/article_api/local_console.html",
+        "scripts/article_api/assets/lnu-emblem.jpg",
+        "scripts/article_api/static/index.html",
+        "scripts/article_api/static/assets/lnu-emblem.jpg",
+    }
+    for suffix in excluded_suffixes:
+        assert not any(name.endswith(suffix) for name in names), suffix
 
 
 def test_wheel_install_imports_entry_modules_from_outside_repo(tmp_path):
@@ -270,6 +298,7 @@ for name in (
     "thesis_workbench",
     "article_api.local_app",
     "article_api.local_feedback",
+    "article_api.render_evidence",
     "article_api.job_retention",
     "article_api.retention_reports",
     "article_api.route_error_handlers",
@@ -300,7 +329,7 @@ for name in (
 profiles = list_public_profile_catalog()
 assert DEFAULT_PROFILE_ID == "lnu-checker-2026"
 assert [profile["id"] for profile in profiles] == ["lnu-checker-2026"]
-assert len(load_rule_capabilities()) == 74
+assert len(load_rule_capabilities()) == 77
 """
     subprocess.run(
         [sys.executable, "-c", import_script],
@@ -312,22 +341,3 @@ assert len(load_rule_capabilities()) == 74
         text=True,
         timeout=PACKAGING_COMMAND_TIMEOUT_SECONDS,
     )
-
-
-def test_local_console_includes_apple_style_motion_hooks():
-    html_path = Path(__file__).resolve().parents[1] / "scripts" / "article_api" / "local_console.html"
-    html = html_path.read_text(encoding="utf-8")
-
-    required_fragments = [
-        "prefers-reduced-motion: reduce",
-        "IntersectionObserver",
-        "initAppleMotion",
-        "motion-reveal",
-        ".topbar.compact",
-        "topbar.classList.toggle('compact'",
-        "report-updated",
-        "upload-active",
-        "step-pulse",
-    ]
-    for fragment in required_fragments:
-        assert fragment in html

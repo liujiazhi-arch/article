@@ -91,15 +91,16 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     client = _make_client(monkeypatch, tmp_path / "state")
 
     health_response = client.get("/health")
-    console_response = client.get("/")
+    removed_console_response = client.get("/")
     ready_response = client.get("/ready")
     version_response = client.get("/version")
     update_response = client.get("/updates/latest")
     profiles_response = client.get("/profiles")
     runtime_response = client.get("/ops/runtime")
     storage_response = client.get("/ops/storage")
-    emblem_response = client.get("/assets/lnu-emblem.jpg")
-    assert console_response.status_code == 200
+    removed_emblem_response = client.get("/assets/lnu-emblem.jpg")
+    assert removed_console_response.status_code == 404
+    assert removed_emblem_response.status_code == 404
     assert health_response.status_code == 200
     assert ready_response.status_code == 200
     assert version_response.status_code == 200
@@ -107,107 +108,6 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert profiles_response.status_code == 200
     assert runtime_response.status_code == 200
     assert storage_response.status_code == 200
-    assert emblem_response.status_code == 200
-    assert emblem_response.headers["content-type"].startswith("image/jpeg")
-    assert "论文格式本地控制台" in console_response.text
-    assert "辽宁大学毕业论文" in console_response.text
-    assert "brand-mark" in console_response.text
-    assert "assets/lnu-emblem.jpg" in console_response.text
-    assert "选择 Word 论文" in console_response.text
-    assert "辽宁大学毕业论文格式" in console_response.text
-    assert "格式检查与修复" in console_response.text
-    assert "上传 DOCX，生成修复稿；再上传导出的 PDF 复审。" not in console_response.text
-    assert "一键生成修复稿" not in console_response.text
-    assert "生成修复方案" in console_response.text
-    assert "按所选范围修复" in console_response.text
-    assert "上传 PDF 复审" in console_response.text
-    assert "按这些问题生成下一版 DOCX" in console_response.text
-    assert "任务查询" in console_response.text
-    assert "最近任务" in console_response.text
-    assert "refreshRecentJobs" in console_response.text
-    assert "/jobs?limit=10" in console_response.text
-    assert "高级设置" not in console_response.text
-    assert "分步操作" not in console_response.text
-    assert "advanced-details" not in console_response.text
-    assert "single-profile" not in console_response.text
-    assert "cn-common" not in console_response.text
-    assert "profile: 'lnu'" not in console_response.text
-    assert "可选动作" not in console_response.text
-    assert "处理选项" not in console_response.text
-    assert "PDF 复审" in console_response.text
-    assert "检查导出的 PDF" in console_response.text
-    assert "开始复审" in console_response.text
-    assert "data-workflow-mode=\"default_user\"" not in console_response.text
-    assert "data-workflow-mode=\"advanced_word\"" not in console_response.text
-    assert "selectedWorkflowMode: 'default_user'" in console_response.text
-    assert "function userFacingError" in console_response.text
-    assert "function jobErrorText" in console_response.text
-    assert "jobErrorText(detail.error || detail)" in console_response.text
-    assert "jobErrorText(payload.error || payload)" in console_response.text
-    assert "renderWorkflowStatusItems" in console_response.text
-    assert "formatRenderFinding" in console_response.text
-    assert "renderFindingItems" in console_response.text
-    assert "verifyIssueItems" in console_response.text
-    assert "formatRuleSummary" in console_response.text
-    assert "pollAgentCandidateJob" in console_response.text
-    assert "下一版 DOCX 已提交后端任务" in console_response.text
-    assert "后端任务仍在运行，不是页面卡死" in console_response.text
-    assert "正在转换 PDF 页面；30 页左右可能需要 1-3 分钟，不是页面卡住" in console_response.text
-    assert "需要版式复核原因" in console_response.text
-    assert "技术详情" in console_response.text
-    assert "预计下一版路径" in console_response.text
-    assert "等待结果整理" in console_response.text
-    assert "const AGENT_CANDIDATE_PROGRESS = { submitted: 30, running: 55, finalizing: 80, finished: 100 };" in console_response.text
-    assert "PDF 复审不修改 DOCX" in console_response.text
-    assert "详细报告" in console_response.text
-    assert "已向后端发送高级模式请求" not in console_response.text
-    assert "后端没有拿到 Word 导出的 render_verify_word.pdf" not in console_response.text
-    assert "PDF 复审完成" in console_response.text
-    assert "PDF 复审" in console_response.text
-    assert "上传 PDF" in console_response.text
-    assert "render-pdf-upload-zone" in console_response.text
-    assert "render-pdf-file" in console_response.text
-    assert "/uploads/pdf" in console_response.text
-    assert "高级模式" not in console_response.text
-    assert "Agent 候选稿模式" not in console_response.text
-    assert "排障模式工作台" not in console_response.text
-    assert "进入排障模式" not in console_response.text
-    assert "const PIPELINE_STEP_IDS = ['preflight', 'plan', 'apply', 'verify'];" not in console_response.text
-    assert "for (const id of ['preflight', 'plan'])" in console_response.text
-    assert "guardedRenderWorkflow('advanced_word')" not in console_response.text
-    assert "原文不会被覆盖" in console_response.text
-    assert "总体结论" in console_response.text
-    assert "report-action-button" in console_response.text
-    assert "report-progress" in console_response.text
-    assert "正在修复" in console_response.text
-    assert "修复稿已生成" in console_response.text
-    assert "结构复查完成" in console_response.text
-    assert "source-summary" in console_response.text
-    assert "displayFileName" in console_response.text
-    assert "sourceDisplayName" in console_response.text
-    assert "outputFolderLabel" in console_response.text
-    assert "outputSummary" in console_response.text
-    assert "复核后排障工具" not in console_response.text
-    assert "先完成 PDF 版式复核后再使用" not in console_response.text
-    assert "查看路径" in console_response.text
-    assert "桌面/论文格式修复输出" in console_response.text
-    assert "任务状态" in console_response.text
-    assert "renderJobReportTrace" in console_response.text
-    assert "查看审查报告" in console_response.text
-    assert "检查新版本" in console_response.text
-    assert "只检查软件版本，不上传论文" in console_response.text
-    assert "/updates/latest" in console_response.text
-    assert "对应文件" in console_response.text
-    assert "outputArtifact.available === true" in console_response.text
-    assert "文件已清理，不能直接下载" in console_response.text
-    assert "/artifacts/report/download" in console_response.text
-    assert "心跳间隔" not in console_response.text
-    assert "阶段:" not in console_response.text
-    assert "超时阈值" not in console_response.text
-    assert "等待选择任务" not in console_response.text
-    assert "历史任务" not in console_response.text
-    assert "批量任务" not in console_response.text
-    assert "适合发给学弟学妹使用" not in console_response.text
     assert health_response.json()["service"] == "article-api"
     assert ready_response.json()["status"] == "ready"
     assert ready_response.json()["checks"]["runtime_root"]["status"] == "ok"
@@ -292,6 +192,17 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
             "render_fallback_used": False,
             "page_count": 1,
             "page_images": [str(tmp_path / "http-render-proof" / "page-1.png")],
+            "evidence_items": [
+                {
+                    "page": 1,
+                    "screenshot_path": str(tmp_path / "http-render-proof" / "page-1.png"),
+                    "rule_id": "render.manual_review",
+                    "bbox": None,
+                    "message": "需要人工复核页面。",
+                    "severity": "info",
+                    "next_action": "回到 DOCX 调整对应版式问题后重新导出 PDF。",
+                }
+            ],
             "render_findings": [],
             "render_summary": {"finding_count": 0, "highest_severity": None},
             "selected_scopes": ["toc"],
@@ -299,7 +210,7 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
             "readiness": "render-check-required",
             "manual_review_rule_ids": ["LNU_TOC03"],
             "unsupported_rule_ids": [],
-            "review_items": ["目录需要刷新后复核页码。"],
+            "review_items": ["目录需复核页码、层级和可见目录结果。"],
             "report_path": str(tmp_path / "http-render-proof" / "render_verify_report.md"),
         },
     )
@@ -317,6 +228,8 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     render_verify_payload = render_verify_response.json()
     assert render_verify_payload["operation"] == "render-verify"
     assert render_verify_payload["page_count"] == 1
+    assert render_verify_payload["evidence_items"][0]["rule_id"] == "render.manual_review"
+    assert render_verify_payload["summary"]["evidence_item_count"] == 1
     assert render_verify_payload["summary"]["manual_review_rule_count"] == 1
     assert render_verify_payload["selected_scopes"] == ["toc"]
 
@@ -326,6 +239,47 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert pdf_upload_payload["file_name"] == "20221303306-刘佳轾-排版复核.pdf"
     assert pdf_upload_payload["available"] is True
     assert Path(pdf_upload_payload["stored_path"]).exists()
+
+    plan_response = client.post(
+        "/plan",
+        json={
+            "file_path": upload_payload["stored_path"],
+            "profile": "lnu",
+        },
+    )
+    assert plan_response.status_code == 200
+    plan_payload = plan_response.json()
+    assert plan_payload["operation"] == "plan"
+    assert plan_payload["summary"]["autofixable_scopes"] == sum(
+        1 for scope in plan_payload["scopes"] if scope["autofixable_count"] > 0
+    )
+    assert plan_payload["summary"]["manual_review_items"] == sum(
+        scope["manual_review_count"] for scope in plan_payload["scopes"]
+    )
+    assert plan_payload["summary"]["unsupported_items"] == sum(
+        scope["unsupported_count"] for scope in plan_payload["scopes"]
+    )
+    assert plan_payload["summary"]["manual_confirmation_items"] == sum(
+        scope["manual_review_count"] + scope["unsupported_count"]
+        for scope in plan_payload["scopes"]
+    )
+    assert plan_payload["scope_radar_summary"]["scope_count"] == len(plan_payload["scopes"])
+    assert plan_payload["scope_radar_summary"]["autofixable_scope_count"] == plan_payload["summary"]["autofixable_scopes"]
+    assert plan_payload["scope_radar_summary"]["manual_review_count"] == plan_payload["summary"]["manual_review_items"]
+    assert plan_payload["scope_radar_summary"]["unsupported_count"] == plan_payload["summary"]["unsupported_items"]
+    assert plan_payload["scope_radar_summary"]["manual_confirmation_count"] == plan_payload["summary"]["manual_confirmation_items"]
+    required_radar_fields = {
+        "id",
+        "title",
+        "status",
+        "failed_count",
+        "autofixable_count",
+        "manual_review_count",
+        "unsupported_count",
+        "unknown_count",
+        "failed_rules",
+    }
+    assert required_radar_fields <= set(plan_payload["scopes"][0])
 
     uploads_response = client.get("/uploads")
     upload_view_response = client.get(f"/uploads/{upload_payload['upload_id']}")

@@ -36,6 +36,7 @@ article-maintain = "article_api.local_app:maintain_main"
 
 [tool.setuptools]
 package-dir = {"" = "scripts"}
+include-package-data = false
 py-modules = [
   "audit_thesis",
   "fix_thesis",
@@ -87,8 +88,8 @@ include = [
   "article_api.*",
 ]
 
-[tool.setuptools.package-data]
-article_api = ["local_console.html", "assets/lnu-emblem.jpg"]
+[tool.setuptools.exclude-package-data]
+article_api = ["local_console.html", "assets/*", "static/*", "static/assets/*"]
 
 [tool.setuptools.data-files]
 "share/thesis-format-tool/config" = ["config/capability_matrix.md", "config/sources.yaml"]

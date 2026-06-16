@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Callable
 
 
@@ -9,27 +8,24 @@ def register_metadata_routes(
     *,
     file_response_cls: Any,
     http_exception_cls: Any,
-    html_response_fn: Callable[[str], Any],
-    local_console_html_fn: Callable[[], str],
     health_payload_fn: Callable[[], dict[str, Any]],
     readiness_payload_fn: Callable[[], dict[str, Any]],
     version_payload_fn: Callable[[], dict[str, Any]],
     latest_update_payload_fn: Callable[[], dict[str, Any]],
     render_workflow_modes_payload_fn: Callable[[], dict[str, Any]],
+    render_evidence_screenshot_path_fn: Callable[[str], str],
     profile_catalog_fn: Callable[[], dict[str, Any]],
     raise_sync_http_error: Callable[[Exception], None],
-    package_file: str | Path,
 ) -> None:
-    @app.get("/")
-    def local_console():
-        return html_response_fn(local_console_html_fn())
-
-    @app.get("/assets/lnu-emblem.jpg")
-    def lnu_emblem():
-        emblem_path = Path(package_file).with_name("assets") / "lnu-emblem.jpg"
-        if not emblem_path.exists():
-            raise http_exception_cls(status_code=404, detail="Liaoning University emblem asset is unavailable.")
-        return file_response_cls(str(emblem_path), media_type="image/jpeg")
+    @app.get("/render-evidence/screenshot/{token}")
+    def render_evidence_screenshot(token: str):
+        try:
+            screenshot_path = render_evidence_screenshot_path_fn(token)
+        except LookupError as exc:
+            raise http_exception_cls(status_code=404, detail="Render evidence screenshot is unavailable.") from exc
+        if file_response_cls is None:  # pragma: no cover - used by fake route tests
+            return {"path": str(screenshot_path), "media_type": "image/png"}
+        return file_response_cls(str(screenshot_path), media_type="image/png")
 
     @app.get("/health")
     def health() -> dict[str, Any]:

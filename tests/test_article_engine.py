@@ -4,6 +4,7 @@ import pytest
 from docx import Document
 
 from article_engine import apply_fix, audit_document, normalize_document, plan_document, preflight_document, verify_document
+from article_engine.service import _serialize_result
 
 from .conftest import RULE_MUTATORS, make_compliant_doc
 
@@ -34,6 +35,22 @@ def _make_high_risk_lnu_doc(source_path: Path) -> Path:
         row.cells[0].text = value
     doc.save(source_path)
     return source_path
+
+
+def test_serialize_result_wraps_string_issues_and_affected_values():
+    payload = _serialize_result(
+        {
+            "id": "KW01",
+            "name": "关键词格式",
+            "severity": "important",
+            "passed": False,
+            "issues": "关键词数量不足",
+            "affected": "第7段",
+        }
+    )
+
+    assert payload["issues"] == ["关键词数量不足"]
+    assert payload["affected"] == ["第7段"]
 
 
 def _make_style_conflict_lnu_doc(source_path: Path) -> Path:
@@ -214,13 +231,14 @@ def test_verify_document_returns_scope_status(tmp_docx):
     assert any(scope["id"] == "headings" for scope in payload["scopes"])
 
 
-def test_verify_document_marks_field_only_toc_as_render_check_required(tmp_path):
+def test_verify_document_marks_field_only_toc_as_needing_fix_with_render_check(tmp_path):
     source_path = _make_field_only_toc_lnu_doc(Path(tmp_path) / "article_engine_verify_field_only_toc.docx")
 
     payload = verify_document(str(source_path), profile_path="lnu", scopes=["toc"])
 
-    assert payload["overall_status"] == "verified"
-    assert payload["readiness"] == "render-check-required"
+    assert payload["overall_status"] == "needs_fix"
+    assert payload["readiness"] == "needs-fix"
+    assert payload["summary"]["failed_rules"] == 1
     assert payload["summary"]["render_check_rules"] == 1
     assert payload["render_check_rule_ids"] == ["TOC_REFRESH_REQUIRED"]
     assert payload["render_check_rules"][0]["scope_id"] == "toc"

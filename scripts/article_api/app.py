@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 import os
-from pathlib import Path
 from typing import Any
 
 from article_engine import apply_fix, audit_document, normalize_document, plan_document, preflight_document, render_verify_document, verify_document
@@ -48,6 +47,7 @@ from article_api.response_payloads import (
     build_render_workflow_modes_payload,
     utcnow,
 )
+from article_api.render_evidence import resolve_render_evidence_screenshot
 from article_api.upload_job_payloads import (
     build_apply_upload_job_kwargs,
     build_normalize_upload_job_kwargs,
@@ -69,14 +69,12 @@ from article_api.jobs import (
 from article_api.uploads import resolve_runtime_root, store_uploaded_docx, store_uploaded_pdf
 try:
     from fastapi import FastAPI, File, HTTPException, UploadFile
-    from fastapi.responses import FileResponse, HTMLResponse
+    from fastapi.responses import FileResponse
 except ImportError as exc:  # pragma: no cover
     FastAPI = None
     HTTPException = None
     UploadFile = Any
     FileResponse = None
-    HTMLResponse = None
-
     def File(*_args, **_kwargs):
         return None
 
@@ -91,19 +89,6 @@ RETENTION_AUTORUN_ENV = app_retention.RETENTION_AUTORUN_ENV
 RETENTION_AUTORUN_INTERVAL_ENV = app_retention.RETENTION_AUTORUN_INTERVAL_ENV
 _RETENTION_STATE_LOCK = app_retention.RETENTION_STATE_LOCK
 _RETENTION_STATE = app_retention.RETENTION_STATE
-
-class _InlineHTMLResponse:
-    def __init__(self, content: str, *, status_code: int = 200):
-        self.status_code = status_code
-        self.media_type = "text/html; charset=utf-8"
-        self.body = content.encode("utf-8")
-
-
-def _html_response(content: str):
-    if HTMLResponse is not None:
-        return HTMLResponse(content)
-    return _InlineHTMLResponse(content)
-
 
 def _utcnow() -> str:
     return utcnow()
@@ -313,38 +298,6 @@ def build_render_verify_payload(**kwargs) -> dict[str, Any]:
     )
 
 
-def _legacy_local_console_html() -> str:
-    return """<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>论文格式本地控制台</title>
-</head>
-<body>
-  <main>
-    <h1>论文格式本地控制台</h1>
-    <section>
-      <h2>单篇论文处理</h2>
-      <p>选择 Word 论文后，可以使用审查、修复、规范化和 Word 版式复核。</p>
-    </section>
-    <section>
-      <h2>历史与排障</h2>
-      <p>任务历史、备份恢复和维护接口仍通过 JSON API 提供。</p>
-    </section>
-  </main>
-</body>
-</html>"""
-
-
-def _local_console_html() -> str:
-    html_path = Path(__file__).with_name("local_console.html")
-    try:
-        return html_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return _legacy_local_console_html()
-
-
 def fastapi_available() -> bool:
     return FastAPI is not None
 
@@ -368,13 +321,12 @@ def create_app():
         app,
         file_response_cls=FileResponse,
         http_exception_cls=HTTPException,
-        html_response_fn=_html_response,
-        local_console_html_fn=_local_console_html,
         health_payload_fn=_health_payload,
         readiness_payload_fn=_readiness_payload,
         version_payload_fn=_version_payload,
         latest_update_payload_fn=_latest_update_payload,
         render_workflow_modes_payload_fn=build_render_workflow_modes_payload,
+        render_evidence_screenshot_path_fn=lambda token: resolve_render_evidence_screenshot(token),
         profile_catalog_fn=lambda: build_profile_catalog(
             service_name=SERVICE_NAME,
             stage=SERVICE_STAGE,
@@ -382,7 +334,6 @@ def create_app():
             api_version=API_VERSION,
         ),
         raise_sync_http_error=lambda exc: _raise_sync_http_error(exc),
-        package_file=__file__,
     )
 
     routes_ops.register_ops_routes(
