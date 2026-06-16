@@ -57,7 +57,7 @@ CLI
 
 ## 当前规则规模
 
-- `lnu-checker-2026` runtime：74 条规则
+- `lnu-checker-2026` runtime：75 条规则
 - `CN-Common.yaml` 是内部基线，不进入公开能力矩阵和 profile catalog
 
 能力矩阵以 `config/capability_matrix.md` 为准，并只记录公开 LNU runtime 当前启用规则。

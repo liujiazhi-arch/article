@@ -41,11 +41,18 @@ article-local serve
 
 这里的“上传”只表示交给你电脑上的本地网页服务处理，不是上传到 GitHub 或云端。
 
+界面示例：
+
+- 首页截图：[docs/assets/local-console-home.png](assets/local-console-home.png)
+- 修复完成截图：[docs/assets/local-console-repaired.png](assets/local-console-repaired.png)
+
 ## 检查新版本
 
 本地网页可以手动检查 GitHub Release 新版本。点击“检查新版本”时，只会连接 GitHub 获取软件版本信息，不会上传论文、修复稿、任务记录、本地路径或日志。
 
 如果发现新版本，请前往 GitHub Release 手动下载新版 `article-local-windows.zip`，重新解压后使用。当前版本不会自动下载或安装更新。
+
+Beta 或 prerelease 包使用当前发布 tag 检查版本；稳定版可以使用 GitHub 的 latest Release。两种方式都只请求 GitHub Release 元数据。
 
 ## 命令行入口
 
@@ -85,4 +92,7 @@ thesis-workbench verify 修复后_摘要.docx --profile lnu --scope abstract
 
 **目录或分页不一致**
 
-打开修复副本后，在 Word 中 `Ctrl+A` 后按 `F9` 更新域；最终分页以 Word/WPS 打开结果为准。
+启用目录修复时，工具会直接写入可见的自动目录域结果。若后续继续修改正文导致分页变化，再在 Word/WPS 中更新目录域并复核页码；最终分页以 Word/WPS 打开结果为准。
+如果你手里已经有 Word/WPS 导出的 PDF，也可以把它传给 `thesis-workbench audit --rendered-pdf`，工具会把目录条目页码和正文实际渲染页不一致的问题合并进审查结果。
+
+更多启动、端口、SmartScreen、`.docx` 和反馈包问题见 [故障排查](TROUBLESHOOTING.md)。

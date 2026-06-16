@@ -14,6 +14,7 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     required_paths = [
         ".env.example",
         "LICENSE",
+        "SECURITY.md",
         "CONTRIBUTING.md",
         "CHANGELOG.md",
         "docs/SECURITY.md",
@@ -23,6 +24,13 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         "docs/DISCLAIMER.md",
         "docs/GITHUB_RELEASE_TEMPLATE.md",
         "docs/RELEASE_CHECKLIST.md",
+        "docs/TROUBLESHOOTING.md",
+        "docs/ROADMAP.md",
+        "docs/MACOS_SMOKE_CHECKLIST.md",
+        "docs/assets/README.md",
+        "docs/assets/local-console-home.png",
+        "docs/assets/local-console-repaired.png",
+        ".github/PULL_REQUEST_TEMPLATE.md",
         "docs/WINDOWS_SMOKE_CHECKLIST.md",
         "docs/WINDOWS_SMOKE_REPORT_TEMPLATE.md",
         ".github/ISSUE_TEMPLATE/bug_report.md",
@@ -35,6 +43,7 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     for phrase in (
         "ARTICLE_LOCAL_RELEASE_API_URL=",
         "https://api.github.com/repos/<owner>/<repo>/releases/latest",
+        "https://api.github.com/repos/<owner>/<repo>/releases/tags/<release-tag>",
         "不要填写真实 API key",
         "不要填写论文路径",
         "不要提交本地日志、运行缓存或修复稿路径",
@@ -54,6 +63,13 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         "部分规则自动修复",
         "部分规则提示人工复核",
         "不要上传论文到外部服务器",
+        "article-local-windows.zip",
+        "docs/assets/local-console-home.png",
+        "docs/assets/local-console-repaired.png",
+        "Planned experimental package",
+        "docs/TROUBLESHOOTING.md",
+        "docs/ROADMAP.md",
+        "SECURITY.md",
     ):
         assert phrase in readme
 
@@ -70,6 +86,8 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     assert "从 GitHub Release 下载" in user_guide
     assert "GitHub 只负责分发软件版本" in user_guide
     assert "手动检查 GitHub Release 新版本" in user_guide
+    assert "Beta 或 prerelease 包使用当前发布 tag 检查版本" in user_guide
+    assert "故障排查" in user_guide
     assert "不会自动下载或安装更新" in user_guide
     assert "不要把论文、修复稿、API key、本地日志或未检查的反馈包上传到 GitHub issue" in user_guide
     assert "导出反馈包.bat" in user_guide
@@ -92,7 +110,8 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     assert "软件版本从 GitHub 发布，用户论文和密钥不进入 GitHub" in development
     assert "手动检查 GitHub Release 新版本" in development
     assert "不会自动下载或安装更新" in development
-    assert "CI 构建正式 zip 时会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`" in development
+    assert "CI 在 push、pull_request 或 workflow_dispatch 中会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`" in development
+    assert "当 GitHub Release 发布触发 CI 时，会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}`" in development
     assert "verify_release_artifact.py" in development
     assert "article-local-windows.zip.sha256" in development
     assert "扫描 zip 不含本地论文、反馈包、env、日志或状态数据库" in development
@@ -123,7 +142,13 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     for phrase in (
         "article-local-windows.zip",
         "article-local-windows.zip.sha256",
+        "GitHub About 区",
+        "description、homepage URL 和 topics",
+        "docs/assets/local-console-home.png",
+        "docs/assets/local-console-repaired.png",
+        "releases/tags/<release-tag>",
         "docs/WINDOWS_SMOKE_CHECKLIST.md",
+        "docs/MACOS_SMOKE_CHECKLIST.md",
         "docs/WINDOWS_SMOKE_REPORT_TEMPLATE.md",
         "这是 Beta",
         "不保证最终提交版完全合规",
@@ -154,6 +179,10 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         "article-local-windows.zip",
         "article-local-windows.zip.sha256",
         "启动论文格式检查.bat",
+        "平台状态",
+        "docs/assets/local-console-home.png",
+        "docs/assets/local-console-repaired.png",
+        "releases/tags/<release-tag>",
         "论文默认只在本机处理",
         "GitHub 只用于分发软件版本",
         "不会同步用户论文、修复稿、API key、本地日志、运行缓存或本地状态目录",
@@ -164,6 +193,17 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         "不会自动下载或安装更新",
     ):
         assert phrase in github_release_template
+
+    security_policy = _read("SECURITY.md")
+    assert "Do not attach real thesis documents" in security_policy
+    pr_template = _read(".github/PULL_REQUEST_TEMPLATE.md")
+    assert "I ran the relevant tests" in pr_template
+    troubleshooting = _read("docs/TROUBLESHOOTING.md")
+    assert "Windows SmartScreen" in troubleshooting
+    roadmap = _read("docs/ROADMAP.md")
+    assert "Signed and notarized `.dmg`" in roadmap
+    macos_smoke = _read("docs/MACOS_SMOKE_CHECKLIST.md")
+    assert "Gatekeeper" in macos_smoke
 
     windows_smoke_checklist = _read("docs/WINDOWS_SMOKE_CHECKLIST.md")
     for phrase in (
@@ -279,8 +319,10 @@ def test_ci_builds_windows_local_bundle_on_windows_runner():
         "python -m venv dist\\windows-runtime",
         ".\\dist\\windows-runtime\\Scripts\\python.exe -m pip install --no-index --find-links dist\\wheelhouse 'thesis-format-tool[api]'",
         ".\\dist\\windows-runtime\\Scripts\\python.exe -m article_api.local_app doctor --state-root dist\\windows-state --runtime-root dist\\windows-data",
-        "python scripts\\build_windows_local_bundle.py --runtime-dir dist\\windows-runtime --output-zip dist\\article-local-windows.zip",
-        "--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest",
+        "$releaseApiUrl = \"https://api.github.com/repos/${{ github.repository }}/releases/latest\"",
+        "if (\"${{ github.event_name }}\" -eq \"release\")",
+        "$releaseApiUrl = \"https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}\"",
+        "python scripts\\build_windows_local_bundle.py --runtime-dir dist\\windows-runtime --output-zip dist\\article-local-windows.zip --release-api-url $releaseApiUrl",
         "python scripts\\verify_release_artifact.py dist\\article-local-windows.zip --sha256-output dist\\article-local-windows.zip.sha256",
         "Smoke extracted Windows local web flow",
         "python scripts\\windows_bundle_smoke.py dist\\article-local-windows.zip --work-dir dist\\windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist\\windows-bundle-smoke.json",

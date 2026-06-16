@@ -130,11 +130,12 @@ dist\windows-runtime\Scripts\python.exe -m pip install --no-index --find-links C
 
 ```bash
 python3 scripts/build_windows_local_bundle.py --runtime-dir dist/windows-runtime --output-zip dist/article-local-windows.zip --release-api-url https://api.github.com/repos/<owner>/<repo>/releases/latest
+python3 scripts/build_windows_local_bundle.py --runtime-dir dist/windows-runtime --output-zip dist/article-local-windows.zip --release-api-url https://api.github.com/repos/<owner>/<repo>/releases/tags/<release-tag>
 python3 scripts/verify_release_artifact.py dist/article-local-windows.zip --sha256-output dist/article-local-windows.zip.sha256
 python3 scripts/windows_bundle_smoke.py dist/article-local-windows.zip --work-dir dist/windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist/windows-bundle-smoke.json
 ```
 
-`verify_release_artifact.py` 会确认 zip 只有一个顶层目录 `论文格式检查本地版/`，扫描 zip 不含本地论文、反馈包、env、日志或状态数据库，也不包含真实本地 state/runtime 数据，确认双击入口、快速开始文案和可选 GitHub Release API 地址格式存在，并生成 `article-local-windows.zip.sha256`。`windows_bundle_smoke.py` 会解压 zip，用随包 `app\Scripts\python.exe` 运行 `python.exe -m article_api.local_app doctor`，再启动本地服务并跑上传 `.docx`、创建 apply job、下载 output artifact 的网页链路，并可用 `--json-output` 保存证据 JSON。GitHub Actions 会在 windows-latest runner 上执行同类 smoke：构建 wheelhouse、准备 `dist\windows-runtime`、组装 `article-local-windows.zip`、检查 zip 内容，并对解压后的 zip 跑完整本地网页链路。CI 会上传 `release-smoke-evidence-*` 和 `windows-bundle-smoke-evidence` artifacts，作为发布前 smoke 证据。CI 构建正式 zip 时会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`，让学生包里的“检查新版本”默认指向当前 GitHub 仓库 Release。
+`verify_release_artifact.py` 会确认 zip 只有一个顶层目录 `论文格式检查本地版/`，扫描 zip 不含本地论文、反馈包、env、日志或状态数据库，也不包含真实本地 state/runtime 数据，确认双击入口、快速开始文案和可选 GitHub Release API 地址格式存在，并生成 `article-local-windows.zip.sha256`。`windows_bundle_smoke.py` 会解压 zip，用随包 `app\Scripts\python.exe` 运行 `python.exe -m article_api.local_app doctor`，再启动本地服务并跑上传 `.docx`、创建 apply job、下载 output artifact 的网页链路，并可用 `--json-output` 保存证据 JSON。GitHub Actions 会在 windows-latest runner 上执行同类 smoke：构建 wheelhouse、准备 `dist\windows-runtime`、组装 `article-local-windows.zip`、检查 zip 内容，并对解压后的 zip 跑完整本地网页链路。CI 会上传 `release-smoke-evidence-*` 和 `windows-bundle-smoke-evidence` artifacts，作为发布前 smoke 证据。CI 在 push、pull_request 或 workflow_dispatch 中会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`；当 GitHub Release 发布触发 CI 时，会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}`，让 Beta 或正式发布包里的“检查新版本”指向当前发布页。
 
 可在 GitHub Actions 页面手动运行 CI（`workflow_dispatch`），用于发布 Release 前预构建 Windows 本地网页包并检查 `windows-latest` smoke。这个手动运行只证明 GitHub runner 上的构建链路可用，不能替代发布后的 Release 资产检查，也不能替代 Windows clean 环境双击启动和 WPS/Word 实机复核。
 
@@ -172,6 +173,7 @@ zip 包内的 `导出反馈包.bat` 会调用随包 Python 生成 `反馈包.zip
 
 ```bat
 set ARTICLE_LOCAL_RELEASE_API_URL=https://api.github.com/repos/<owner>/<repo>/releases/latest
+set ARTICLE_LOCAL_RELEASE_API_URL=https://api.github.com/repos/<owner>/<repo>/releases/tags/<release-tag>
 ```
 
-未配置时不会联网。配置后，点击“检查新版本”只请求 GitHub Release 元数据，不会上传论文、修复稿、任务记录、本地路径或日志；发现新版也只提示用户手动下载 zip，不会自动下载或安装更新。当前 Windows zip 仍不等同于完整桌面安装包、DMG、代码签名或自动更新应用。
+未配置时不会联网。配置后，点击“检查新版本”只请求 GitHub Release 元数据，不会上传论文、修复稿、任务记录、本地路径或日志；稳定版可使用 `/releases/latest`，Beta 或 prerelease 包应使用 `/releases/tags/<release-tag>`。发现新版也只提示用户手动下载 zip，不会自动下载或安装更新。当前 Windows zip 仍不等同于完整桌面安装包、DMG、代码签名或自动更新应用。

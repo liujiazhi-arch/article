@@ -17,6 +17,14 @@
 
 普通用户下载 `article-local-windows.zip` 即可。请先完整解压 zip，再双击 `启动论文格式检查.bat`；不要在压缩包预览窗口里直接运行。
 
+## 平台状态
+
+| Platform | Current status | User entry |
+| --- | --- | --- |
+| Windows | Beta supported | `article-local-windows.zip` |
+| macOS | Planned experimental package | Not yet released |
+| Linux | Developer/source use only | `pip install '.[api]'` |
+
 ## 使用步骤
 
 1. 下载并完整解压 `article-local-windows.zip`。
@@ -27,6 +35,13 @@
 6. 查看审查结果和修复方案。
 7. 选择需要修复的项目，生成修复稿。
 8. 下载修复稿，并用 WPS/Word 人工复核。
+
+## 界面预览
+
+- 首页截图：`docs/assets/local-console-home.png`
+- 修复完成截图：`docs/assets/local-console-repaired.png`
+
+如果在 GitHub Release 页面查看，请回到仓库 README 查看最新截图。
 
 ## 本版本包含
 
@@ -51,6 +66,8 @@
 ## 更新说明
 
 本地网页可手动检查 GitHub Release 新版本。手动检查 GitHub Release 新版本只请求软件版本信息，不上传论文数据；发现新版后仍需手动下载新版 zip，不会自动下载或安装更新。
+
+如果这是 Beta 或 prerelease，请确认发布包内的 `ARTICLE_LOCAL_RELEASE_API_URL` 指向 `https://api.github.com/repos/<owner>/<repo>/releases/tags/<release-tag>`。稳定版可以使用 `https://api.github.com/repos/<owner>/<repo>/releases/latest`。
 
 ## 已知边界
 
