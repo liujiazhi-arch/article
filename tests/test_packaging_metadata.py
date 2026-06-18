@@ -102,12 +102,16 @@ def test_required_api_runtime_modules_are_tracked_by_git():
     )
 
 
-def test_pyproject_does_not_package_frontend_assets_before_new_frontend_is_finalized():
+def test_pyproject_packages_finalized_static_frontend_assets():
     pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
     data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
 
     package_data = data["tool"]["setuptools"].get("package-data", {})
-    assert "article_api" not in package_data
+    assert "article_api" in package_data
+    assert "static/**/*.html" in package_data["article_api"]
+    assert "static/**/*.css" in package_data["article_api"]
+    assert "static/**/*.js" in package_data["article_api"]
+    assert "static/assets/**" in package_data["article_api"]
 
 
 def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
@@ -175,8 +179,9 @@ def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
     assert required_entries <= names
     assert "article_api/local_console.html" not in names
     assert "article_api/assets/lnu-emblem.jpg" not in names
-    assert "article_api/static/index.html" not in names
-    assert "article_api/static/assets/lnu-emblem.jpg" not in names
+    assert "article_api/static/index.html" in names
+    assert "article_api/static/styles/tokens.css" in names
+    assert "article_api/static/js/app.js" in names
 
     required_resource_suffixes = {
         "config/profiles/lnu-checker-2026.yaml",
@@ -256,11 +261,16 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
     excluded_suffixes = {
         "scripts/article_api/local_console.html",
         "scripts/article_api/assets/lnu-emblem.jpg",
-        "scripts/article_api/static/index.html",
-        "scripts/article_api/static/assets/lnu-emblem.jpg",
     }
     for suffix in excluded_suffixes:
         assert not any(name.endswith(suffix) for name in names), suffix
+    required_static_suffixes = {
+        "scripts/article_api/static/index.html",
+        "scripts/article_api/static/styles/tokens.css",
+        "scripts/article_api/static/js/app.js",
+    }
+    for suffix in required_static_suffixes:
+        assert any(name.endswith(suffix) for name in names), suffix
 
 
 def test_wheel_install_imports_entry_modules_from_outside_repo(tmp_path):

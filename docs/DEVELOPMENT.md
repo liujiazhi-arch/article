@@ -96,6 +96,16 @@ CLI
 - 封面不是当前自动修复主线。
 - 用户论文、运行输出、缓存、虚拟环境和状态目录不得提交。
 
+## Frontend Workbench
+
+The deliverable frontend lives in `scripts/article_api/static/`.
+The `.tmp/frontend-preview/` directory remains the approved visual reference and asset source, but production code must not serve files from `.tmp`.
+Run frontend checks with:
+
+```bash
+python3 -m pytest tests/test_article_static_frontend.py tests/test_frontend_backend_contract.py -q
+```
+
 ## 发布流程
 
 发布边界：软件版本从 GitHub 发布，用户论文和密钥不进入 GitHub。GitHub Release 可以托管源码包、wheel、Windows 本地网页 zip、变更记录和校验信息；不要把本地论文、修复稿、API key、本地日志、运行缓存、状态数据库或未检查的反馈包上传到仓库、CI artifact 或公开 issue。

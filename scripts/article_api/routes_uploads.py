@@ -4,7 +4,7 @@ import os
 from typing import Any, Callable
 
 from article_api.route_error_handlers import call_with_http_error
-from article_api.schemas import UploadApplyRequest, UploadNormalizeRequest, UploadVerifyRequest
+from article_api.schemas import UploadApplyRequest, UploadNormalizeRequest, UploadRenderReviewRequest, UploadVerifyRequest
 
 
 def _upload_payload(upload: Any, *, runtime_root: str | None, utcnow_fn: Callable[[], str]) -> dict[str, Any]:
@@ -35,6 +35,7 @@ def register_upload_routes(
     verify_upload_job_kwargs_fn: Callable[[str, UploadVerifyRequest], dict[str, Any]],
     normalize_upload_job_kwargs_fn: Callable[[str, UploadNormalizeRequest], dict[str, Any]],
     apply_upload_job_kwargs_fn: Callable[[str, UploadApplyRequest], dict[str, Any]],
+    render_review_job_kwargs_fn: Callable[[str, UploadRenderReviewRequest], dict[str, Any]],
     raise_job_http_error: Callable[[Exception], None],
     utcnow_fn: Callable[[], str],
 ) -> None:
@@ -61,6 +62,7 @@ def register_upload_routes(
             maybe_autorun_retention()
             upload = store_uploaded_pdf_fn(file, runtime_root=runtime_root)
             payload = _upload_payload(upload, runtime_root=runtime_root, utcnow_fn=utcnow_fn)
+            upsert_upload_fn(payload)
             return upload_view_fn(payload)
 
         return call_with_http_error(action, raise_job_http_error)
@@ -107,5 +109,13 @@ def register_upload_routes(
         def action() -> dict[str, Any]:
             maybe_autorun_retention()
             return create_job_fn("apply", apply_upload_job_kwargs_fn(upload_id, request))
+
+        return call_with_http_error(action, raise_job_http_error)
+
+    @app.post("/uploads/{docx_upload_id}/render-review-jobs", status_code=201)
+    def create_render_review_job(docx_upload_id: str, request: UploadRenderReviewRequest) -> dict[str, Any]:
+        def action() -> dict[str, Any]:
+            maybe_autorun_retention()
+            return create_job_fn("render-verify", render_review_job_kwargs_fn(docx_upload_id, request))
 
         return call_with_http_error(action, raise_job_http_error)

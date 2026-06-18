@@ -1,5 +1,7 @@
 # Frontend Workbench And PDF Review Plan
 
+> Superseded: This visual/product plan is retained as context. Implementation must follow `docs/superpowers/plans/2026-06-16-frontend-workbench-contract-implementation-plan.md` and `docs/FRONTEND_BACKEND_CONTRACT.md` first.
+
 Date: 2026-06-16
 
 ## Purpose

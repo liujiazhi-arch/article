@@ -12,13 +12,14 @@ from typing import Any, Callable
 from uuid import uuid4
 
 import audit_thesis
-from article_engine import apply_fix, normalize_document, verify_document
+from article_engine import apply_fix, normalize_document, render_verify_document, verify_document
 from article_engine.service import _default_output_path
 from article_api import storage
 from article_api import errors as api_errors
 from article_api import job_artifacts, job_execution
 from article_api import job_retention
 from article_api import job_payloads
+from article_api.render_evidence import register_render_evidence_screenshots
 from article_api.uploads import build_job_workspace, stage_job_input_docx
 
 JobRecord = job_payloads.JobRecord
@@ -68,6 +69,7 @@ _JOB_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "verify": verify_document,
     "apply": apply_fix,
     "normalize": normalize_document,
+    "render-verify": render_verify_document,
 }
 HEARTBEAT_STALE_SECONDS_ENV = "ARTICLE_API_JOB_HEARTBEAT_STALE_SECONDS"
 RECOVERY_GRACE_SECONDS_ENV = "ARTICLE_API_JOB_RECOVERY_GRACE_SECONDS"
@@ -990,6 +992,9 @@ def get_job_result(job_id: str) -> dict[str, Any]:
     payload = _with_current_artifact_availability(payload)
     if payload["status"] not in _FINISHED_STATUSES:
         raise RuntimeError(f"Job result is not ready yet: {job_id}")
+    if payload.get("operation") == "render-verify" and isinstance(payload.get("result"), dict):
+        payload = _clone_dict(payload)
+        payload["result"] = register_render_evidence_screenshots(dict(payload["result"]))
     return payload
 
 

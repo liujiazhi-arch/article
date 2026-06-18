@@ -16,10 +16,12 @@ from article_api import (
     routes_metadata,
     routes_ops,
     routes_sync,
+    static_routes,
     routes_uploads,
     storage,
 )
 from article_api.profiles import build_profile_catalog
+from article_api.render_review_jobs import build_render_review_job_kwargs
 from article_api.schemas import (
     ApplyRequest,
     AuditRequest,
@@ -32,6 +34,7 @@ from article_api.schemas import (
     RetentionSweepRequest,
     UploadApplyRequest,
     UploadNormalizeRequest,
+    UploadRenderReviewRequest,
     UploadVerifyRequest,
     VerifyRequest,
 )
@@ -165,6 +168,10 @@ def _normalize_upload_job_kwargs(upload_id: str, request: UploadNormalizeRequest
     return build_normalize_upload_job_kwargs(upload_id, request, resolve_upload_fn=resolve_upload)
 
 
+def _render_review_job_kwargs(upload_id: str, request: UploadRenderReviewRequest) -> dict[str, Any]:
+    return build_render_review_job_kwargs(upload_id, request, resolve_upload_fn=resolve_upload)
+
+
 def _raise_sync_http_error(exc: Exception) -> None:
     if isinstance(exc, ValueError):
         payload = api_errors.value_error_payload(exc)
@@ -175,6 +182,18 @@ def _raise_sync_http_error(exc: Exception) -> None:
 
 
 def _raise_job_http_error(exc: Exception) -> None:
+    if str(exc) == "Render review PDF upload not found":
+        payload = api_errors.error_payload(
+            "upload_not_found",
+            exc_type=type(exc).__name__,
+            message=str(exc),
+            retryable=False,
+            extra={
+                "user_message": "没有找到这个 PDF 文件。",
+                "next_action": "请重新上传从 Word 或 WPS 导出的 PDF。",
+            },
+        )
+        raise HTTPException(status_code=payload["http_status"], detail=payload) from exc
     upload_payload = api_errors.upload_error_payload(exc)
     if upload_payload is not None:
         raise HTTPException(status_code=upload_payload["http_status"], detail=upload_payload) from exc
@@ -317,6 +336,12 @@ def create_app():
         description="Local API prototype for Article thesis audit and planning.",
     )
 
+    static_routes.register_static_frontend_routes(
+        app,
+        file_response_cls=FileResponse,
+        http_exception_cls=HTTPException,
+    )
+
     routes_metadata.register_metadata_routes(
         app,
         file_response_cls=FileResponse,
@@ -380,6 +405,7 @@ def create_app():
         verify_upload_job_kwargs_fn=lambda upload_id, request: _verify_upload_job_kwargs(upload_id, request),
         normalize_upload_job_kwargs_fn=lambda upload_id, request: _normalize_upload_job_kwargs(upload_id, request),
         apply_upload_job_kwargs_fn=lambda upload_id, request: _apply_upload_job_kwargs(upload_id, request),
+        render_review_job_kwargs_fn=lambda upload_id, request: _render_review_job_kwargs(upload_id, request),
         raise_job_http_error=lambda exc: _raise_job_http_error(exc),
         utcnow_fn=_utcnow,
     )

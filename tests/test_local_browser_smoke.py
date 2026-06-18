@@ -23,6 +23,7 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
     popen_calls: list[list[str]] = []
     popen_envs: list[dict[str, str]] = []
     waited_for: list[str] = []
+    eval_waits: list[str] = []
     download_path = tmp_path / "browser-smoke" / "downloaded-repaired.docx"
     playwright_cli = tmp_path / "pwcli"
     playwright_cli.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -46,7 +47,7 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
     def fake_run(command, *, cwd=None, capture_output=True, text=True, check=True, timeout=None):
         command = [str(item) for item in command]
         commands.append(command)
-        if command[1:3] == ["click", "#report-output"]:
+        if command[1:3] == ["click", "[data-download-role='output']"]:
             browser_download = tmp_path / "browser-smoke" / ".playwright-cli" / "downloaded.docx"
             browser_download.parent.mkdir(parents=True, exist_ok=True)
             browser_download.write_bytes(b"docx")
@@ -67,6 +68,11 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
         local_browser_smoke,
         "_wait_for_snapshot_text",
         lambda playwright_cli, expected_text, **kwargs: waited_for.append(expected_text) or "ok",
+    )
+    monkeypatch.setattr(
+        local_browser_smoke,
+        "_wait_for_eval_truthy",
+        lambda playwright_cli, expression, **kwargs: eval_waits.append(expression) or "true",
     )
 
     payload = local_browser_smoke.run_local_browser_smoke(
@@ -105,12 +111,22 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
         command[1] == "screenshot" and any("local-console-home.png" in part for part in command)
         for command in commands
     )
-    assert [str(playwright_cli), "click", "label[for='paper-file']"] in commands
+    assert [str(playwright_cli), "click", "[data-action='choose-docx']"] in commands
     assert [str(playwright_cli), "upload", str(tmp_path / "browser-smoke" / "browser_smoke.docx")] in commands
-    assert [str(playwright_cli), "click", "#run-all-button"] in commands
-    assert [str(playwright_cli), "click", "#report-action-button"] in commands
-    assert [str(playwright_cli), "click", "#report-output"] in commands
-    assert waited_for == ["已上传", "方案已生成", "修复完成"]
+    assert [str(playwright_cli), "click", "[data-action='create-apply-job']"] in commands
+    assert [str(playwright_cli), "click", "[data-download-role='output']"] in commands
+    assert waited_for == [
+        "上传论文开始修正",
+        "修复方案已生成",
+        "发现 ",
+        "项需要你确认",
+        "修复包已生成",
+        "browser_smoke",
+        "browser_smoke",
+    ]
+    assert eval_waits == [
+        "() => document.querySelectorAll('[data-result-heatmap] .pass, [data-result-heatmap] .warn').length > 0"
+    ]
     assert commands[-1] == [str(playwright_cli), "close"]
 
 
@@ -142,7 +158,7 @@ def test_local_browser_smoke_preserves_python_symlink(monkeypatch, tmp_path):
     def fake_run(command, *, cwd=None, capture_output=True, text=True, check=True, timeout=None):
         command = [str(item) for item in command]
         commands.append(command)
-        if command[1:3] == ["click", "#report-output"]:
+        if command[1:3] == ["click", "[data-download-role='output']"]:
             browser_download = tmp_path / "browser-smoke" / ".playwright-cli" / "downloaded.docx"
             browser_download.parent.mkdir(parents=True, exist_ok=True)
             browser_download.write_bytes(b"docx")
@@ -163,6 +179,11 @@ def test_local_browser_smoke_preserves_python_symlink(monkeypatch, tmp_path):
         local_browser_smoke,
         "_wait_for_snapshot_text",
         lambda playwright_cli, expected_text, **kwargs: "ok",
+    )
+    monkeypatch.setattr(
+        local_browser_smoke,
+        "_wait_for_eval_truthy",
+        lambda playwright_cli, expression, **kwargs: "true",
     )
 
     local_browser_smoke.run_local_browser_smoke(

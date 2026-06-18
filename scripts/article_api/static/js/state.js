@@ -1,0 +1,32 @@
+const state = {
+  theme: "snow",
+  docxUpload: null,
+  pdfUpload: null,
+  activeJob: null,
+  workbenchPlan: null,
+  applyResultPayload: null,
+  jobHistory: [],
+  selectedHistoryJob: null,
+  renderResult: null,
+  activeEvidenceIndex: 0,
+  highlightVisible: true,
+};
+
+const listeners = new Set();
+
+export function getState() {
+  return { ...state };
+}
+
+export function setState(patch) {
+  Object.assign(state, patch);
+  for (const listener of listeners) {
+    listener(getState());
+  }
+}
+
+export function subscribe(listener) {
+  listeners.add(listener);
+  listener(getState());
+  return () => listeners.delete(listener);
+}

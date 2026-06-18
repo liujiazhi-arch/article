@@ -91,7 +91,7 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     client = _make_client(monkeypatch, tmp_path / "state")
 
     health_response = client.get("/health")
-    removed_console_response = client.get("/")
+    frontend_response = client.get("/")
     ready_response = client.get("/ready")
     version_response = client.get("/version")
     update_response = client.get("/updates/latest")
@@ -99,7 +99,9 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     runtime_response = client.get("/ops/runtime")
     storage_response = client.get("/ops/storage")
     removed_emblem_response = client.get("/assets/lnu-emblem.jpg")
-    assert removed_console_response.status_code == 404
+    assert frontend_response.status_code == 200
+    assert "辽宁大学" in frontend_response.text
+    assert 'data-app="lnu-thesis-workbench"' in frontend_response.text
     assert removed_emblem_response.status_code == 404
     assert health_response.status_code == 200
     assert ready_response.status_code == 200
@@ -285,7 +287,9 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     upload_view_response = client.get(f"/uploads/{upload_payload['upload_id']}")
     assert uploads_response.status_code == 200
     assert upload_view_response.status_code == 200
-    assert uploads_response.json()[0]["upload_id"] == upload_payload["upload_id"]
+    upload_ids = {item["upload_id"] for item in uploads_response.json()}
+    assert upload_payload["upload_id"] in upload_ids
+    assert pdf_upload_payload["upload_id"] in upload_ids
     assert upload_view_response.json()["available"] is True
 
     normalize_upload_response = client.post(

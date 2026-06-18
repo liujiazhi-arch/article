@@ -36,7 +36,7 @@ article-maintain = "article_api.local_app:maintain_main"
 
 [tool.setuptools]
 package-dir = {"" = "scripts"}
-include-package-data = false
+include-package-data = true
 py-modules = [
   "audit_thesis",
   "fix_thesis",
@@ -88,8 +88,16 @@ include = [
   "article_api.*",
 ]
 
+[tool.setuptools.package-data]
+article_api = [
+  "static/**/*.html",
+  "static/**/*.css",
+  "static/**/*.js",
+  "static/assets/**",
+]
+
 [tool.setuptools.exclude-package-data]
-article_api = ["local_console.html", "assets/*", "static/*", "static/assets/*"]
+article_api = ["local_console.html", "assets/*"]
 
 [tool.setuptools.data-files]
 "share/thesis-format-tool/config" = ["config/capability_matrix.md", "config/sources.yaml"]

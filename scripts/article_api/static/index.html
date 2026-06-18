@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>辽宁大学毕业论文格式修正器</title>
+  <link rel="stylesheet" href="/static/styles/tokens.css">
+  <link rel="stylesheet" href="/static/styles/themes.css">
+  <link rel="stylesheet" href="/static/styles/layout.css?v=20260617-upload-circle">
+</head>
+<body data-app="lnu-thesis-workbench" data-theme="snow">
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="shell topbar-inner">
+        <div class="brand glass"><span class="brand-mark"><img src="/static/assets/lnu-emblem.jpg" alt=""></span><span>辽宁大学 · 本地论文工具</span></div>
+        <nav class="scene-nav glass" aria-label="界面导航">
+          <button class="active" data-screen-target="cover">首页</button>
+          <button data-screen-target="kit">功能</button>
+          <button data-screen-target="workbench">工作台</button>
+          <button data-screen-target="history">历史</button>
+          <button data-screen-target="pdf-review">PDF 复核</button>
+          <button data-screen-target="result">结果</button>
+        </nav>
+        <div class="nav-actions">
+          <button class="pill" data-action="show-history">历史任务</button>
+          <button class="pill" data-action="show-pdf-review">PDF 复核</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="screen active" data-screen="cover">
+      <div class="shell cover-grid">
+        <div class="cover-copy">
+          <p class="kicker">Liaoning University Thesis Companion</p>
+          <h1 aria-label="辽宁大学毕业论文格式修正器">
+            <span class="title-line title-school">辽宁大学</span>
+            <span class="title-line title-paper">毕业论文</span>
+            <span class="title-line title-tool">格式修正器</span>
+          </h1>
+          <p>把反复排版的时间，还给终稿前最安静的一晚。</p>
+          <aside class="blessing-panel glass" aria-label="祝福与状态">
+            <div class="blessing-grid">
+              <div class="blessing-row">
+                <span class="glyph"></span>
+                <div><b>格式路标</b><span>帮你对照辽大论文格式要求，整理常见排版差异；最终细节仍建议结合学院通知与导师意见一起核对。</span></div>
+              </div>
+              <div class="blessing-row">
+                <span class="glyph"></span>
+                <div><b>从完整稿件出发</b><span>适合已有成稿 修复副本 后做格式检查与修正，不打断你原本的内容结构和写作节奏。</span></div>
+              </div>
+              <div class="blessing-row">
+                <span class="glyph"></span>
+                <div><b>愿一切顺利</b><span>愿这一步少一些反复，多一些从容；终稿、复核与毕业都顺顺利利。</span></div>
+              </div>
+            </div>
+          </aside>
+          <div class="cover-actions">
+            <button class="primary" data-action="enter-workbench">进入工具</button>
+            <button class="secondary" data-action="show-history">查看历史</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="kit">
+      <div class="shell kit-layout">
+        <div class="asset-board" aria-label="主题 UI 资产板"></div>
+        <aside class="kit-notes glass">
+          <span class="component-label">功能入口</span>
+          <h2>学生会用到的六个功能入口</h2>
+          <p>这一页把工具流程拆成可识别的入口 每个入口都对应后续页面里的真实操作和真实数据</p>
+          <div class="kit-list">
+            <div><b>论文台面</b><span>上传论文后先看修复方案 再选择要处理的范围</span></div>
+            <div><b>修复流程</b><span>显示检查 生成方案 修正 复查 下载的当前进度</span></div>
+            <div><b>PDF 复核</b><span>用截图和问题位置说明格式问题 只展示真实检测结果</span></div>
+            <div><b>历史任务</b><span>保存原稿 修复稿 审查报告 和 PDF 复核记录</span></div>
+            <div><b>结果文件</b><span>集中下载修复包 报告 并提示下一步是否需要人工确认</span></div>
+            <div><b>规则结果</b><span>把通过 提醒 需要人工复核的项目分清楚</span></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="workbench">
+      <div class="shell workbench-layout">
+        <aside class="left-rail glass">
+          <div class="rail-section structure-section">
+            <p class="rail-title">论文结构索引</p>
+            <div class="constellation" aria-label="论文结构索引">
+              <svg viewBox="0 0 220 214" aria-hidden="true">
+                <path d="M108 106 L52 46 M108 106 L164 52 M108 106 L56 158 M108 106 L168 160 M108 106 L110 28" fill="none" stroke="rgba(255,255,255,.34)" stroke-width="1" />
+              </svg>
+              <span class="node main" style="left:76px;top:72px">论文<small>7</small></span>
+              <span class="node" style="left:24px;top:24px">摘要<small>1</small></span>
+              <span class="node" style="right:22px;top:32px">目录<small>2</small></span>
+              <span class="node" style="left:26px;bottom:26px">正文<small>3</small></span>
+              <span class="node" style="right:20px;bottom:24px">文献<small>1</small></span>
+              <span class="node" style="left:82px;top:8px">图表<small>0</small></span>
+            </div>
+          </div>
+          <div class="rail-section scope-section">
+            <p class="rail-title">修复范围</p>
+            <div class="scope-stack">
+              <div class="scope-chip">页面设置 <small>可修</small></div>
+              <div class="scope-chip">摘要关键词 <small>可修</small></div>
+              <div class="scope-chip">目录更新 <small>可修</small></div>
+              <div class="scope-chip">标题编号 <small>可修</small></div>
+              <div class="scope-chip">正文段落 <small>可修</small></div>
+              <div class="scope-chip">图表规则 <small>可看</small></div>
+              <div class="scope-chip">参考文献 <small>可修</small></div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="workspace-core glass">
+          <div class="runway">
+            <div class="token-row">
+              <span class="token">辽大规范</span>
+              <span class="token">本地处理</span>
+              <span class="token">本地处理</span>
+            </div>
+            <div class="doc-aperture">
+              <div>
+                <strong>上传论文开始修正</strong>
+                <span data-docx-file>放入 docx 文件</span>
+                <input id="docx-input" class="visually-hidden" type="file" accept=".docx" hidden>
+                <div class="upload-action-rail">
+                  <button class="upload-action primary" type="button" data-action="choose-docx"><b>选择论文</b></button>
+                  <button class="upload-action" type="button" data-action="create-plan"><b>修复方案</b></button>
+                  <button class="upload-action" type="button" data-action="create-apply-job"><b>生成结果</b></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="repair-preview">
+            <div class="repair-tile">可修复范围<strong data-workbench-metric="autofixable-scopes">等待</strong></div>
+            <div class="repair-tile">需人工确认<strong data-workbench-metric="manual-confirmation">等待</strong></div>
+            <div class="repair-tile">预计输出<strong data-workbench-metric="output-kind">修复副本</strong></div>
+          </div>
+          <div class="flow-steps">
+            <div class="flow-step active">上传<span>原稿保留</span></div>
+            <div class="flow-step">生成方案<span>先看范围</span></div>
+            <div class="flow-step">修正任务<span>本地处理</span></div>
+            <div class="flow-step">结构复查<span>检查目录编号</span></div>
+            <div class="flow-step">下载副本<span>不覆盖原文</span></div>
+          </div>
+        </section>
+
+        <aside class="right-rail glass">
+          <p class="rail-title">格式雷达</p>
+          <div class="radar" aria-label="格式雷达盘" data-format-radar style="--radar-progress: 0%">
+            <span data-format-radar-label>等待检查</span>
+          </div>
+          <p class="rail-title">运行状态</p>
+          <div class="agent-stack status-panel" aria-live="polite" data-status-panel>
+            <div class="agent-card"><strong data-status-title>准备开始</strong><p data-status-message>请先上传论文</p></div>
+            <div class="agent-card"><strong>下一步提示</strong><p data-next-action>选择 docx 文件后生成修正结果</p></div>
+            <div class="agent-card"><strong>需要你确认</strong><p>封面 分页 和导师临时要求仍提示手动复核</p></div>
+          </div>
+        </aside>
+
+        <div class="ledger glass">
+          <div class="ledger-title"><b>本地生成日志簿</b><span>把任务过程写成学生能看懂的验证记录，而不是终端输出。</span></div>
+          <div class="ledger-lines" data-workbench-ledger>
+            <div class="ledger-line"><em>等待</em><span>上传论文后生成检查记录</span><strong>待开始</strong></div>
+            <div class="ledger-line"><em>等待</em><span>修复方案会显示真实范围</span><strong>待开始</strong></div>
+            <div class="ledger-line"><em>等待</em><span>生成修正结果后可下载副本</span><strong>待开始</strong></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="history">
+      <div class="shell history-layout">
+        <div class="history-console glass">
+          <span class="component-label">历史记录</span>
+          <h2>每一次修正都有记录</h2>
+          <p>原稿 修复稿 审查报告 和 PDF 复核记录都保存在这里</p>
+          <div class="film-control" aria-label="历史任务胶片">
+            <span class="film-line"></span>
+            <span class="film-line"></span>
+          </div>
+          <div class="token-row">
+            <span class="token">最近任务</span>
+            <span class="token">可下载</span>
+            <span class="token">已清理</span>
+          </div>
+        </div>
+        <div class="timeline glass" data-history-list>
+          <div class="task-card">
+            <div class="task-date">等待<br>记录</div>
+            <div><b>还没有历史记录</b><span>上传论文后会显示在这里</span></div>
+            <span class="status">待开始</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="pdf-review">
+      <div class="shell pdf-layout">
+        <div class="pdf-console glass">
+          <div class="pdf-console-head">
+            <span class="component-label">PDF 复核</span>
+            <h2>PDF 渲染灯箱</h2>
+            <p>上传 Word/WPS 导出的 PDF，复核分页、图题距离、目录页码和下一版 修复副本 条件。</p>
+          </div>
+          <div class="pdf-action-stack">
+            <div class="pdf-action">
+              <i></i>
+              <div><b>上传 PDF</b><span data-pdf-file>读取页面截图 分页和图表位置</span></div>
+              <input id="pdf-input" class="visually-hidden" type="file" accept=".pdf" hidden>
+              <button class="theme-action pdf-action-button" type="button" data-action="choose-pdf">选择 PDF</button>
+            </div>
+            <div class="pdf-action">
+              <i></i>
+              <div><b>绑定论文</b><span>PDF 需要和论文原稿对应</span></div>
+              <button class="theme-action pdf-action-button" type="button" data-action="enter-workbench">上传论文</button>
+            </div>
+            <div class="pdf-action">
+              <i></i>
+              <div><b>查看页面问题</b><span>完成后在右侧显示问题位置</span></div>
+              <button class="theme-action pdf-action-button" type="button" data-action="refresh-render-result">查看结果</button>
+            </div>
+          </div>
+          <div class="pdf-status-strip">
+            <span>状态<strong data-render-state>待上传</strong></span>
+            <span>论文规范<strong>辽大</strong></span>
+            <span>处理方式<strong>本地</strong></span>
+          </div>
+        </div>
+        <div class="pdf-lens glass">
+          <div class="lens-titlebar">
+            <span>PDF 证据槽 · 等待真实截图</span>
+            <strong>证据数据</strong>
+          </div>
+          <div class="ruler-stage" aria-label="PDF 页面截图与问题框" data-pdf-stage>
+            <div class="ruler-page"></div>
+            <div class="pdf-evidence-box"></div>
+            <div class="pdf-page-source">
+              <span>页面截图 <b>待返回</b></span>
+              <span>问题类型 <b>待返回</b></span>
+              <span>问题位置 <b>待返回</b></span>
+            </div>
+            <div class="guide-line"></div>
+            <div class="flag-rail">
+              <span class="flag one"></span>
+              <span class="flag two"></span>
+              <span class="flag three"></span>
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><b>版式</b><strong data-pdf-metric="score">--</strong><span>等待渲染评分</span></div>
+            <div class="metric"><b>页数</b><strong data-pdf-metric="pages">--</strong><span>等待 PDF 页数</span></div>
+            <div class="metric"><b>问题</b><strong data-pdf-metric="issues">--</strong><span>等待可行动项</span></div>
+          </div>
+          <div class="finding-list" data-pdf-detail>
+            <div class="finding"><b>等待 PDF 复核</b><p>上传 PDF 后 这里会显示页面截图和问题位置</p></div>
+            <div class="finding"><b>下一步提示</b><p>复核完成后 这里会显示问题说明和处理建议</p></div>
+          </div>
+          <div class="filmstrip" aria-label="修正前后胶片条" data-pdf-issues>
+            <span class="film-frame"></span>
+            <span class="film-frame active"></span>
+            <span class="film-frame"></span>
+            <span class="film-frame"></span>
+            <span class="film-frame"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="result">
+      <div class="shell result-layout">
+        <div class="result-hero glass">
+          <span class="component-label">结果文件</span>
+          <div class="completion-orb"><strong>完成</strong></div>
+          <h2>修复包已生成</h2>
+          <p>原文件未覆盖 先下载 修复副本 再导出 PDF 复核</p>
+          <div class="receipt-list">
+            <div><span>文件</span><strong data-result-file-name>等待修复结果</strong></div>
+            <div><span>范围</span><strong data-result-scope>上传论文后生成</strong></div>
+            <div><span>时间</span><strong data-result-time>本地生成</strong></div>
+          </div>
+        </div>
+        <div class="packet-board glass">
+          <div class="download-ribbon">
+            <div><b data-result-download-name>等待修复副本</b><span data-result-download-note>原文件未覆盖</span></div>
+            <button class="theme-action result-download-button" type="button" data-download-role="output" disabled>下载 修复副本</button>
+          </div>
+          <div class="artifact-grid">
+            <button class="artifact-card" type="button" data-download-role="report" disabled><b>审查报告</b><span>下载报告文件 查看规则摘要和人工复核项</span></button>
+            <div class="artifact-card"><b>PDF 复核入口</b><span>用修复稿导出 PDF 后 检查分页和版面</span></div>
+          </div>
+          <div class="matrix-head">
+            <span>规则色谱</span>
+            <span class="matrix-legend"><span><i></i>通过</span><span><i class="warn"></i>提醒</span></span>
+          </div>
+          <div class="heatmap" aria-label="规则通过情况" data-result-heatmap>
+            <span class="pass"></span><span class="pass"></span><span class="pass"></span><span class="warn"></span><span></span><span class="pass"></span><span class="pass"></span><span></span><span class="pass"></span>
+            <span class="pass"></span><span></span><span class="pass"></span><span class="pass"></span><span class="pass"></span><span class="warn"></span><span class="pass"></span><span></span><span class="pass"></span>
+            <span class="pass"></span><span class="pass"></span><span></span><span class="pass"></span><span class="pass"></span><span class="pass"></span><span></span><span class="pass"></span><span class="pass"></span>
+          </div>
+          <div class="packet-card"><b>下一步</b><span>用 Word 或 WPS 打开修复稿 更新目录后导出 PDF</span></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="theme-strip glass" aria-label="主题切换">
+      <button class="active" data-theme-choice="snow"><span class="theme-mark"></span>雪景</button>
+      <button data-theme-choice="rain"><span class="theme-mark"></span>雨后</button>
+      <button data-theme-choice="morning"><span class="theme-mark"></span>清晨</button>
+      <button data-theme-choice="ginkgo"><span class="theme-mark"></span>银杏</button>
+    </div>
+  </main>
+
+  <script type="module" src="/static/js/app.js?v=20260617-upload-circle"></script>
+</body>
+</html>

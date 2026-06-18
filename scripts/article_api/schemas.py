@@ -121,6 +121,16 @@ class UploadNormalizeRequest(BaseModel):
     timeout_seconds: float | None = Field(default=None, gt=0)
 
 
+class UploadRenderReviewRequest(BaseModel):
+    pdf_upload_id: str = Field(..., min_length=1)
+    profile: str = Field(default="lnu")
+    strict_profile: bool | None = None
+    scopes: list[str] | None = None
+    max_attempts: int = Field(default=1, ge=1)
+    retry_delay_seconds: float = Field(default=0.0, ge=0)
+    timeout_seconds: float | None = Field(default=None, gt=0)
+
+
 class RetentionSweepRequest(BaseModel):
     job_max_age_seconds: float | None = Field(default=None, gt=0)
     upload_max_age_seconds: float | None = Field(default=None, gt=0)

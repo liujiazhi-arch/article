@@ -41,6 +41,12 @@ article-local serve
 
 这里的“上传”只表示交给你电脑上的本地网页服务处理，不是上传到 GitHub 或云端。
 
+## 本地前端
+
+启动本地 API 后，浏览器打开 `http://127.0.0.1:<port>/`。
+
+PDF 复核需要先用 Word 或 WPS 导出 PDF，再上传到工具中查看页面问题。
+
 界面示例：
 
 - 首页截图：[docs/assets/local-console-home.png](assets/local-console-home.png)

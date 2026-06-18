@@ -111,7 +111,8 @@ def test_create_app_handles_missing_fastapi_dependency():
     if fastapi_available():
         app = create_app()
         route_paths = {route.path for route in app.routes}
-        assert "/" not in route_paths
+        assert "/" in route_paths
+        assert "/static/{asset_path:path}" in route_paths
         assert "/assets/{asset_path:path}" not in route_paths
         assert "/health" in route_paths
         assert "/ready" in route_paths
@@ -302,7 +303,8 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     wait_for_job(create_payload["job_id"])
     summary_payload = routes["/ops/summary"].endpoint()
 
-    assert "/" not in routes
+    assert "/" in routes
+    assert "/static/{asset_path:path}" in routes
     assert health_payload["service"] == "article-api"
     assert health_payload["status"] == "ok"
     assert version_payload["version"] == "0.1.0"
@@ -846,6 +848,54 @@ def test_render_evidence_screenshot_route_uses_registered_token(monkeypatch, tmp
     with pytest.raises(FakeHTTPException) as exc_info:
         routes["/render-evidence/screenshot/{token}"].endpoint(str(screenshot_path))
     assert exc_info.value.status_code == 404
+
+
+def test_render_verify_job_result_registers_evidence_screenshot_from_stored_path(tmp_path, monkeypatch):
+    from article_api.jobs import get_job_result
+    from article_api import render_evidence
+
+    monkeypatch.setenv("ARTICLE_API_STATE_ROOT", str(tmp_path / "state"))
+    clear_jobs()
+    screenshot = tmp_path / "page-1.png"
+    screenshot.write_bytes(b"png")
+    storage.upsert_job(
+        {
+            "job_id": "job-render-1",
+            "operation": "render-verify",
+            "status": "succeeded",
+            "mode": "background",
+            "created_at": "2026-06-16T00:00:00Z",
+            "updated_at": "2026-06-16T00:00:01Z",
+            "request": {},
+            "resolved_request": {"file_path": "/tmp/demo.docx", "workflow_mode": "default_user"},
+            "workspace": None,
+            "runtime": None,
+            "summary": {},
+            "artifacts": [],
+            "result": {
+                "evidence_items": [
+                    {
+                        "page": 1,
+                        "screenshot_path": str(screenshot),
+                        "rule_id": "render.isolated_punctuation",
+                        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                        "message": "需要确认。",
+                        "severity": "warning",
+                        "next_action": "重新导出 PDF。",
+                    }
+                ]
+            },
+            "error": None,
+        }
+    )
+
+    payload = get_job_result("job-render-1")
+    url = payload["result"]["evidence_items"][0]["screenshot_url"]
+    token = url.rsplit("/", 1)[-1]
+
+    assert render_evidence.resolve_render_evidence_screenshot(token) == str(screenshot.resolve())
+    render_evidence._SCREENSHOT_PATHS_BY_TOKEN.clear()
+    assert render_evidence.resolve_render_evidence_screenshot(token) == str(screenshot.resolve())
 
 
 def test_build_render_verify_payload_requires_pdf_for_default_user_mode(monkeypatch):

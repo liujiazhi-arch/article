@@ -4,12 +4,13 @@ import json
 import sys
 from typing import Any
 
-from article_engine import apply_fix, normalize_document, verify_document
+from article_engine import apply_fix, normalize_document, render_verify_document, verify_document
 
 
 _JOB_HANDLERS = {
     "apply": apply_fix,
     "normalize": normalize_document,
+    "render-verify": render_verify_document,
     "verify": verify_document,
 }
 

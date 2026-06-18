@@ -96,6 +96,24 @@ def _wait_for_snapshot_text(
     raise RuntimeError(f"Timed out waiting for browser text {expected_text!r}. Last snapshot:\n{last_output}")
 
 
+def _wait_for_eval_truthy(
+    playwright_cli: Path,
+    expression: str,
+    *,
+    cwd: Path,
+    timeout: float,
+) -> str:
+    deadline = release_smoke.time.monotonic() + timeout
+    last_output = ""
+    while release_smoke.time.monotonic() < deadline:
+        completed = _run_playwright(playwright_cli, "eval", expression, cwd=cwd, timeout=min(30.0, timeout))
+        last_output = completed.stdout.strip()
+        if re.search(r"^true$", last_output, flags=re.MULTILINE):
+            return last_output
+        release_smoke.time.sleep(1.0)
+    raise RuntimeError(f"Timed out waiting for browser expression {expression!r}. Last output:\n{last_output}")
+
+
 def _download_path_from_output(output: str, *, cwd: Path) -> Path | None:
     match = re.search(r'Downloaded file .+ to "([^"]+)"', output)
     if not match:
@@ -170,13 +188,24 @@ def run_local_browser_smoke(
             cwd=smoke_dir,
             timeout=timeout,
         )
-        _run_playwright(pwcli_path, "click", "label[for='paper-file']", cwd=smoke_dir, timeout=timeout)
+        _run_playwright(pwcli_path, "click", ".cover-actions [data-action='enter-workbench']", cwd=smoke_dir, timeout=timeout)
+        _wait_for_snapshot_text(pwcli_path, "上传论文开始修正", cwd=smoke_dir, timeout=timeout)
+        _run_playwright(pwcli_path, "click", "[data-action='choose-docx']", cwd=smoke_dir, timeout=timeout)
         _run_playwright(pwcli_path, "upload", docx_path, cwd=smoke_dir, timeout=timeout)
-        _wait_for_snapshot_text(pwcli_path, "已上传", cwd=smoke_dir, timeout=timeout)
-        _run_playwright(pwcli_path, "click", "#run-all-button", cwd=smoke_dir, timeout=timeout)
-        _wait_for_snapshot_text(pwcli_path, "方案已生成", cwd=smoke_dir, timeout=timeout)
-        _run_playwright(pwcli_path, "click", "#report-action-button", cwd=smoke_dir, timeout=timeout)
-        _wait_for_snapshot_text(pwcli_path, "修复完成", cwd=smoke_dir, timeout=timeout)
+        _wait_for_snapshot_text(pwcli_path, "修复方案已生成", cwd=smoke_dir, timeout=timeout)
+        _wait_for_snapshot_text(pwcli_path, "发现 ", cwd=smoke_dir, timeout=timeout)
+        _wait_for_snapshot_text(pwcli_path, "项需要你确认", cwd=smoke_dir, timeout=timeout)
+        _run_playwright(pwcli_path, "click", "[data-action='create-apply-job']", cwd=smoke_dir, timeout=timeout)
+        _wait_for_snapshot_text(pwcli_path, "修复包已生成", cwd=smoke_dir, timeout=timeout)
+        result_snapshot = _wait_for_snapshot_text(pwcli_path, "browser_smoke", cwd=smoke_dir, timeout=timeout)
+        if "等待修复结果" in result_snapshot:
+            raise RuntimeError("Result panel did not replace the placeholder file name")
+        _wait_for_eval_truthy(
+            pwcli_path,
+            "() => document.querySelectorAll('[data-result-heatmap] .pass, [data-result-heatmap] .warn').length > 0",
+            cwd=smoke_dir,
+            timeout=timeout,
+        )
         _run_playwright(
             pwcli_path,
             "screenshot",
@@ -186,7 +215,10 @@ def run_local_browser_smoke(
             cwd=smoke_dir,
             timeout=timeout,
         )
-        download_result = _run_playwright(pwcli_path, "click", "#report-output", cwd=smoke_dir, timeout=timeout)
+        _run_playwright(pwcli_path, "click", "[data-screen-target='history']", cwd=smoke_dir, timeout=timeout)
+        _wait_for_snapshot_text(pwcli_path, "browser_smoke", cwd=smoke_dir, timeout=timeout)
+        _run_playwright(pwcli_path, "click", "[data-screen-target='result']", cwd=smoke_dir, timeout=timeout)
+        download_result = _run_playwright(pwcli_path, "click", "[data-download-role='output']", cwd=smoke_dir, timeout=timeout)
         downloaded_by_browser = _download_path_from_output(download_result.stdout, cwd=smoke_dir)
         if downloaded_by_browser and downloaded_by_browser.exists():
             shutil.copy2(downloaded_by_browser, download_path)

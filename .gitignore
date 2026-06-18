@@ -59,6 +59,7 @@ node_modules/
 # IDE/editor noise
 .idea/
 .vscode/
+.baton/
 
 # macOS / Office temp files
 *.tmp

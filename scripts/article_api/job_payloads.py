@@ -87,6 +87,7 @@ def job_operation_label(operation: str) -> str:
         "verify": "格式复查",
         "apply": "生成修复稿",
         "normalize": "结构整理",
+        "render-verify": "PDF复核",
     }.get(operation, operation or "-")
 
 
@@ -261,6 +262,16 @@ def resolve_request(
         normalized_scopes = normalize_scope_names(resolved.get("scopes"))
         resolved["scopes"] = sorted(normalized_scopes) if normalized_scopes else None
         resolved.setdefault("strict_profile", None)
+    elif operation == "render-verify":
+        normalized_scopes = normalize_scope_names(resolved.get("scopes"))
+        resolved["scopes"] = sorted(normalized_scopes) if normalized_scopes else None
+        resolved.setdefault("strict_profile", None)
+        resolved.setdefault("renderer", "auto")
+        resolved.setdefault("rendered_pdf", None)
+        resolved.setdefault("page_images_dir", None)
+        resolved.setdefault("workflow_mode", "default_user")
+        if not resolved.get("rendered_pdf") and not resolved.get("page_images_dir"):
+            raise ValueError("PDF 复核需要上传导出的 PDF 文件。")
     resolved["max_attempts"] = coerce_positive_int(
         resolved.get("max_attempts"),
         field_name="max_attempts",
@@ -317,6 +328,10 @@ def build_result_summary(operation: str, result: dict[str, Any], resolved_reques
         summary["business_status"] = result.get("after", {}).get("preflight_status")
         summary["changed"] = bool(result.get("changed"))
         summary["operation_count"] = len(result.get("operations") or [])
+    elif operation == "render-verify":
+        summary["business_status"] = result.get("status")
+        summary["render_workflow_mode"] = resolved_request.get("workflow_mode")
+        summary["evidence_count"] = len(result.get("evidence_items") or [])
     if resolved_request.get("dry_run") is not None:
         summary["dry_run"] = bool(resolved_request.get("dry_run"))
     summary["attempt_count"] = int(resolved_request.get("attempt_count") or 1)
