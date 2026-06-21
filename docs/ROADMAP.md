@@ -4,7 +4,7 @@ This roadmap keeps the project focused on a local-first thesis format workflow. 
 
 ## Current Beta
 
-- Stabilize the Windows `article-local-windows.zip` package.
+- Stabilize the Windows `lnu-thesis-local-windows.zip` package.
 - Keep the student path simple: download, extract, double-click, upload `.docx`, download repaired copy, manually verify in Word/WPS.
 - Improve GitHub presentation with screenshots, clear Release instructions, repository topics, and support docs.
 - Keep update checking manual and metadata-only.

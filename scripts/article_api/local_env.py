@@ -57,7 +57,7 @@ def command_with_roots(command: str, *, state_root: Path, runtime_root: Path) ->
 
 def current_command_bin_dir() -> Path | None:
     candidate = Path(sys.executable).resolve().parent
-    command_name = "article-local.exe" if sys.platform == "win32" else "article-local"
+    command_name = "lnu-thesis-local.exe" if sys.platform == "win32" else "lnu-thesis-local"
     if (candidate / command_name).exists():
         return candidate
     return None

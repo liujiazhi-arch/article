@@ -4,7 +4,7 @@ This page is for common Windows local web package and `.docx` workflow failures.
 
 ## Zip Was Not Extracted
 
-Run the tool only after fully extracting `article-local-windows.zip`. Do not double-click `启动论文格式检查.bat` inside the zip preview window.
+Run the tool only after fully extracting `lnu-thesis-local-windows.zip`. Do not double-click `启动论文格式检查.bat` inside the zip preview window.
 
 Expected extracted files include:
 

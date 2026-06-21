@@ -55,8 +55,8 @@ def test_github_release_status_checks_actions_and_release_assets(monkeypatch):
                             "isDraft": False,
                             "isPrerelease": True,
                             "assets": [
-                                {"name": "article-local-windows.zip", "size": 100},
-                                {"name": "article-local-windows.zip.sha256", "size": 96},
+                                {"name": "lnu-thesis-local-windows.zip", "size": 100},
+                                {"name": "lnu-thesis-local-windows.zip.sha256", "size": 96},
                             ],
                         }
                     ),
@@ -76,8 +76,8 @@ def test_github_release_status_checks_actions_and_release_assets(monkeypatch):
     assert payload["status"] == "ok"
     assert payload["checks"]["latest_ci_run"]["conclusion"] == "success"
     assert payload["checks"]["release_assets"]["required"] == [
-        "article-local-windows.zip",
-        "article-local-windows.zip.sha256",
+        "lnu-thesis-local-windows.zip",
+        "lnu-thesis-local-windows.zip.sha256",
     ]
     assert payload["checks"]["release_assets"]["missing"] == []
     assert calls == [
@@ -123,7 +123,7 @@ def test_github_release_status_fails_when_assets_are_missing(monkeypatch):
         return type(
             "Completed",
             (),
-            {"stdout": json.dumps({"tagName": "v0.1.0", "assets": [{"name": "article-local-windows.zip"}]}), "stderr": ""},
+            {"stdout": json.dumps({"tagName": "v0.1.0", "assets": [{"name": "lnu-thesis-local-windows.zip"}]}), "stderr": ""},
         )()
 
     monkeypatch.setattr(github_release_status.subprocess, "run", fake_run)
@@ -135,7 +135,7 @@ def test_github_release_status_fails_when_assets_are_missing(monkeypatch):
     )
 
     assert payload["status"] == "failed"
-    assert payload["checks"]["release_assets"]["missing"] == ["article-local-windows.zip.sha256"]
+    assert payload["checks"]["release_assets"]["missing"] == ["lnu-thesis-local-windows.zip.sha256"]
 
 
 def test_github_release_status_cli_reports_json_error(monkeypatch, capsys):
@@ -208,8 +208,8 @@ def test_github_release_status_can_infer_repo_from_github_remote(monkeypatch):
                             "tagName": "v0.1.0",
                             "isDraft": False,
                             "assets": [
-                                {"name": "article-local-windows.zip"},
-                                {"name": "article-local-windows.zip.sha256"},
+                                {"name": "lnu-thesis-local-windows.zip"},
+                                {"name": "lnu-thesis-local-windows.zip.sha256"},
                             ],
                         }
                     ),

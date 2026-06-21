@@ -69,7 +69,7 @@ def _write_bundle_zip(
             "反馈包默认不包含论文原文、修复稿或 API key\r\n"
         ).encode("utf-8-sig"),
         "论文格式检查本地版/app/Scripts/python.exe": b"python",
-        "论文格式检查本地版/app/Scripts/article-local.exe": b"article-local",
+        "论文格式检查本地版/app/Scripts/lnu-thesis-local.exe": b"article-local",
         "论文格式检查本地版/data/state/.keep": b"",
         "论文格式检查本地版/data/runtime/.keep": b"",
     }
@@ -83,8 +83,8 @@ def _write_bundle_zip(
 def test_verify_windows_bundle_artifact_writes_sha256(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
-    sha256_path = tmp_path / "article-local-windows.zip.sha256"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
+    sha256_path = tmp_path / "lnu-thesis-local-windows.zip.sha256"
     _write_bundle_zip(bundle_zip)
 
     payload = verifier.verify_windows_bundle_artifact(
@@ -96,14 +96,14 @@ def test_verify_windows_bundle_artifact_writes_sha256(tmp_path):
     assert payload["status"] == "ok"
     assert payload["sha256"] == expected_digest
     assert payload["sha256_output"] == str(sha256_path.resolve())
-    assert sha256_path.read_text(encoding="utf-8") == f"{expected_digest}  article-local-windows.zip\n"
+    assert sha256_path.read_text(encoding="utf-8") == f"{expected_digest}  lnu-thesis-local-windows.zip\n"
     assert payload["entry_count"] >= 7
 
 
 def test_verify_windows_bundle_artifact_allows_github_release_tag_api_url(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -124,7 +124,7 @@ def test_verify_windows_bundle_artifact_allows_github_release_tag_api_url(tmp_pa
 def test_verify_windows_bundle_artifact_rejects_extra_top_level_entries(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -140,7 +140,7 @@ def test_verify_windows_bundle_artifact_rejects_extra_top_level_entries(tmp_path
 def test_verify_windows_bundle_artifact_rejects_unexpected_top_level_folder(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -161,7 +161,7 @@ def test_verify_windows_bundle_artifact_rejects_unexpected_top_level_folder(tmp_
                 "检查新版本只检查软件版本，不上传论文，也不会自动下载或安装更新\r\n"
             ).encode("utf-8-sig"),
             "wrong-root/app/Scripts/python.exe": b"python",
-            "wrong-root/app/Scripts/article-local.exe": b"article-local",
+            "wrong-root/app/Scripts/lnu-thesis-local.exe": b"article-local",
             "wrong-root/data/state/.keep": b"",
             "wrong-root/data/runtime/.keep": b"",
         },
@@ -175,8 +175,8 @@ def test_verify_windows_bundle_artifact_rejects_unexpected_top_level_folder(tmp_
 def test_verify_release_artifact_cli_prints_json_and_writes_sha256(capsys, tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
-    sha256_path = tmp_path / "article-local-windows.zip.sha256"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
+    sha256_path = tmp_path / "lnu-thesis-local-windows.zip.sha256"
     _write_bundle_zip(bundle_zip)
 
     exit_code = verifier.main(
@@ -198,7 +198,7 @@ def test_verify_release_artifact_cli_prints_json_and_writes_sha256(capsys, tmp_p
 def test_verify_windows_bundle_artifact_rejects_privacy_artifacts(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -215,7 +215,7 @@ def test_verify_windows_bundle_artifact_rejects_privacy_artifacts(tmp_path):
 def test_verify_windows_bundle_artifact_rejects_non_placeholder_local_data(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -231,7 +231,7 @@ def test_verify_windows_bundle_artifact_rejects_non_placeholder_local_data(tmp_p
 def test_verify_windows_bundle_artifact_rejects_keep_files_under_user_data_dirs(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -246,7 +246,7 @@ def test_verify_windows_bundle_artifact_rejects_keep_files_under_user_data_dirs(
 def test_verify_windows_bundle_artifact_rejects_feedback_zip_name_variants(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -275,7 +275,7 @@ def test_verify_windows_bundle_artifact_rejects_local_state_runtime_cache_and_en
 ):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(bundle_zip, {entry_name: b"local-data"})
 
     with pytest.raises(RuntimeError, match="privacy-sensitive"):
@@ -285,7 +285,7 @@ def test_verify_windows_bundle_artifact_rejects_local_state_runtime_cache_and_en
 def test_verify_windows_bundle_artifact_rejects_document_artifacts_directly_under_app(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -300,7 +300,7 @@ def test_verify_windows_bundle_artifact_rejects_document_artifacts_directly_unde
 def test_verify_windows_bundle_artifact_rejects_non_github_release_api_url(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -320,7 +320,7 @@ def test_verify_windows_bundle_artifact_rejects_non_github_release_api_url(tmp_p
 def test_verify_windows_bundle_artifact_rejects_root_document_artifacts(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -335,7 +335,7 @@ def test_verify_windows_bundle_artifact_rejects_root_document_artifacts(tmp_path
 def test_verify_windows_bundle_artifact_allows_dependency_document_resources(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {
@@ -352,7 +352,7 @@ def test_verify_windows_bundle_artifact_allows_dependency_document_resources(tmp
 def test_verify_windows_bundle_artifact_allows_python_venv_dependency_document_resources(tmp_path):
     import verify_release_artifact as verifier
 
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(
         bundle_zip,
         {

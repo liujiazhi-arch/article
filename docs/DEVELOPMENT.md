@@ -28,9 +28,9 @@ python3 scripts/release_smoke.py --work-dir /tmp/article-release-smoke --wheelho
 
 这个 smoke 会构建 wheelhouse，在 clean venv 中从 wheel 安装，然后运行：
 
-- `article-local doctor`
+- `lnu-thesis-local doctor`
 - `thesis-workbench profiles`
-- `article-local serve`
+- `lnu-thesis-local serve`
 - 上传 `.docx`
 - 创建 apply job
 - 下载 output artifact
@@ -41,7 +41,7 @@ python3 scripts/release_smoke.py --work-dir /tmp/article-release-smoke --wheelho
 python3 scripts/local_browser_smoke.py --work-dir /tmp/article-local-browser-smoke --json-output /tmp/article-browser-smoke.json
 ```
 
-这个浏览器 smoke 会启动 `article-local serve`，用 Playwright 打开本地网页，上传临时 `.docx`，执行 upload / audit / plan / apply / download，并在 work dir 里保存首页和修复完成态截图。它不替代 Windows clean 环境和 WPS/Word 实机 smoke。
+这个浏览器 smoke 会启动 `lnu-thesis-local serve`，用 Playwright 打开本地网页，上传临时 `.docx`，执行 upload / audit / plan / apply / download，并在 work dir 里保存首页和修复完成态截图。它不替代 Windows clean 环境和 WPS/Word 实机 smoke。
 
 ## 兼容性样本库
 
@@ -139,17 +139,17 @@ dist\windows-runtime\Scripts\python.exe -m pip install --no-index --find-links C
 准备好 `dist\windows-runtime` 后，在仓库根目录组装 zip：
 
 ```bash
-python3 scripts/build_windows_local_bundle.py --runtime-dir dist/windows-runtime --output-zip dist/article-local-windows.zip --release-api-url https://api.github.com/repos/<owner>/<repo>/releases/latest
-python3 scripts/build_windows_local_bundle.py --runtime-dir dist/windows-runtime --output-zip dist/article-local-windows.zip --release-api-url https://api.github.com/repos/<owner>/<repo>/releases/tags/<release-tag>
-python3 scripts/verify_release_artifact.py dist/article-local-windows.zip --sha256-output dist/article-local-windows.zip.sha256
-python3 scripts/windows_bundle_smoke.py dist/article-local-windows.zip --work-dir dist/windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist/windows-bundle-smoke.json
+python3 scripts/build_windows_local_bundle.py --runtime-dir dist/windows-runtime --output-zip dist/lnu-thesis-local-windows.zip --release-api-url https://api.github.com/repos/<owner>/<repo>/releases/latest
+python3 scripts/build_windows_local_bundle.py --runtime-dir dist/windows-runtime --output-zip dist/lnu-thesis-local-windows.zip --release-api-url https://api.github.com/repos/<owner>/<repo>/releases/tags/<release-tag>
+python3 scripts/verify_release_artifact.py dist/lnu-thesis-local-windows.zip --sha256-output dist/lnu-thesis-local-windows.zip.sha256
+python3 scripts/windows_bundle_smoke.py dist/lnu-thesis-local-windows.zip --work-dir dist/windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist/windows-bundle-smoke.json
 ```
 
-`verify_release_artifact.py` 会确认 zip 只有一个顶层目录 `论文格式检查本地版/`，扫描 zip 不含本地论文、反馈包、env、日志或状态数据库，也不包含真实本地 state/runtime 数据，确认双击入口、快速开始文案和可选 GitHub Release API 地址格式存在，并生成 `article-local-windows.zip.sha256`。`windows_bundle_smoke.py` 会解压 zip，用随包 `app\Scripts\python.exe` 运行 `python.exe -m article_api.local_app doctor`，再启动本地服务并跑上传 `.docx`、创建 apply job、下载 output artifact 的网页链路，并可用 `--json-output` 保存证据 JSON。GitHub Actions 会在 windows-latest runner 上执行同类 smoke：构建 wheelhouse、准备 `dist\windows-runtime`、组装 `article-local-windows.zip`、检查 zip 内容，并对解压后的 zip 跑完整本地网页链路。CI 会上传 `release-smoke-evidence-*` 和 `windows-bundle-smoke-evidence` artifacts，作为发布前 smoke 证据。CI 在 push、pull_request 或 workflow_dispatch 中会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`；当 GitHub Release 发布触发 CI 时，会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}`，让 Beta 或正式发布包里的“检查新版本”指向当前发布页。
+`verify_release_artifact.py` 会确认 zip 只有一个顶层目录 `论文格式检查本地版/`，扫描 zip 不含本地论文、反馈包、env、日志或状态数据库，也不包含真实本地 state/runtime 数据，确认双击入口、快速开始文案和可选 GitHub Release API 地址格式存在，并生成 `lnu-thesis-local-windows.zip.sha256`。`windows_bundle_smoke.py` 会解压 zip，用随包 `app\Scripts\python.exe` 运行 `python.exe -m article_api.local_app doctor`，再启动本地服务并跑上传 `.docx`、创建 apply job、下载 output artifact 的网页链路，并可用 `--json-output` 保存证据 JSON。GitHub Actions 会在 windows-latest runner 上执行同类 smoke：构建 wheelhouse、准备 `dist\windows-runtime`、组装 `lnu-thesis-local-windows.zip`、检查 zip 内容，并对解压后的 zip 跑完整本地网页链路。CI 会上传 `release-smoke-evidence-*` 和 `windows-bundle-smoke-evidence` artifacts，作为发布前 smoke 证据。CI 在 push、pull_request 或 workflow_dispatch 中会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`；当 GitHub Release 发布触发 CI 时，会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}`，让 Beta 或正式发布包里的“检查新版本”指向当前发布页。
 
 可在 GitHub Actions 页面手动运行 CI（`workflow_dispatch`），用于发布 Release 前预构建 Windows 本地网页包并检查 `windows-latest` smoke。这个手动运行只证明 GitHub runner 上的构建链路可用，不能替代发布后的 Release 资产检查，也不能替代 Windows clean 环境双击启动和 WPS/Word 实机复核。
 
-当 GitHub Release 发布为 `published` 时，CI 会把 `article-local-windows.zip` 和 `article-local-windows.zip.sha256` 上传到该 Release。Release 文案仍需要明确：这是 Beta，修复稿必须人工复核，论文默认只在本机处理，不要把论文或密钥上传到 issue。
+当 GitHub Release 发布为 `published` 时，CI 会把 `lnu-thesis-local-windows.zip` 和 `lnu-thesis-local-windows.zip.sha256` 上传到该 Release。Release 文案仍需要明确：这是 Beta，修复稿必须人工复核，论文默认只在本机处理，不要把论文或密钥上传到 issue。
 
 发布后可用 GitHub CLI 做远端状态复核：
 
@@ -157,7 +157,7 @@ python3 scripts/windows_bundle_smoke.py dist/article-local-windows.zip --work-di
 python3 scripts/github_release_status.py --repo <owner>/<repo> --branch main --tag <release-tag> --json-output /tmp/article-github-status.json
 ```
 
-它会检查最近一次 `CI` workflow 是否 `completed/success`，并确认 GitHub Release 资产包含 `article-local-windows.zip` 和 `article-local-windows.zip.sha256`。如果没有传 `--repo`，脚本会尝试从 `git remote.origin.url` 推断 GitHub 仓库；没有 remote 或 GitHub CLI token 失效时，会输出 JSON 错误并提示先配置 remote 或运行 `gh auth status`。这一步只能证明远端 CI 和 Release 资产状态，不能替代 Windows clean 环境双击启动和 WPS/Word 实机复核。
+它会检查最近一次 `CI` workflow 是否 `completed/success`，并确认 GitHub Release 资产包含 `lnu-thesis-local-windows.zip` 和 `lnu-thesis-local-windows.zip.sha256`。如果没有传 `--repo`，脚本会尝试从 `git remote.origin.url` 推断 GitHub 仓库；没有 remote 或 GitHub CLI token 失效时，会输出 JSON 错误并提示先配置 remote 或运行 `gh auth status`。这一步只能证明远端 CI 和 Release 资产状态，不能替代 Windows clean 环境双击启动和 WPS/Word 实机复核。
 
 远端状态 JSON 和 Windows 实机 smoke 报告可以用发布证据门禁合并检查：
 
@@ -165,7 +165,7 @@ python3 scripts/github_release_status.py --repo <owner>/<repo> --branch main --t
 python3 scripts/release_evidence_gate.py --github-status-json /tmp/article-github-status.json --windows-report /path/to/windows-smoke-report.md --release-smoke-json /tmp/article-release-smoke.json --windows-bundle-smoke-json /path/to/windows-bundle-smoke.json --browser-smoke-json /tmp/article-browser-smoke.json
 ```
 
-该脚本只有在 GitHub Release 状态为 `ok`、最近一次 CI 为 `completed/success`、Release 资产同时包含 `article-local-windows.zip` 和 `article-local-windows.zip.sha256`、GitHub Release tag 与 Windows smoke 报告的 Release tag 一致，并且 Windows 报告中的 clean Windows、未预装 Python、双击启动、浏览器自动打开、upload / audit / plan / apply / download、WPS/Word 打开修复稿、人工复核和隐私确认都为“通过”时才输出 `ready`。`--release-smoke-json` 和 `--windows-bundle-smoke-json` 是必填证据，门禁会确认本地安装 smoke 的 doctor/profiles/http download 成功，以及 CI Windows bundle smoke 的 doctor/http download 成功。`--browser-smoke-json` 是可选补充证据；传入时会确认真实浏览器 smoke 的截图、下载稿和 `.docx` 包有效。它用于防止把单独的 CI 绿色状态、本地 smoke、CI bundle smoke 或旧 Windows smoke 报告误当成完整发布完成。
+该脚本只有在 GitHub Release 状态为 `ok`、最近一次 CI 为 `completed/success`、Release 资产同时包含 `lnu-thesis-local-windows.zip` 和 `lnu-thesis-local-windows.zip.sha256`、GitHub Release tag 与 Windows smoke 报告的 Release tag 一致，并且 Windows 报告中的 clean Windows、未预装 Python、双击启动、浏览器自动打开、upload / audit / plan / apply / download、WPS/Word 打开修复稿、人工复核和隐私确认都为“通过”时才输出 `ready`。`--release-smoke-json` 和 `--windows-bundle-smoke-json` 是必填证据，门禁会确认本地安装 smoke 的 doctor/profiles/http download 成功，以及 CI Windows bundle smoke 的 doctor/http download 成功。`--browser-smoke-json` 是可选补充证据；传入时会确认真实浏览器 smoke 的截图、下载稿和 `.docx` 包有效。它用于防止把单独的 CI 绿色状态、本地 smoke、CI bundle smoke 或旧 Windows smoke 报告误当成完整发布完成。
 
 证据门禁输出 `ready` 后，可以把 JSON/Markdown 证据归档成一个不含论文内容的 zip：
 
@@ -177,7 +177,7 @@ python3 scripts/release_evidence_bundle.py --output-zip /tmp/article-release-evi
 
 zip 包内的 `启动论文格式检查.bat` 是给学生双击的入口。它会先用随包 `python.exe -m article_api.local_app doctor` 做检查，检查通过后打开 `http://127.0.0.1:8000` 并启动本地网页服务。完整自带 Python zip 发布前仍需要在 Windows clean 环境双击启动、上传 `.docx`、apply、download，并用 WPS/Word 打开修复稿复核。
 
-zip 包内的 `导出反馈包.bat` 会调用随包 Python 生成 `反馈包.zip`；开发者也可以直接运行 `article-local feedback`。反馈包默认不包含论文原文、修复稿、PDF、页面图片或 API key，并会脱敏文档文件名，只保留任务摘要、doctor 信息、状态库摘要和诊断日志。发送前仍建议人工打开 zip 查看文件列表。
+zip 包内的 `导出反馈包.bat` 会调用随包 Python 生成 `反馈包.zip`；开发者也可以直接运行 `lnu-thesis-local feedback`。反馈包默认不包含论文原文、修复稿、PDF、页面图片或 API key，并会脱敏文档文件名，只保留任务摘要、doctor 信息、状态库摘要和诊断日志。发送前仍建议人工打开 zip 查看文件列表。
 
 本地网页支持手动检查 GitHub Release 新版本。发布包可以通过环境变量配置 Release API 地址：
 

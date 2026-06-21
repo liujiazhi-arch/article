@@ -302,7 +302,7 @@ def install_local_app(
         resolved_install_mode = "wheel"
 
     if no_deps and not skip_init:
-        raise RuntimeError("`--no-deps` requires `--skip-init` because `article-local init` needs installed runtime dependencies.")
+        raise RuntimeError("`--no-deps` requires `--skip-init` because `lnu-thesis-local init` needs installed runtime dependencies.")
 
     venv_existed = resolved_venv_dir.exists()
     venv_command = [str(resolved_python), "-m", "venv"]
@@ -398,9 +398,14 @@ def install_local_app(
             operation=install_operation,
         )
 
-    article_local = _venv_script(resolved_venv_dir, "article-local")
+    lnu_thesis_local = _venv_script(resolved_venv_dir, "lnu-thesis-local")
+    article_local = lnu_thesis_local
     init_payload = None
-    quickstart_prefix = "article-local" if resolved_env_file is not None and not skip_init else shlex.quote(str(article_local))
+    quickstart_prefix = (
+        "lnu-thesis-local"
+        if resolved_env_file is not None and not skip_init
+        else shlex.quote(str(lnu_thesis_local))
+    )
     quickstart = {
         "activate_env": f"source {shlex.quote(str(resolved_env_file))}" if resolved_env_file is not None else None,
         "doctor": _article_local_command(
@@ -450,7 +455,7 @@ def install_local_app(
         try:
             init_payload = json.loads(completed.stdout)
         except json.JSONDecodeError as exc:
-            raise RuntimeError("`article-local init` did not return valid JSON output.") from exc
+            raise RuntimeError("`lnu-thesis-local init` did not return valid JSON output.") from exc
 
     written_launcher_path = None
     if resolved_launcher_path is not None:

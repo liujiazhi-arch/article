@@ -15,7 +15,7 @@
 ```bash
 git status --short
 python3 -m pytest -q
-python3 scripts/verify_release_artifact.py dist/article-local-windows.zip --sha256-output dist/article-local-windows.zip.sha256
+python3 scripts/verify_release_artifact.py dist/lnu-thesis-local-windows.zip --sha256-output dist/lnu-thesis-local-windows.zip.sha256
 ```
 
 检查重点：

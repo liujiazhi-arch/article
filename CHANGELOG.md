@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 - GitHub Beta
+
+- 仓库与发布资产改名为 `lnu-thesis-format-tool` / `lnu-thesis-local-windows.zip`。
+- 新增 `lnu-thesis-*` 命令入口，并保留旧 `article-*` 入口兼容。
+- 更新 README、Release 文档、CI 发布资产和版本检查目标。
+
 ## 0.1.0 - GitHub Beta
 
 - 公开产品边界收敛为辽宁大学本科毕业论文。

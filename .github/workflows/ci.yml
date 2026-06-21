@@ -85,23 +85,23 @@ jobs:
           if ("${{ github.event_name }}" -eq "release") {
             $releaseApiUrl = "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}"
           }
-          python scripts\build_windows_local_bundle.py --runtime-dir dist\windows-runtime --output-zip dist\article-local-windows.zip --release-api-url $releaseApiUrl
-          python scripts\verify_release_artifact.py dist\article-local-windows.zip --sha256-output dist\article-local-windows.zip.sha256
+          python scripts\build_windows_local_bundle.py --runtime-dir dist\windows-runtime --output-zip dist\lnu-thesis-local-windows.zip --release-api-url $releaseApiUrl
+          python scripts\verify_release_artifact.py dist\lnu-thesis-local-windows.zip --sha256-output dist\lnu-thesis-local-windows.zip.sha256
 
       - name: Smoke bundle contents
         run: |
-          python -c "import pathlib, zipfile; names=set(zipfile.ZipFile(r'dist\article-local-windows.zip').namelist()); assert any(name.endswith('/启动论文格式检查.bat') for name in names); assert any(name.endswith('/导出反馈包.bat') for name in names); assert any(name.endswith('/快速开始.txt') for name in names); assert any(name.endswith('/app/Scripts/article-local.exe') for name in names); assert any(name.endswith('/app/Scripts/python.exe') for name in names); assert pathlib.Path(r'dist\article-local-windows.zip.sha256').exists()"
+          python -c "import pathlib, zipfile; names=set(zipfile.ZipFile(r'dist\lnu-thesis-local-windows.zip').namelist()); assert any(name.endswith('/启动论文格式检查.bat') for name in names); assert any(name.endswith('/导出反馈包.bat') for name in names); assert any(name.endswith('/快速开始.txt') for name in names); assert any(name.endswith('/app/Scripts/lnu-thesis-local.exe') for name in names); assert any(name.endswith('/app/Scripts/python.exe') for name in names); assert pathlib.Path(r'dist\lnu-thesis-local-windows.zip.sha256').exists()"
 
       - name: Smoke extracted Windows local web flow
         run: |
-          python scripts\windows_bundle_smoke.py dist\article-local-windows.zip --work-dir dist\windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist\windows-bundle-smoke.json
+          python scripts\windows_bundle_smoke.py dist\lnu-thesis-local-windows.zip --work-dir dist\windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist\windows-bundle-smoke.json
 
       - uses: actions/upload-artifact@v4
         with:
-          name: article-local-windows.zip
+          name: lnu-thesis-local-windows.zip
           path: |
-            dist\article-local-windows.zip
-            dist\article-local-windows.zip.sha256
+            dist\lnu-thesis-local-windows.zip
+            dist\lnu-thesis-local-windows.zip.sha256
 
       - uses: actions/upload-artifact@v4
         with:
@@ -113,4 +113,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" dist\article-local-windows.zip dist\article-local-windows.zip.sha256 --clobber
+          gh release upload "${{ github.event.release.tag_name }}" dist\lnu-thesis-local-windows.zip dist\lnu-thesis-local-windows.zip.sha256 --clobber

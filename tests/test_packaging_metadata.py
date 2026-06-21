@@ -64,6 +64,13 @@ def test_pyproject_declares_expected_console_scripts():
 
     assert data["project"]["scripts"] == {
         "thesis-workbench": "thesis_workbench:main",
+        "lnu-thesis-local": "article_api.local_app:main",
+        "lnu-thesis-api": "article_api.local_app:serve_main",
+        "lnu-thesis-doctor": "article_api.local_app:doctor_main",
+        "lnu-thesis-backup": "article_api.local_app:backup_main",
+        "lnu-thesis-feedback": "article_api.local_app:feedback_main",
+        "lnu-thesis-restore": "article_api.local_app:restore_main",
+        "lnu-thesis-maintain": "article_api.local_app:maintain_main",
         "article-local": "article_api.local_app:main",
         "article-api": "article_api.local_app:serve_main",
         "article-doctor": "article_api.local_app:doctor_main",

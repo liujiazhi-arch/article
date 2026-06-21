@@ -63,7 +63,7 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         "部分规则自动修复",
         "部分规则提示人工复核",
         "不要上传论文到外部服务器",
-        "article-local-windows.zip",
+        "lnu-thesis-local-windows.zip",
         "docs/assets/local-console-home.png",
         "docs/assets/local-console-repaired.png",
         "Planned experimental package",
@@ -102,9 +102,9 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     assert "GitHub Actions 会在 windows-latest runner" in development
     assert "可在 GitHub Actions 页面手动运行 CI" in development
     assert "workflow_dispatch" in development
-    assert "article-local-windows.zip" in development
+    assert "lnu-thesis-local-windows.zip" in development
     assert "导出反馈包.bat" in development
-    assert "article-local feedback" in development
+    assert "lnu-thesis-local feedback" in development
     assert "Windows clean 环境" in development
     assert "GitHub Release" in development
     assert "软件版本从 GitHub 发布，用户论文和密钥不进入 GitHub" in development
@@ -113,10 +113,10 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     assert "CI 在 push、pull_request 或 workflow_dispatch 中会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`" in development
     assert "当 GitHub Release 发布触发 CI 时，会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}`" in development
     assert "verify_release_artifact.py" in development
-    assert "article-local-windows.zip.sha256" in development
+    assert "lnu-thesis-local-windows.zip.sha256" in development
     assert "扫描 zip 不含本地论文、反馈包、env、日志或状态数据库" in development
     assert "最近一次 CI 为 `completed/success`" in development
-    assert "Release 资产同时包含 `article-local-windows.zip` 和 `article-local-windows.zip.sha256`" in development
+    assert "Release 资产同时包含 `lnu-thesis-local-windows.zip` 和 `lnu-thesis-local-windows.zip.sha256`" in development
     assert "GitHub Release tag 与 Windows smoke 报告的 Release tag 一致" in development
     assert "旧 Windows smoke 报告" in development
     privacy = _read("docs/PRIVACY.md")
@@ -140,8 +140,8 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         assert phrase in security
     release_checklist = _read("docs/RELEASE_CHECKLIST.md")
     for phrase in (
-        "article-local-windows.zip",
-        "article-local-windows.zip.sha256",
+        "lnu-thesis-local-windows.zip",
+        "lnu-thesis-local-windows.zip.sha256",
         "GitHub About 区",
         "description、homepage URL 和 topics",
         "docs/assets/local-console-home.png",
@@ -176,8 +176,8 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         "GitHub Release 文案模板",
         "这是 Beta",
         "不保证最终提交版完全合规",
-        "article-local-windows.zip",
-        "article-local-windows.zip.sha256",
+        "lnu-thesis-local-windows.zip",
+        "lnu-thesis-local-windows.zip.sha256",
         "启动论文格式检查.bat",
         "平台状态",
         "docs/assets/local-console-home.png",
@@ -210,7 +210,7 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         "Windows 实机 smoke checklist",
         "这不是 CI 的替代品",
         "clean Windows 环境",
-        "article-local-windows.zip",
+        "lnu-thesis-local-windows.zip",
         "启动论文格式检查.bat",
         "浏览器自动打开",
         "上传 `.docx`",
@@ -227,8 +227,8 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     for phrase in (
         "Windows 实机 smoke 证据报告模板",
         "Release tag",
-        "article-local-windows.zip",
-        "article-local-windows.zip.sha256",
+        "lnu-thesis-local-windows.zip",
+        "lnu-thesis-local-windows.zip.sha256",
         "sha256 校验结果",
         "Windows 版本",
         "WPS/Word 版本",
@@ -261,7 +261,7 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     assert "不要上传论文、修复稿、API key、本地日志或未检查的反馈包" in bug_template
     for phrase in (
         "Windows 本地网页包",
-        "article-local-windows.zip",
+        "lnu-thesis-local-windows.zip",
         "启动论文格式检查.bat",
         "页面提示截图",
         "命令窗口截图",
@@ -322,14 +322,14 @@ def test_ci_builds_windows_local_bundle_on_windows_runner():
         "$releaseApiUrl = \"https://api.github.com/repos/${{ github.repository }}/releases/latest\"",
         "if (\"${{ github.event_name }}\" -eq \"release\")",
         "$releaseApiUrl = \"https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}\"",
-        "python scripts\\build_windows_local_bundle.py --runtime-dir dist\\windows-runtime --output-zip dist\\article-local-windows.zip --release-api-url $releaseApiUrl",
-        "python scripts\\verify_release_artifact.py dist\\article-local-windows.zip --sha256-output dist\\article-local-windows.zip.sha256",
+        "python scripts\\build_windows_local_bundle.py --runtime-dir dist\\windows-runtime --output-zip dist\\lnu-thesis-local-windows.zip --release-api-url $releaseApiUrl",
+        "python scripts\\verify_release_artifact.py dist\\lnu-thesis-local-windows.zip --sha256-output dist\\lnu-thesis-local-windows.zip.sha256",
         "Smoke extracted Windows local web flow",
-        "python scripts\\windows_bundle_smoke.py dist\\article-local-windows.zip --work-dir dist\\windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist\\windows-bundle-smoke.json",
+        "python scripts\\windows_bundle_smoke.py dist\\lnu-thesis-local-windows.zip --work-dir dist\\windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist\\windows-bundle-smoke.json",
         "windows-bundle-smoke-evidence",
         "dist\\windows-bundle-smoke.json",
-        "article-local-windows.zip",
-        "article-local-windows.zip.sha256",
+        "lnu-thesis-local-windows.zip",
+        "lnu-thesis-local-windows.zip.sha256",
         "启动论文格式检查.bat",
         "导出反馈包.bat",
         "快速开始.txt",
@@ -350,8 +350,8 @@ def test_ci_uploads_windows_bundle_to_github_release_when_release_is_published()
         "Upload Windows bundle to GitHub Release",
         "gh release upload",
         "${{ github.event.release.tag_name }}",
-        "dist\\article-local-windows.zip",
-        "dist\\article-local-windows.zip.sha256",
+        "dist\\lnu-thesis-local-windows.zip",
+        "dist\\lnu-thesis-local-windows.zip.sha256",
         "--clobber",
     ):
         assert fragment in workflow

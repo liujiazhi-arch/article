@@ -14,7 +14,7 @@ assignees: ""
 
 - 系统：
 - 是否使用 Windows 本地网页包：
-- 下载的包名或版本，例如 `article-local-windows.zip`：
+- 下载的包名或版本，例如 `lnu-thesis-local-windows.zip`：
 - 是否双击 `启动论文格式检查.bat`：
 - Python 版本：
 - 命令或页面操作：

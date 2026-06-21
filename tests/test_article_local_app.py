@@ -50,7 +50,7 @@ def test_build_doctor_report_uses_requested_roots(monkeypatch, tmp_path):
     assert report["runtime"]["status"] == "ok"
     assert report["inventory"]["runtime_root"]["managed_directory_count"] == 0
     assert report["roots"]["runtime_root_writable"] is True
-    assert "article-local serve" in report["workflow"]["serve"]
+    assert "lnu-thesis-local serve" in report["workflow"]["serve"]
 
 
 def test_build_doctor_report_does_not_leak_root_envs(monkeypatch, tmp_path):
@@ -74,7 +74,7 @@ def test_article_local_help_lists_expected_subcommands(capsys):
 
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
-    assert "usage: article-local" in captured.out
+    assert "usage: lnu-thesis-local" in captured.out
     for subcommand in (
         "init",
         "serve",
@@ -124,12 +124,12 @@ def test_emit_json_writes_utf8_when_stdout_encoding_rejects_chinese(monkeypatch)
 @pytest.mark.parametrize(
     ("entrypoint", "argv0", "expected_usage", "expected_fragment"),
     [
-        (local_app.serve_main, "article-api", "usage: article-local serve", "--host"),
-        (local_app.doctor_main, "article-doctor", "usage: article-local doctor", "--state-root"),
-        (local_app.maintain_main, "article-maintain", "usage: article-local maintain", "--vacuum"),
-        (local_app.backup_main, "article-backup", "usage: article-local backup", "output"),
-        (local_app.feedback_main, "article-feedback", "usage: article-local feedback", "output"),
-        (local_app.restore_main, "article-restore", "usage: article-local restore", "--force"),
+        (local_app.serve_main, "article-api", "usage: lnu-thesis-local serve", "--host"),
+        (local_app.doctor_main, "article-doctor", "usage: lnu-thesis-local doctor", "--state-root"),
+        (local_app.maintain_main, "article-maintain", "usage: lnu-thesis-local maintain", "--vacuum"),
+        (local_app.backup_main, "article-backup", "usage: lnu-thesis-local backup", "output"),
+        (local_app.feedback_main, "article-feedback", "usage: lnu-thesis-local feedback", "output"),
+        (local_app.restore_main, "article-restore", "usage: lnu-thesis-local restore", "--force"),
     ],
 )
 def test_console_script_alias_help_routes_to_expected_subcommand(
@@ -243,7 +243,7 @@ def test_main_init_writes_env_file_and_reports_next_steps(capsys, tmp_path):
     payload = json.loads(captured.out)
     assert payload["summary"]["headline"] == "本地运行壳初始化完成。"
     assert payload["env"]["file_path"] == str(env_path.resolve())
-    assert payload["summary"]["next_steps"][0].startswith("article-local doctor")
+    assert payload["summary"]["next_steps"][0].startswith("lnu-thesis-local doctor")
 
 
 def test_build_profile_catalog_lists_lnu_only_public_profile():

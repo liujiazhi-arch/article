@@ -54,7 +54,7 @@ def _write_github_status(path: Path, *, tag: str = "v0.1.0") -> None:
                     "latest_ci_run": {"status": "completed", "conclusion": "success"},
                     "release_assets": {
                         "missing": [],
-                        "present": ["article-local-windows.zip", "article-local-windows.zip.sha256"],
+                        "present": ["lnu-thesis-local-windows.zip", "lnu-thesis-local-windows.zip.sha256"],
                     },
                 },
             }
@@ -89,7 +89,7 @@ def _write_windows_bundle_smoke(path: Path, *, status: str = "ok", job_status: s
         json.dumps(
             {
                 "status": status,
-                "bundle_zip": "dist/article-local-windows.zip",
+                "bundle_zip": "dist/lnu-thesis-local-windows.zip",
                 "bundle_root": "dist/windows-bundle-http-smoke/论文格式检查本地版",
                 "download_bytes": 2345 if job_status == "succeeded" else 0,
                 "checks": {
@@ -313,8 +313,8 @@ def test_release_evidence_gate_blocks_missing_github_release_assets(tmp_path):
                     "release": {"tagName": "v0.1.0"},
                     "latest_ci_run": {"status": "completed", "conclusion": "success"},
                     "release_assets": {
-                        "missing": ["article-local-windows.zip.sha256"],
-                        "present": ["article-local-windows.zip"],
+                        "missing": ["lnu-thesis-local-windows.zip.sha256"],
+                        "present": ["lnu-thesis-local-windows.zip"],
                     },
                 },
             }
@@ -330,7 +330,7 @@ def test_release_evidence_gate_blocks_missing_github_release_assets(tmp_path):
 
     assert payload["status"] == "not_ready"
     assert payload["checks"]["github_release_status"]["status"] == "failed"
-    assert payload["checks"]["github_release_status"]["missing_assets"] == ["article-local-windows.zip.sha256"]
+    assert payload["checks"]["github_release_status"]["missing_assets"] == ["lnu-thesis-local-windows.zip.sha256"]
 
 
 def test_release_evidence_gate_blocks_mismatched_release_tags(tmp_path):
@@ -347,7 +347,7 @@ def test_release_evidence_gate_blocks_mismatched_release_tags(tmp_path):
                     "latest_ci_run": {"status": "completed", "conclusion": "success"},
                     "release_assets": {
                         "missing": [],
-                        "present": ["article-local-windows.zip", "article-local-windows.zip.sha256"],
+                        "present": ["lnu-thesis-local-windows.zip", "lnu-thesis-local-windows.zip.sha256"],
                     },
                 },
             }

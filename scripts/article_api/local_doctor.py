@@ -56,10 +56,10 @@ def _doctor_recommended_actions(
     state_root: Path,
     runtime_root: Path,
 ) -> list[str]:
-    serve_cmd = command_with_roots("article-local serve", state_root=state_root, runtime_root=runtime_root)
-    doctor_cmd = command_with_roots("article-local doctor", state_root=state_root, runtime_root=runtime_root)
-    maintain_cmd = command_with_roots("article-local maintain", state_root=state_root, runtime_root=runtime_root)
-    backup_cmd = command_with_roots("article-local backup ~/Desktop/article-backup.zip", state_root=state_root, runtime_root=runtime_root)
+    serve_cmd = command_with_roots("lnu-thesis-local serve", state_root=state_root, runtime_root=runtime_root)
+    doctor_cmd = command_with_roots("lnu-thesis-local doctor", state_root=state_root, runtime_root=runtime_root)
+    maintain_cmd = command_with_roots("lnu-thesis-local maintain", state_root=state_root, runtime_root=runtime_root)
+    backup_cmd = command_with_roots("lnu-thesis-local backup ~/Desktop/article-backup.zip", state_root=state_root, runtime_root=runtime_root)
     actions: list[str] = []
     if summary_view["checks"]["storage"]["status"] != "ok":
         actions.append(f"先执行 `{maintain_cmd}`；若完整性仍异常，再从最近备份执行 restore。")
@@ -136,16 +136,16 @@ def build_doctor_report(*, state_root: str | None = None, runtime_root: str | No
             "summary": summary_view["retention"]["summary"],
         },
         "workflow": {
-            "doctor": command_with_roots("article-local doctor", state_root=resolved_state_root, runtime_root=resolved_runtime_root),
-            "serve": command_with_roots("article-local serve", state_root=resolved_state_root, runtime_root=resolved_runtime_root),
-            "maintain": command_with_roots("article-local maintain", state_root=resolved_state_root, runtime_root=resolved_runtime_root),
+            "doctor": command_with_roots("lnu-thesis-local doctor", state_root=resolved_state_root, runtime_root=resolved_runtime_root),
+            "serve": command_with_roots("lnu-thesis-local serve", state_root=resolved_state_root, runtime_root=resolved_runtime_root),
+            "maintain": command_with_roots("lnu-thesis-local maintain", state_root=resolved_state_root, runtime_root=resolved_runtime_root),
             "backup": command_with_roots(
-                "article-local backup ~/Desktop/article-backup.zip",
+                "lnu-thesis-local backup ~/Desktop/article-backup.zip",
                 state_root=resolved_state_root,
                 runtime_root=resolved_runtime_root,
             ),
             "restore": command_with_roots(
-                "article-local restore ~/Desktop/article-backup.zip --force",
+                "lnu-thesis-local restore ~/Desktop/article-backup.zip --force",
                 state_root=resolved_state_root,
                 runtime_root=resolved_runtime_root,
             ),

@@ -12,22 +12,22 @@
 
 请在本页 **Assets** 中下载：
 
-- `article-local-windows.zip`
-- `article-local-windows.zip.sha256`：校验文件，普通用户可以不下载
+- `lnu-thesis-local-windows.zip`
+- `lnu-thesis-local-windows.zip.sha256`：校验文件，普通用户可以不下载
 
-普通用户下载 `article-local-windows.zip` 即可。请先完整解压 zip，再双击 `启动论文格式检查.bat`；不要在压缩包预览窗口里直接运行。
+普通用户下载 `lnu-thesis-local-windows.zip` 即可。请先完整解压 zip，再双击 `启动论文格式检查.bat`；不要在压缩包预览窗口里直接运行。
 
 ## 平台状态
 
 | Platform | Current status | User entry |
 | --- | --- | --- |
-| Windows | Beta supported | `article-local-windows.zip` |
+| Windows | Beta supported | `lnu-thesis-local-windows.zip` |
 | macOS | Planned experimental package | Not yet released |
 | Linux | Developer/source use only | `pip install '.[api]'` |
 
 ## 使用步骤
 
-1. 下载并完整解压 `article-local-windows.zip`。
+1. 下载并完整解压 `lnu-thesis-local-windows.zip`。
 2. 进入解压后的文件夹。
 3. 双击 `启动论文格式检查.bat`。
 4. 浏览器自动打开本地网页。

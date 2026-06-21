@@ -12,13 +12,13 @@
 
 ## Current Evidence
 
-- Repository: `https://github.com/liujiazhi-arch/article`
+- Repository: `https://github.com/liujiazhi-arch/lnu-thesis-format-tool`
 - Local checkout: `/Users/apple/Desktop/article`
-- Release found: `v0.1.0-beta`, prerelease, assets `article-local-windows.zip` and `article-local-windows.zip.sha256`
+- Release found: `v0.1.0-beta`, prerelease, assets `lnu-thesis-local-windows.zip` and `lnu-thesis-local-windows.zip.sha256`
 - Latest main CI: success
 - GitHub community profile health: 85
 - Repository gaps: no homepage URL, no topics, no README screenshots, no root `SECURITY.md`, no PR template, no macOS package
-- Important bug/risk: `https://api.github.com/repos/liujiazhi-arch/article/releases/latest` returns 404 while the only release is a prerelease; current Beta update checking cannot depend only on `/releases/latest`
+- Important bug/risk: `https://api.github.com/repos/liujiazhi-arch/lnu-thesis-format-tool/releases/latest` returns 404 while the only release is a prerelease; current Beta update checking cannot depend only on `/releases/latest`
 
 ## File Map
 
@@ -51,9 +51,9 @@
 
 - [ ] Run: `git status --short --branch`
   Expected: show current branch and existing modified files; do not revert unrelated changes.
-- [ ] Run: `gh release view v0.1.0-beta --repo liujiazhi-arch/article --json tagName,isPrerelease,assets,url`
+- [ ] Run: `gh release view v0.1.0-beta --repo liujiazhi-arch/lnu-thesis-format-tool --json tagName,isPrerelease,assets,url`
   Expected: release exists, `isPrerelease=true`, assets include Windows zip and sha256.
-- [ ] Run: `python3 scripts/github_release_status.py --repo liujiazhi-arch/article --branch main --tag v0.1.0-beta`
+- [ ] Run: `python3 scripts/github_release_status.py --repo liujiazhi-arch/lnu-thesis-format-tool --branch main --tag v0.1.0-beta`
   Expected: `"status": "ok"`.
 - [ ] Commit only if needed after later tasks; do not commit the user's unrelated current modifications.
 
@@ -66,16 +66,16 @@
 Recommended decision: support a configured release tag endpoint during Beta:
 
 ```text
-https://api.github.com/repos/liujiazhi-arch/article/releases/tags/v0.1.0-beta
+https://api.github.com/repos/liujiazhi-arch/lnu-thesis-format-tool/releases/tags/v0.1.0-beta
 ```
 
 Keep `/releases/latest` support for future stable releases.
 
 - [ ] Confirm that `/releases/latest` returns 404 while only prerelease exists:
-  Run: `gh api repos/liujiazhi-arch/article/releases/latest`
+  Run: `gh api repos/liujiazhi-arch/lnu-thesis-format-tool/releases/latest`
   Expected: HTTP 404.
 - [ ] Confirm that tag endpoint works:
-  Run: `gh api repos/liujiazhi-arch/article/releases/tags/v0.1.0-beta --jq '{tag_name, prerelease, assets: [.assets[].name]}'`
+  Run: `gh api repos/liujiazhi-arch/lnu-thesis-format-tool/releases/tags/v0.1.0-beta --jq '{tag_name, prerelease, assets: [.assets[].name]}'`
   Expected: `tag_name=v0.1.0-beta`, assets include Windows zip and sha256.
 
 ### Task 1.2: Add Tests For Tag Endpoint
@@ -138,7 +138,7 @@ Keep `/releases/latest` support for future stable releases.
 ### Task 2.2: Add Three-Step Student Quick Start
 
 - [ ] Modify `README.md` with a first-screen "普通学生怎么用" section:
-  1. Download `article-local-windows.zip` from GitHub Release
+  1. Download `lnu-thesis-local-windows.zip` from GitHub Release
   2. Extract and double-click `启动论文格式检查.bat`
   3. Upload `.docx`, generate plan/fix, download repaired copy, verify in Word/WPS
 - [ ] Keep Python install after the student flow, labeled "开发者安装".
@@ -152,7 +152,7 @@ Keep `/releases/latest` support for future stable releases.
 ```markdown
 | Platform | Current status | User entry |
 | --- | --- | --- |
-| Windows | Beta supported | `article-local-windows.zip` |
+| Windows | Beta supported | `lnu-thesis-local-windows.zip` |
 | macOS | Planned experimental package | Not yet released |
 | Linux | Developer/source use only | `pip install '.[api]'` |
 ```
@@ -294,9 +294,9 @@ Forbidden:
 - [ ] Run:
 
 ```bash
-gh repo edit liujiazhi-arch/article \
+gh repo edit liujiazhi-arch/lnu-thesis-format-tool \
   --description "Local-first .docx thesis format checker for LNU undergraduate theses" \
-  --homepage "https://github.com/liujiazhi-arch/article/releases" \
+  --homepage "https://github.com/liujiazhi-arch/lnu-thesis-format-tool/releases" \
   --add-topic docx \
   --add-topic ooxml \
   --add-topic thesis \
@@ -310,7 +310,7 @@ gh repo edit liujiazhi-arch/article \
 ```
 
 - [ ] Verify:
-  `gh repo view liujiazhi-arch/article --json description,homepageUrl,repositoryTopics`
+  `gh repo view liujiazhi-arch/lnu-thesis-format-tool --json description,homepageUrl,repositoryTopics`
   Expected: description, homepage, and topics are present.
 
 ---
@@ -377,7 +377,7 @@ Expected: all pass.
 
 ```bash
 python3 scripts/github_release_status.py \
-  --repo liujiazhi-arch/article \
+  --repo liujiazhi-arch/lnu-thesis-format-tool \
   --branch main \
   --tag v0.1.0-beta
 ```

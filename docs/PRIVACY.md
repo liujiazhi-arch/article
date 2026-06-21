@@ -4,7 +4,7 @@
 
 ## 本地处理
 
-默认使用 `article-local serve` 或 `thesis-workbench` 时，论文在本机处理。工具不会主动上传论文到外部服务器。
+默认使用 `lnu-thesis-local serve` 或 `thesis-workbench` 时，论文在本机处理。工具不会主动上传论文到外部服务器。
 
 GitHub 只用于分发软件版本和接收脱敏问题反馈，不用于同步论文数据。代码、文档、CI 和 Release 发布包可以上传到 GitHub；用户论文、修复稿、API key、本地日志、运行缓存和本地状态目录不应进入 GitHub。
 
@@ -18,14 +18,14 @@ GitHub 只用于分发软件版本和接收脱敏问题反馈，不用于同步�
 
 ## 反馈包
 
-Windows 本地网页包里的 `导出反馈包.bat` 或开发者命令 `article-local feedback` 会生成诊断用 zip。反馈包默认不包含论文原文、修复稿、PDF、页面图片或 API key，并会脱敏文档文件名，只包含任务摘要、doctor 信息、状态库摘要和诊断日志。发送反馈包前，仍建议先打开 zip 查看文件列表。
+Windows 本地网页包里的 `导出反馈包.bat` 或开发者命令 `lnu-thesis-local feedback` 会生成诊断用 zip。反馈包默认不包含论文原文、修复稿、PDF、页面图片或 API key，并会脱敏文档文件名，只包含任务摘要、doctor 信息、状态库摘要和诊断日志。发送反馈包前，仍建议先打开 zip 查看文件列表。
 
 ## 使用建议
 
 - 不要把含有个人信息、未公开数据或导师批注的论文提交到 GitHub issue。
 - 不要上传论文、修复稿、API key、本地日志或未检查的反馈包。
 - 报告兼容性问题时，优先提供脱敏样本。
-- 发布前用 `article-local maintain` 或手动删除本地状态目录清理历史任务。
+- 发布前用 `lnu-thesis-local maintain` 或手动删除本地状态目录清理历史任务。
 
 ## 第三方服务
 

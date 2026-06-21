@@ -107,7 +107,7 @@ def run_render_verify(
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="article-local")
+    parser = argparse.ArgumentParser(prog="lnu-thesis-local")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subparsers.add_parser("init")
@@ -196,7 +196,7 @@ def _load_uvicorn():
     try:
         import uvicorn
     except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("uvicorn is required to run article-local serve. Install the optional api dependencies.") from exc
+        raise RuntimeError("uvicorn is required to run lnu-thesis-local serve. Install the optional api dependencies.") from exc
     return uvicorn
 
 

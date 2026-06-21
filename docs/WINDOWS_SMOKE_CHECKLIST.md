@@ -5,12 +5,12 @@
 ## 环境
 
 - 使用 clean Windows 环境，优先选择没有安装 Python、没有配置开发工具的普通用户机器或虚拟机。
-- 使用当前待发布的 `article-local-windows.zip` 和对应的 `article-local-windows.zip.sha256`。
+- 使用当前待发布的 `lnu-thesis-local-windows.zip` 和对应的 `lnu-thesis-local-windows.zip.sha256`。
 - 不使用用户真实论文、修复稿、API key、本地日志或未检查的反馈包做公开演示材料。
 
 ## 操作步骤
 
-1. 从 GitHub Release 下载 `article-local-windows.zip`。
+1. 从 GitHub Release 下载 `lnu-thesis-local-windows.zip`。
 2. 完整解压 zip，确认目录内能看到 `启动论文格式检查.bat`、`导出反馈包.bat` 和 `快速开始.txt`。
 3. 双击 `启动论文格式检查.bat`。
 4. 确认命令窗口没有要求用户输入命令，且浏览器自动打开本地网页。

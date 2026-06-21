@@ -32,7 +32,7 @@ def test_install_local_app_resolves_python_executable_from_path_lookup(monkeypat
         if command[1:3] == ["-m", "venv"]:
             venv_dir = Path(command[-1])
             python_path = installer._venv_python(venv_dir)
-            script_path = installer._venv_script(venv_dir, "article-local")
+            script_path = installer._venv_script(venv_dir, "lnu-thesis-local")
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.write_text("", encoding="utf-8")
             script_path.write_text("", encoding="utf-8")
@@ -62,7 +62,7 @@ def test_install_local_app_no_deps_skip_init_builds_expected_commands(monkeypatc
         if command[:3] == [sys.executable, "-m", "venv"] or command[1:3] == ["-m", "venv"]:
             venv_dir = Path(command[-1])
             python_path = installer._venv_python(venv_dir)
-            script_path = installer._venv_script(venv_dir, "article-local")
+            script_path = installer._venv_script(venv_dir, "lnu-thesis-local")
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.write_text("", encoding="utf-8")
             script_path.write_text("", encoding="utf-8")
@@ -87,9 +87,9 @@ def test_install_local_app_no_deps_skip_init_builds_expected_commands(monkeypatc
     assert payload["venv"]["system_site_packages"] is True
     assert payload["init"] is None
     assert payload["distribution"]["wheel_path"] is None
-    assert payload["quickstart"]["doctor"].endswith("article-local doctor --state-root "
+    assert payload["quickstart"]["doctor"].endswith("lnu-thesis-local doctor --state-root "
                                                     f"{tmp_path / 'state'} --runtime-root {tmp_path / 'runtime'}")
-    assert payload["quickstart"]["serve"].endswith("article-local serve --state-root "
+    assert payload["quickstart"]["serve"].endswith("lnu-thesis-local serve --state-root "
                                                    f"{tmp_path / 'state'} --runtime-root {tmp_path / 'runtime'}")
     assert "--system-site-packages" in calls[0]["command"]
     assert "--no-deps" in calls[1]["command"]
@@ -106,12 +106,12 @@ def test_install_local_app_runs_init_and_parses_payload(monkeypatch, tmp_path):
         if command[1:3] == ["-m", "venv"]:
             venv_dir = Path(command[-1])
             python_path = installer._venv_python(venv_dir)
-            script_path = installer._venv_script(venv_dir, "article-local")
+            script_path = installer._venv_script(venv_dir, "lnu-thesis-local")
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.write_text("", encoding="utf-8")
             script_path.write_text("", encoding="utf-8")
             return None
-        if command[0].endswith("article-local"):
+        if command[0].endswith("lnu-thesis-local"):
             return type(
                 "Completed",
                 (),
@@ -122,8 +122,8 @@ def test_install_local_app_runs_init_and_parses_payload(monkeypatch, tmp_path):
                             "summary": {
                                 "headline": "本地运行壳初始化完成。",
                                 "next_steps": [
-                                    "article-local doctor --state-root /tmp/state --runtime-root /tmp/runtime",
-                                    "article-local serve --state-root /tmp/state --runtime-root /tmp/runtime",
+                                    "lnu-thesis-local doctor --state-root /tmp/state --runtime-root /tmp/runtime",
+                                    "lnu-thesis-local serve --state-root /tmp/state --runtime-root /tmp/runtime",
                                 ],
                             },
                         },
@@ -146,8 +146,8 @@ def test_install_local_app_runs_init_and_parses_payload(monkeypatch, tmp_path):
 
     assert payload["init"]["summary"]["headline"] == "本地运行壳初始化完成。"
     assert payload["install"]["mode"] == "editable"
-    assert payload["quickstart"]["doctor"].startswith("article-local doctor")
-    assert payload["quickstart"]["serve"].startswith("article-local serve")
+    assert payload["quickstart"]["doctor"].startswith("lnu-thesis-local doctor")
+    assert payload["quickstart"]["serve"].startswith("lnu-thesis-local serve")
     assert calls[2]["capture_output"] is True
     assert "--write-env" in calls[2]["command"]
     assert "--overwrite-env" in calls[2]["command"]
@@ -163,7 +163,7 @@ def test_install_local_app_wheel_mode_builds_artifact_and_installs_from_direct_u
         if command[1:3] == ["-m", "venv"]:
             venv_dir = Path(command[-1])
             python_path = installer._venv_python(venv_dir)
-            script_path = installer._venv_script(venv_dir, "article-local")
+            script_path = installer._venv_script(venv_dir, "lnu-thesis-local")
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.write_text("", encoding="utf-8")
             script_path.write_text("", encoding="utf-8")
@@ -208,7 +208,7 @@ def test_install_local_app_writes_windows_launcher(monkeypatch, tmp_path):
         if command[1:3] == ["-m", "venv"]:
             venv_dir = Path(command[-1])
             python_path = installer._venv_python(venv_dir)
-            script_path = installer._venv_script(venv_dir, "article-local")
+            script_path = installer._venv_script(venv_dir, "lnu-thesis-local")
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.write_text("", encoding="utf-8")
             script_path.write_text("", encoding="utf-8")
@@ -284,7 +284,7 @@ def test_install_local_app_upgrade_forces_wheel_mode(monkeypatch, tmp_path):
         if command[1:3] == ["-m", "venv"]:
             venv_dir = Path(command[-1])
             python_path = installer._venv_python(venv_dir)
-            script_path = installer._venv_script(venv_dir, "article-local")
+            script_path = installer._venv_script(venv_dir, "lnu-thesis-local")
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.write_text("", encoding="utf-8")
             script_path.write_text("", encoding="utf-8")
@@ -369,7 +369,7 @@ def test_install_local_app_rollback_reinstalls_previous_wheel(monkeypatch, tmp_p
         if command[1:3] == ["-m", "venv"]:
             venv_dir = Path(command[-1])
             python_path = installer._venv_python(venv_dir)
-            script_path = installer._venv_script(venv_dir, "article-local")
+            script_path = installer._venv_script(venv_dir, "lnu-thesis-local")
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.write_text("", encoding="utf-8")
             script_path.write_text("", encoding="utf-8")
@@ -427,12 +427,12 @@ def test_install_local_app_surfaces_clear_error_on_invalid_init_json(monkeypatch
         if command[1:3] == ["-m", "venv"]:
             venv_dir = Path(command[-1])
             python_path = installer._venv_python(venv_dir)
-            script_path = installer._venv_script(venv_dir, "article-local")
+            script_path = installer._venv_script(venv_dir, "lnu-thesis-local")
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.write_text("", encoding="utf-8")
             script_path.write_text("", encoding="utf-8")
             return None
-        if command[0].endswith("article-local"):
+        if command[0].endswith("lnu-thesis-local"):
             return type("Completed", (), {"stdout": "warning: noisy stdout"})()
         return None
 
@@ -455,9 +455,9 @@ def test_install_script_main_prints_json(capsys, monkeypatch):
         received_kwargs.update(kwargs)
         return {
             "status": "ok",
-            "venv": {"article_local": "/tmp/article-local", "path": "/tmp/venv"},
+            "venv": {"article_local": "/tmp/lnu-thesis-local", "path": "/tmp/venv"},
             "install": {"skip_init": True},
-            "quickstart": {"doctor": "/tmp/article-local doctor"},
+            "quickstart": {"doctor": "/tmp/lnu-thesis-local doctor"},
             "init": None,
         }
 

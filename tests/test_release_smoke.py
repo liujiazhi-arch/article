@@ -48,7 +48,7 @@ def test_release_smoke_builds_wheel_installs_clean_venv_and_runs_http_flow(monke
             bin_dir = venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
             bin_dir.mkdir(parents=True, exist_ok=True)
             (bin_dir / ("python.exe" if sys.platform == "win32" else "python")).write_text("", encoding="utf-8")
-            for script_name in ("article-local", "thesis-workbench"):
+            for script_name in ("lnu-thesis-local", "thesis-workbench"):
                 suffix = ".exe" if sys.platform == "win32" else ""
                 (bin_dir / f"{script_name}{suffix}").write_text("", encoding="utf-8")
         if len(command) >= 4 and command[1:4] == ["-m", "pip", "wheel"]:
@@ -94,7 +94,7 @@ def test_release_smoke_builds_wheel_installs_clean_venv_and_runs_http_flow(monke
         and f"{wheel_path}[api]" in command
         for command, _timeout in calls
     )
-    assert any(command[0].endswith("article-local") and "doctor" in command for command, _timeout in calls)
+    assert any(command[0].endswith("lnu-thesis-local") and "doctor" in command for command, _timeout in calls)
     assert any(command[0].endswith("thesis-workbench") and "profiles" in command for command, _timeout in calls)
 
 
@@ -126,7 +126,7 @@ def test_release_smoke_can_reuse_existing_wheelhouse_without_downloading_depende
             bin_dir = venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
             bin_dir.mkdir(parents=True, exist_ok=True)
             (bin_dir / ("python.exe" if sys.platform == "win32" else "python")).write_text("", encoding="utf-8")
-            for script_name in ("article-local", "thesis-workbench"):
+            for script_name in ("lnu-thesis-local", "thesis-workbench"):
                 suffix = ".exe" if sys.platform == "win32" else ""
                 (bin_dir / f"{script_name}{suffix}").write_text("", encoding="utf-8")
         if command[0].endswith("thesis-workbench"):
@@ -239,7 +239,7 @@ def test_release_smoke_http_flow_uses_python_module_serve(monkeypatch, tmp_path)
     monkeypatch.setattr(release_smoke, "_request_bytes", lambda *args, **kwargs: b"docx")
 
     payload = release_smoke._run_http_smoke(
-        article_local=tmp_path / "venv" / "bin" / "article-local",
+        article_local=tmp_path / "venv" / "bin" / "lnu-thesis-local",
         venv_python=Path(sys.executable),
         state_root=tmp_path / "state",
         runtime_root=tmp_path / "runtime",

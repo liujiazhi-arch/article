@@ -307,14 +307,14 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert "/static/{asset_path:path}" in routes
     assert health_payload["service"] == "article-api"
     assert health_payload["status"] == "ok"
-    assert version_payload["version"] == "0.1.0"
+    assert version_payload["version"] == "0.1.1"
     assert version_payload["api_version"] == "v0"
     assert version_payload["update_check"]["mode"] == "manual"
     assert version_payload["update_check"]["configured"] is False
     assert version_payload["update_check"]["auto_update"] is False
     assert "只检查软件版本，不上传论文" in version_payload["update_check"]["privacy"]
     assert updates_payload["status"] == "not_configured"
-    assert updates_payload["current_version"] == "0.1.0"
+    assert updates_payload["current_version"] == "0.1.1"
     assert updates_payload["update_available"] is False
     assert updates_payload["auto_update"] is False
     assert "ARTICLE_LOCAL_RELEASE_API_URL" in updates_payload["next_action"]
@@ -407,12 +407,12 @@ def test_update_check_payload_fetches_configured_github_release_without_document
             "published_at": "2026-06-06T00:00:00Z",
             "assets": [
                 {
-                    "name": "article-local-windows.zip",
-                    "browser_download_url": "https://github.com/example/article/releases/download/v0.2.0/article-local-windows.zip",
+                    "name": "lnu-thesis-local-windows.zip",
+                    "browser_download_url": "https://github.com/example/article/releases/download/v0.2.0/lnu-thesis-local-windows.zip",
                 },
                 {
-                    "name": "article-local-windows.zip.sha256",
-                    "browser_download_url": "https://github.com/example/article/releases/download/v0.2.0/article-local-windows.zip.sha256",
+                    "name": "lnu-thesis-local-windows.zip.sha256",
+                    "browser_download_url": "https://github.com/example/article/releases/download/v0.2.0/lnu-thesis-local-windows.zip.sha256",
                 },
             ],
         }
@@ -427,7 +427,7 @@ def test_update_check_payload_fetches_configured_github_release_without_document
     assert payload["latest_tag"] == "v0.2.0"
     assert payload["update_available"] is True
     assert payload["release_url"] == "https://github.com/example/article/releases/tag/v0.2.0"
-    assert payload["download_url"].endswith("/article-local-windows.zip")
+    assert payload["download_url"].endswith("/lnu-thesis-local-windows.zip")
     assert payload["auto_update"] is False
     assert "只检查软件版本，不上传论文" in payload["privacy"]
     assert "file_path" not in payload
@@ -448,8 +448,8 @@ def test_update_check_payload_accepts_github_release_tag_api_url(monkeypatch):
             "published_at": "2026-06-07T14:20:15Z",
             "assets": [
                 {
-                    "name": "article-local-windows.zip",
-                    "browser_download_url": "https://github.com/example/article/releases/download/v0.1.0-beta/article-local-windows.zip",
+                    "name": "lnu-thesis-local-windows.zip",
+                    "browser_download_url": "https://github.com/example/article/releases/download/v0.1.0-beta/lnu-thesis-local-windows.zip",
                 },
             ],
         }
@@ -463,7 +463,7 @@ def test_update_check_payload_accepts_github_release_tag_api_url(monkeypatch):
     assert payload["latest_tag"] == "v0.1.0-beta"
     assert payload["update_available"] is False
     assert payload["release_url"] == "https://github.com/example/article/releases/tag/v0.1.0-beta"
-    assert payload["download_url"].endswith("/article-local-windows.zip")
+    assert payload["download_url"].endswith("/lnu-thesis-local-windows.zip")
     assert payload["auto_update"] is False
     assert "只检查软件版本，不上传论文" in payload["privacy"]
 

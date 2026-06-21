@@ -13,11 +13,11 @@ def test_build_windows_local_bundle_packages_launcher_readme_runtime_and_data_di
     runtime_dir = tmp_path / "prepared-runtime"
     scripts_dir = runtime_dir / "Scripts"
     scripts_dir.mkdir(parents=True)
-    (scripts_dir / "article-local.exe").write_bytes(b"exe")
+    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
     (scripts_dir / "python.exe").write_bytes(b"python")
     (runtime_dir / "pyvenv.cfg").write_text("home = C:\\Python\n", encoding="utf-8")
 
-    output_zip = tmp_path / "dist" / "article-local-windows.zip"
+    output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
 
     payload = bundle_builder.build_windows_local_bundle(
         runtime_dir=runtime_dir,
@@ -37,7 +37,7 @@ def test_build_windows_local_bundle_packages_launcher_readme_runtime_and_data_di
         feedback_text = archive.read("论文格式检查本地版/导出反馈包.bat").decode("utf-8-sig")
         quickstart_text = archive.read("论文格式检查本地版/快速开始.txt").decode("utf-8-sig")
 
-    assert "论文格式检查本地版/app/Scripts/article-local.exe" in names
+    assert "论文格式检查本地版/app/Scripts/lnu-thesis-local.exe" in names
     assert "论文格式检查本地版/导出反馈包.bat" in names
     assert "论文格式检查本地版/app/pyvenv.cfg" in names
     assert "论文格式检查本地版/data/state/.keep" in names
@@ -80,10 +80,10 @@ def test_build_windows_local_bundle_omits_release_api_url_when_unconfigured(tmp_
     runtime_dir = tmp_path / "prepared-runtime"
     scripts_dir = runtime_dir / "Scripts"
     scripts_dir.mkdir(parents=True)
-    (scripts_dir / "article-local.exe").write_bytes(b"exe")
+    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
     (scripts_dir / "python.exe").write_bytes(b"python")
 
-    output_zip = tmp_path / "dist" / "article-local-windows.zip"
+    output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
 
     bundle_builder.build_windows_local_bundle(
         runtime_dir=runtime_dir,
@@ -101,10 +101,10 @@ def test_build_windows_local_bundle_accepts_release_tag_api_url(tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
     scripts_dir = runtime_dir / "Scripts"
     scripts_dir.mkdir(parents=True)
-    (scripts_dir / "article-local.exe").write_bytes(b"exe")
+    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
     (scripts_dir / "python.exe").write_bytes(b"python")
 
-    output_zip = tmp_path / "dist" / "article-local-windows.zip"
+    output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
     release_api_url = "https://api.github.com/repos/example/article/releases/tags/v0.1.0-beta"
 
     bundle_builder.build_windows_local_bundle(
@@ -124,10 +124,10 @@ def test_build_windows_local_bundle_cli_prints_json(capsys, tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
     scripts_dir = runtime_dir / "Scripts"
     scripts_dir.mkdir(parents=True)
-    (scripts_dir / "article-local.exe").write_bytes(b"exe")
+    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
     (scripts_dir / "python.exe").write_bytes(b"python")
 
-    output_zip = tmp_path / "dist" / "article-local-windows.zip"
+    output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
 
     exit_code = bundle_builder.main(
         [
@@ -147,16 +147,16 @@ def test_build_windows_local_bundle_cli_prints_json(capsys, tmp_path):
     assert output_zip.exists()
     assert '"status": "ok"' in captured.out
     assert '"release_api_url_configured": true' in captured.out
-    assert "article-local-windows.zip" in captured.out
+    assert "lnu-thesis-local-windows.zip" in captured.out
 
 
 def test_build_windows_local_bundle_cli_emits_utf8_when_stdout_encoding_rejects_chinese(monkeypatch, tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
     scripts_dir = runtime_dir / "Scripts"
     scripts_dir.mkdir(parents=True)
-    (scripts_dir / "article-local.exe").write_bytes(b"exe")
+    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
     (scripts_dir / "python.exe").write_bytes(b"python")
-    output_zip = tmp_path / "dist" / "article-local-windows.zip"
+    output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
     output = io.BytesIO()
     cp1252_stdout = io.TextIOWrapper(output, encoding="cp1252", errors="strict")
     monkeypatch.setattr(sys, "stdout", cp1252_stdout)
@@ -182,9 +182,9 @@ def test_build_windows_local_bundle_rejects_runtime_without_python_exe(tmp_path)
     runtime_dir = tmp_path / "prepared-runtime"
     scripts_dir = runtime_dir / "Scripts"
     scripts_dir.mkdir(parents=True)
-    (scripts_dir / "article-local.exe").write_bytes(b"exe")
+    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
 
-    output_zip = tmp_path / "dist" / "article-local-windows.zip"
+    output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
 
     try:
         bundle_builder.build_windows_local_bundle(

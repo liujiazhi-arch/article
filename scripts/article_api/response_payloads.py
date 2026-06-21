@@ -9,7 +9,7 @@ from article_engine import normalize_document, preflight_document, render_verify
 
 SERVICE_NAME = "article-api"
 SERVICE_STAGE = "local-shell-alpha"
-SERVICE_VERSION = "0.1.0"
+SERVICE_VERSION = "0.1.1"
 API_VERSION = "v0"
 
 RENDER_WORKFLOW_MODES: tuple[dict[str, Any], ...] = (

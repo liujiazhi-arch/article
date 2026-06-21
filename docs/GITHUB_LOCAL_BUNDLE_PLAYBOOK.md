@@ -24,7 +24,7 @@
 - GitHub Actions workflow。
 - 打包脚本、安装脚本和 release smoke 脚本。
 - `.env.example` 这类不含真实密钥的示例配置。
-- Release 资产，例如 `article-local-windows.zip`、`.sha256`、wheel、源码包。
+- Release 资产，例如 `lnu-thesis-local-windows.zip`、`.sha256`、wheel、源码包。
 - 脱敏 issue 模板、反馈说明和兼容性报告模板。
 
 不应进入仓库、CI artifact、Release 或公开 issue 的内容：
@@ -50,11 +50,11 @@
 
 当前项目对应为：
 
-- `article-local-windows.zip`
+- `lnu-thesis-local-windows.zip`
 - `启动论文格式检查.bat`
 - `导出反馈包.bat`
 - `快速开始.txt`
-- `article-local serve`
+- `lnu-thesis-local serve`
 - 上传 `.docx`、audit / plan / apply / download
 
 这已经接近常见 GitHub 工具的“下载即用”体验，但仍不是 `.exe` / `.msi` / `.dmg`。

@@ -187,15 +187,15 @@ def build_windows_local_bundle(
 ) -> dict:
     resolved_runtime_dir = _resolve_path(runtime_dir)
     resolved_output_zip = _resolve_path(output_zip)
-    article_local = resolved_runtime_dir / "Scripts" / "article-local.exe"
+    lnu_thesis_local = resolved_runtime_dir / "Scripts" / "lnu-thesis-local.exe"
     python_exe = resolved_runtime_dir / "Scripts" / "python.exe"
-    if not article_local.exists():
-        raise RuntimeError(f"Windows runtime is missing Scripts/article-local.exe: {resolved_runtime_dir}")
+    if not lnu_thesis_local.exists():
+        raise RuntimeError(f"Windows runtime is missing Scripts/lnu-thesis-local.exe: {resolved_runtime_dir}")
     if not python_exe.exists():
         raise RuntimeError(f"Windows runtime is missing Scripts/python.exe: {resolved_runtime_dir}")
 
     resolved_output_zip.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="article-windows-bundle-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="lnu-thesis-windows-bundle-") as temp_dir:
         bundle_root = Path(temp_dir) / bundle_name
         app_dir = bundle_root / "app"
         state_root = bundle_root / "data" / "state"

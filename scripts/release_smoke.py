@@ -296,7 +296,7 @@ def run_release_smoke(
         timeout=command_timeout,
     )
 
-    article_local = _venv_script(venv_dir, "article-local")
+    article_local = _venv_script(venv_dir, "lnu-thesis-local")
     thesis_workbench = _venv_script(venv_dir, "thesis-workbench")
     doctor = _json_run(
         [str(article_local), "doctor", "--state-root", str(state), "--runtime-root", str(runtime)],

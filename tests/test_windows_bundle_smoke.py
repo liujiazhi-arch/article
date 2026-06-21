@@ -33,7 +33,7 @@ def _write_bundle_zip(zip_path: Path, *, bundle_name: str = "论文格式检查�
 
 def test_windows_bundle_smoke_extracts_bundle_runs_doctor_and_http_smoke(monkeypatch, tmp_path):
     windows_bundle_smoke = _load_windows_bundle_smoke()
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     work_dir = tmp_path / "smoke-work"
     work_dir.mkdir()
     stale_file = work_dir / "stale.txt"
@@ -100,7 +100,7 @@ def test_windows_bundle_smoke_extracts_bundle_runs_doctor_and_http_smoke(monkeyp
 
 def test_windows_bundle_smoke_rejects_ambiguous_bundle_roots(monkeypatch, tmp_path):
     windows_bundle_smoke = _load_windows_bundle_smoke()
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     with zipfile.ZipFile(bundle_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("one/app/Scripts/python.exe", b"python")
         archive.writestr("two/app/Scripts/python.exe", b"python")
@@ -119,7 +119,7 @@ def test_windows_bundle_smoke_rejects_ambiguous_bundle_roots(monkeypatch, tmp_pa
 
 def test_windows_bundle_smoke_cli_reports_command_timeout_as_json(monkeypatch, capsys, tmp_path):
     windows_bundle_smoke = _load_windows_bundle_smoke()
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     _write_bundle_zip(bundle_zip)
 
     def fake_run_windows_bundle_smoke(**kwargs):
@@ -142,7 +142,7 @@ def test_windows_bundle_smoke_cli_reports_command_timeout_as_json(monkeypatch, c
 
 def test_windows_bundle_smoke_cli_writes_json_output(monkeypatch, capsys, tmp_path):
     windows_bundle_smoke = _load_windows_bundle_smoke()
-    bundle_zip = tmp_path / "article-local-windows.zip"
+    bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     output_path = tmp_path / "windows-bundle-smoke.json"
     _write_bundle_zip(bundle_zip)
 

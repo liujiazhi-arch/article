@@ -59,7 +59,7 @@ def fetch_latest_release_payload(url: str, *, timeout_seconds: float) -> dict[st
         url,
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "article-local-version-check",
+            "User-Agent": "lnu-thesis-local-version-check",
         },
     )
     with urllib.request.urlopen(request, timeout=timeout_seconds) as response:

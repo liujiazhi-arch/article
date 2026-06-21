@@ -1,8 +1,8 @@
-# 辽宁大学毕业论文格式检查工具
+# 辽宁大学毕业论文格式检查与修复工具
 
-[![CI](https://github.com/liujiazhi-arch/article/actions/workflows/ci.yml/badge.svg)](https://github.com/liujiazhi-arch/article/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/liujiazhi-arch/article?include_prereleases&label=release)](https://github.com/liujiazhi-arch/article/releases)
-[![License](https://img.shields.io/github/license/liujiazhi-arch/article)](LICENSE)
+[![CI](https://github.com/liujiazhi-arch/lnu-thesis-format-tool/actions/workflows/ci.yml/badge.svg)](https://github.com/liujiazhi-arch/lnu-thesis-format-tool/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/liujiazhi-arch/lnu-thesis-format-tool?include_prereleases&label=release)](https://github.com/liujiazhi-arch/lnu-thesis-format-tool/releases)
+[![License](https://img.shields.io/github/license/liujiazhi-arch/lnu-thesis-format-tool)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)](pyproject.toml)
 
 GitHub Beta 目标：给辽宁大学本科毕业论文提供本地 `.docx` 格式审查和分 scope 修复。工具基于 OOXML 结构分析运行，默认只处理单文档，生成修复副本，不覆盖原文档。
@@ -15,15 +15,15 @@ GitHub Beta 目标：给辽宁大学本科毕业论文提供本地 `.docx` 格�
 
 当前公开 Beta Release：
 
-- [v0.1.0-beta - Windows 本地网页包](https://github.com/liujiazhi-arch/article/releases/tag/v0.1.0-beta)
-- 普通用户下载 `article-local-windows.zip`
-- `article-local-windows.zip.sha256` 是校验文件，普通用户可以不下载
+- [v0.1.1-beta - Windows 本地网页包](https://github.com/liujiazhi-arch/lnu-thesis-format-tool/releases/tag/v0.1.1-beta)
+- 普通用户下载 `lnu-thesis-local-windows.zip`
+- `lnu-thesis-local-windows.zip.sha256` 是校验文件，普通用户可以不下载
 
 不要在压缩包预览窗口里直接运行。请先完整解压 zip，再双击 `启动论文格式检查.bat`。
 
 ## 普通学生怎么用
 
-1. 从 GitHub Release 下载 `article-local-windows.zip`。
+1. 从 GitHub Release 下载 `lnu-thesis-local-windows.zip`。
 2. 完整解压，双击 `启动论文格式检查.bat`。
 3. 在本机网页上传 Word/WPS 保存的 `.docx`，生成修复方案，下载修复副本，并用 Word/WPS 人工复核。
 
@@ -39,7 +39,7 @@ GitHub Beta 目标：给辽宁大学本科毕业论文提供本地 `.docx` 格�
 
 | Platform | Current status | User entry |
 | --- | --- | --- |
-| Windows | Beta supported | `article-local-windows.zip` |
+| Windows | Beta supported | `lnu-thesis-local-windows.zip` |
 | macOS | Planned experimental package | Not yet released |
 | Linux | Developer/source use only | `pip install '.[api]'` |
 
@@ -73,17 +73,24 @@ python3 -m pip install '.[api]'
 python3 -m pip install '.[api,dev]'
 ```
 
-当前 GitHub Beta 仍保留开发者命令入口：
+当前 GitHub Beta 推荐使用新的开发者命令入口：
 
 ```bash
-article-local doctor
-article-local serve
+lnu-thesis-local doctor
+lnu-thesis-local serve
 ```
 
 启动后在浏览器打开命令行输出的本地地址，上传 `.docx`，选择需要修复的 scope，等待任务完成后下载修复副本。
 
 安装后可用入口包括：
 
+- `lnu-thesis-local`
+- `lnu-thesis-api`
+- `lnu-thesis-doctor`
+- `lnu-thesis-backup`
+- `lnu-thesis-feedback`
+- `lnu-thesis-restore`
+- `lnu-thesis-maintain`
 - `article-local`
 - `article-api`
 - `article-doctor`
@@ -93,12 +100,14 @@ article-local serve
 - `article-maintain`
 - `thesis-workbench`
 
+`article-*` 命令暂时保留为兼容入口，新文档和新发布包优先使用 `lnu-thesis-*`。
+
 ## 命令行使用
 
 ```bash
 # 查看公开 profile
 thesis-workbench profiles
-article-local profiles
+lnu-thesis-local profiles
 
 # 预检查和结构整理
 thesis-workbench preflight 你的论文.docx --profile lnu

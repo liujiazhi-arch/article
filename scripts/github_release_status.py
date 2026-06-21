@@ -147,7 +147,7 @@ def check_github_release_status(
         },
         "next_steps": [] if status == "ok" else [
             "Inspect GitHub Actions CI and rerun failed jobs before publishing the beta.",
-            "Confirm the GitHub Release contains article-local-windows.zip and article-local-windows.zip.sha256.",
+            "Confirm the GitHub Release contains lnu-thesis-local-windows.zip and lnu-thesis-local-windows.zip.sha256.",
         ],
     }
 

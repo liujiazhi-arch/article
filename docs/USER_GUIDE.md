@@ -4,7 +4,7 @@
 
 ## 安装
 
-面向普通学生的目标形态是 Windows zip：从 GitHub Release 下载 `article-local-windows.zip`，解压后双击 `启动论文格式检查.bat`，浏览器会自动打开本地网页。小程序/云端网页不是首处理端，真正的 `.docx` 审查和修复优先在这个本地网页包里完成。当前 GitHub Beta 如果还没有拿到 zip 包，可按下面的开发者方式安装。
+面向普通学生的目标形态是 Windows zip：从 GitHub Release 下载 `lnu-thesis-local-windows.zip`，解压后双击 `启动论文格式检查.bat`，浏览器会自动打开本地网页。小程序/云端网页不是首处理端，真正的 `.docx` 审查和修复优先在这个本地网页包里完成。当前 GitHub Beta 如果还没有拿到 zip 包，可按下面的开发者方式安装。
 
 GitHub 只负责分发软件版本、文档和脱敏问题反馈，不负责同步论文数据。不要把论文、修复稿、API key、本地日志或未检查的反馈包上传到 GitHub issue。
 
@@ -26,8 +26,8 @@ python3 -m pip install '.[api]'
 如果使用开发者方式安装，运行：
 
 ```bash
-article-local doctor
-article-local serve
+lnu-thesis-local doctor
+lnu-thesis-local serve
 ```
 
 浏览器打开命令行输出的本地地址后：
@@ -56,7 +56,7 @@ PDF 复核需要先用 Word 或 WPS 导出 PDF，再上传到工具中查看页�
 
 本地网页可以手动检查 GitHub Release 新版本。点击“检查新版本”时，只会连接 GitHub 获取软件版本信息，不会上传论文、修复稿、任务记录、本地路径或日志。
 
-如果发现新版本，请前往 GitHub Release 手动下载新版 `article-local-windows.zip`，重新解压后使用。当前版本不会自动下载或安装更新。
+如果发现新版本，请前往 GitHub Release 手动下载新版 `lnu-thesis-local-windows.zip`，重新解压后使用。当前版本不会自动下载或安装更新。
 
 Beta 或 prerelease 包使用当前发布 tag 检查版本；稳定版可以使用 GitHub 的 latest Release。两种方式都只请求 GitHub Release 元数据。
 

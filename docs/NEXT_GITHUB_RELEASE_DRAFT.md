@@ -2,7 +2,7 @@
 
 > 发布前把 `<release-tag>`、`<version>` 和校验值替换成最终值。当前草稿用于前端最终确认后直接粘贴到 GitHub Release。
 
-## `<release-tag>` - Windows 本地网页包 Beta
+## `v0.1.1-beta` - Windows 本地网页包 Beta
 
 这是面向辽宁大学本科毕业论文 `.docx` 的本地格式审查与辅助修复工具。普通用户下载 Windows zip 后，完整解压，双击 `启动论文格式检查.bat`，浏览器会打开本机网页；在网页里上传论文、查看审查结果、选择修复项，并下载修复副本。
 
@@ -12,13 +12,15 @@
 
 请在本页 **Assets** 中下载：
 
-- `article-local-windows.zip`
-- `article-local-windows.zip.sha256`
+- `lnu-thesis-local-windows.zip`
+- `lnu-thesis-local-windows.zip.sha256`
 
-普通用户下载 `article-local-windows.zip` 即可。请先完整解压 zip，再双击 `启动论文格式检查.bat`；不要在压缩包预览窗口里直接运行。
+普通用户下载 `lnu-thesis-local-windows.zip` 即可。请先完整解压 zip，再双击 `启动论文格式检查.bat`；不要在压缩包预览窗口里直接运行。
 
 ## 本版本改进
 
+- 仓库改名为 `lnu-thesis-format-tool`，发布包改名为 `lnu-thesis-local-windows.zip`。
+- 新增 `lnu-thesis-local` 等命令入口，旧 `article-*` 命令继续保留兼容。
 - Windows 本地包发布链路完善：自带 Python 运行环境、双击启动脚本、快速开始说明、本地数据目录和反馈包导出入口。
 - GitHub 展示材料升级：README 下载入口、平台状态表、界面截图、故障排查、路线图、安全策略和 Release checklist 已补齐。
 - 手动检查新版本：本地网页只请求 GitHub Release 元数据，不上传论文、修复稿、任务记录、本地路径或日志，也不会自动下载或安装更新。
@@ -34,13 +36,13 @@
 
 | Platform | Current status | User entry |
 | --- | --- | --- |
-| Windows | Beta supported | `article-local-windows.zip` |
+| Windows | Beta supported | `lnu-thesis-local-windows.zip` |
 | macOS | Planned experimental package | Not yet released |
 | Linux | Developer/source use only | `pip install '.[api]'` |
 
 ## 使用步骤
 
-1. 下载并完整解压 `article-local-windows.zip`。
+1. 下载并完整解压 `lnu-thesis-local-windows.zip`。
 2. 进入解压后的文件夹。
 3. 双击 `启动论文格式检查.bat`。
 4. 浏览器自动打开本地网页。
@@ -75,13 +77,13 @@
 Beta 或 prerelease 发布包内的 `ARTICLE_LOCAL_RELEASE_API_URL` 应指向：
 
 ```text
-https://api.github.com/repos/liujiazhi-arch/article/releases/tags/<release-tag>
+https://api.github.com/repos/liujiazhi-arch/lnu-thesis-format-tool/releases/tags/<release-tag>
 ```
 
 稳定版可以使用：
 
 ```text
-https://api.github.com/repos/liujiazhi-arch/article/releases/latest
+https://api.github.com/repos/liujiazhi-arch/lnu-thesis-format-tool/releases/latest
 ```
 
 ## 已知边界
@@ -97,7 +99,7 @@ https://api.github.com/repos/liujiazhi-arch/article/releases/latest
 - `python3 -m pytest -q` 通过。
 - `python3 -m build --sdist --wheel --outdir dist` 成功。
 - `python3 scripts/release_smoke.py --work-dir /tmp/article-release-smoke --wheelhouse /tmp/article-wheelhouse --json-output /tmp/article-release-smoke.json` 成功。
-- Windows `article-local-windows.zip` 由 GitHub Actions `windows-latest` 构建，并通过 `scripts/verify_release_artifact.py` 和 `scripts/windows_bundle_smoke.py`。
+- Windows `lnu-thesis-local-windows.zip` 由 GitHub Actions `windows-latest` 构建，并通过 `scripts/verify_release_artifact.py` 和 `scripts/windows_bundle_smoke.py`。
 - Windows clean 环境双击 `启动论文格式检查.bat` 后浏览器必须打开可用前端，不允许停在 404 或空白页。
 - 用 WPS/Word 打开修复稿并完成目录、分页、图表、公式、表格和参考文献人工复核。
 

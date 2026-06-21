@@ -6,10 +6,10 @@
 
 - Release tag:
 - GitHub Release 地址:
-- `article-local-windows.zip` 下载地址:
-- `article-local-windows.zip.sha256` 下载地址:
-- `article-local-windows.zip` 文件大小:
-- `article-local-windows.zip.sha256` 内容:
+- `lnu-thesis-local-windows.zip` 下载地址:
+- `lnu-thesis-local-windows.zip.sha256` 下载地址:
+- `lnu-thesis-local-windows.zip` 文件大小:
+- `lnu-thesis-local-windows.zip.sha256` 内容:
 - sha256 校验结果: 通过 / 不通过
 - GitHub Actions run 地址:
 - `release-smoke-evidence-*` artifact:
@@ -33,7 +33,7 @@
 
 ## 操作记录
 
-- 已完整解压 `article-local-windows.zip`: 通过 / 不通过
+- 已完整解压 `lnu-thesis-local-windows.zip`: 通过 / 不通过
 - 解压目录可见 `启动论文格式检查.bat`: 通过 / 不通过
 - 解压目录可见 `导出反馈包.bat`: 通过 / 不通过
 - 解压目录可见 `快速开始.txt`: 通过 / 不通过
