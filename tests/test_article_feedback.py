@@ -5,6 +5,7 @@ import zipfile
 from pathlib import Path
 
 import article_api.local_app as local_app
+import article_api.local_feedback as local_feedback
 import article_api.storage as storage
 
 
@@ -103,6 +104,31 @@ def test_create_feedback_archive_excludes_document_artifacts_by_default(tmp_path
     assert "论文题目" not in state_log
     assert "论文题目" not in worker_log
     assert "<document-file>" in worker_log
+
+
+def test_create_feedback_archive_skips_files_removed_during_inventory(monkeypatch, tmp_path):
+    state_root = tmp_path / "state"
+    runtime_root = tmp_path / "runtime"
+    output_zip = tmp_path / "article-feedback.zip"
+    storage.init_storage(state_root)
+    vanished_file = state_root / "vanished.tmp"
+
+    def fake_iter_files(root: Path) -> list[Path]:
+        return [vanished_file] if root == state_root else []
+
+    monkeypatch.setattr(local_feedback, "_iter_files", fake_iter_files)
+
+    payload = local_app.create_feedback_archive(
+        str(output_zip),
+        state_root=str(state_root),
+        runtime_root=str(runtime_root),
+    )
+
+    assert payload["status"] == "ok"
+    with zipfile.ZipFile(output_zip) as archive:
+        runtime_files = json.loads(archive.read("runtime_files.json").decode("utf-8"))
+
+    assert runtime_files == []
 
 
 def test_article_local_feedback_cli_writes_manifest_and_doctor_payload(capsys, tmp_path):

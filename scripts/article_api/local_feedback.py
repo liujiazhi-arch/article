@@ -145,7 +145,7 @@ def create_feedback_archive(
     sanitized_storage = _sanitize_value(storage_snapshot, state_root=resolved_state_root, runtime_root=resolved_runtime_root)
     sanitized_doctor = _sanitize_value(doctor_report, state_root=resolved_state_root, runtime_root=resolved_runtime_root)
 
-    included_files: list[tuple[Path, str]] = []
+    included_files: list[tuple[str, bytes]] = []
     excluded_document_artifact_count = 0
     file_inventory: list[dict[str, Any]] = []
     for root, label, archive_prefix in (
@@ -154,10 +154,14 @@ def create_feedback_archive(
     ):
         for path in _iter_files(root):
             relative = path.relative_to(root).as_posix()
+            try:
+                size_bytes = path.stat().st_size
+            except FileNotFoundError:
+                continue
             entry = {
                 "root": label,
                 "path": str(Path(label) / relative),
-                "size_bytes": path.stat().st_size,
+                "size_bytes": size_bytes,
                 "included": False,
                 "reason": "not_diagnostic_text",
             }
@@ -165,9 +169,17 @@ def create_feedback_archive(
                 excluded_document_artifact_count += 1
                 entry["reason"] = "document_artifact_excluded"
             elif _is_diagnostic_file(path):
+                try:
+                    diagnostic_bytes = _read_sanitized_diagnostic_bytes(
+                        path,
+                        state_root=resolved_state_root,
+                        runtime_root=resolved_runtime_root,
+                    )
+                except FileNotFoundError:
+                    continue
                 entry["included"] = True
                 entry["reason"] = "diagnostic_text"
-                included_files.append((path, _safe_arcname(archive_prefix, path, root)))
+                included_files.append((_safe_arcname(archive_prefix, path, root), diagnostic_bytes))
             file_inventory.append(entry)
     sanitized_file_inventory = _sanitize_value(
         file_inventory,
@@ -206,15 +218,8 @@ def create_feedback_archive(
         zf.writestr("uploads.json", _json_bytes(sanitized_uploads))
         zf.writestr("storage.json", _json_bytes(sanitized_storage))
         zf.writestr("runtime_files.json", _json_bytes(sanitized_file_inventory))
-        for file_path, arcname in included_files:
-            zf.writestr(
-                arcname,
-                _read_sanitized_diagnostic_bytes(
-                    file_path,
-                    state_root=resolved_state_root,
-                    runtime_root=resolved_runtime_root,
-                ),
-            )
+        for arcname, content in included_files:
+            zf.writestr(arcname, content)
 
     return {
         "status": "ok",
