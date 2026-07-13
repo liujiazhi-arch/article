@@ -20,6 +20,17 @@ def test_static_frontend_serves_index_at_root():
     assert "data-screen=\"result\"" in response.text
 
 
+def test_static_frontend_declares_a_reachable_favicon():
+    client = TestClient(create_app())
+
+    response = client.get("/")
+    favicon = client.get("/static/assets/lnu-emblem.jpg")
+
+    assert '<link rel="icon" href="/static/assets/lnu-emblem.jpg" type="image/jpeg">' in response.text
+    assert favicon.status_code == 200
+    assert favicon.headers["content-type"] == "image/jpeg"
+
+
 def test_static_frontend_serves_css_and_js_assets():
     client = TestClient(create_app())
 
@@ -132,10 +143,10 @@ def test_workbench_upload_actions_are_embedded_in_glass_rail():
     assert 'class="upload-action primary"' in html
     assert 'class="upload-action"' in html
     assert 'data-action="choose-docx"><b>选择论文</b></button>' in html
-    assert 'data-action="create-apply-job"><b>生成结果</b></button>' in html
+    assert 'data-action="create-apply-job" disabled><b>生成结果</b></button>' in html
     assert 'data-action="create-plan"><b>修复方案</b></button>' in html
     assert "<input id=\"docx-input\" class=\"visually-hidden\" type=\"file\" accept=\".docx\" hidden>" in html
-    assert "20260617-upload-circle" in html
+    assert "20260711-scope-controls" in html
     upload_start = html.index('<div class="doc-aperture">')
     upload_end = html.index('<div class="repair-preview">')
     upload_html = html[upload_start:upload_end]
@@ -209,3 +220,27 @@ def test_format_radar_exposes_real_state_hooks():
     assert 'data-format-radar' in html
     assert 'data-format-radar-label' in html
     assert "--radar-progress" in css
+
+
+def test_mobile_theme_switch_uses_the_screen_bottom_spacing_instead_of_covering_controls():
+    client = TestClient(create_app())
+
+    css = client.get("/static/styles/layout.css").text
+    mobile_css = css[css.index("@media (max-width: 680px)") :]
+
+    assert "position: relative" in mobile_css
+    assert "margin: -78px auto 16px" in mobile_css
+
+
+def test_scope_status_text_remains_readable_when_a_scope_is_unavailable():
+    client = TestClient(create_app())
+
+    css = client.get("/static/styles/layout.css").text
+    disabled_css = css[css.index(".scope-chip:has(input:disabled)") : css.index(".scope-chip::after")]
+    status_start = css.index(".scope-chip small")
+    status_css = css[status_start : css.index("}", status_start)]
+
+    assert "opacity: 0.72" in disabled_css
+    assert "color: rgba(255, 255, 255, 0.76)" in status_css
+    assert "font-size: 12px" in status_css
+    assert "letter-spacing: 0" in status_css

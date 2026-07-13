@@ -4,7 +4,7 @@
 
 ## 安装
 
-面向普通学生的目标形态是 Windows zip：从 GitHub Release 下载 `lnu-thesis-local-windows.zip`，解压后双击 `启动论文格式检查.bat`，浏览器会自动打开本地网页。小程序/云端网页不是首处理端，真正的 `.docx` 审查和修复优先在这个本地网页包里完成。当前 GitHub Beta 如果还没有拿到 zip 包，可按下面的开发者方式安装。
+面向普通学生的目标形态是 Windows zip。`v0.1.2-beta` 完成 clean Windows 和 WPS/Word 实机验收并发布后，可从 GitHub Release 下载 `lnu-thesis-local-windows.zip`，解压后双击 `启动论文格式检查.bat`。小程序/云端网页不是首处理端。新包发布前请不要把公开的 `v0.1.1-beta` 当成本轮修复版本；开发验证可按下面的开发者方式安装。
 
 GitHub 只负责分发软件版本、文档和脱敏问题反馈，不负责同步论文数据。不要把论文、修复稿、API key、本地日志或未检查的反馈包上传到 GitHub issue。
 
@@ -45,7 +45,7 @@ lnu-thesis-local serve
 
 启动本地 API 后，浏览器打开 `http://127.0.0.1:<port>/`。
 
-PDF 复核需要先用 Word 或 WPS 导出 PDF，再上传到工具中查看页面问题。
+PDF 复核需要先用 Word 或 WPS 导出 PDF，再上传到工具中查看页面问题。通过实机验收后的 `v0.1.2-beta` Windows 本地包会包含 PDF 复核运行组件，不需要另外安装 Poppler。
 
 界面示例：
 
@@ -99,6 +99,6 @@ thesis-workbench verify 修复后_摘要.docx --profile lnu --scope abstract
 **目录或分页不一致**
 
 启用目录修复时，工具会直接写入可见的自动目录域结果。若后续继续修改正文导致分页变化，再在 Word/WPS 中更新目录域并复核页码；最终分页以 Word/WPS 打开结果为准。
-如果你手里已经有 Word/WPS 导出的 PDF，也可以把它传给 `thesis-workbench audit --rendered-pdf`，工具会把目录条目页码和正文实际渲染页不一致的问题合并进审查结果。
+如果你手里已经有 Word/WPS 导出的 PDF，也可以把它传给 `thesis-workbench render-verify --rendered-pdf`，工具会把目录条目页码和正文实际渲染页不一致的问题合并进复核结果。
 
 更多启动、端口、SmartScreen、`.docx` 和反馈包问题见 [故障排查](TROUBLESHOOTING.md)。

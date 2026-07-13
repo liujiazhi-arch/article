@@ -80,7 +80,7 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         assert forbidden not in readme
 
     assert "python3 -m pip install '.[api]'" in _read("docs/USER_GUIDE.md")
-    assert "普通学生首选 Windows 本地网页 zip" in readme
+    assert "请等待 `v0.1.2-beta` 完成 clean Windows 和 WPS/Word 实机验收" in readme
     user_guide = _read("docs/USER_GUIDE.md")
     assert "小程序/云端网页不是首处理端" in user_guide
     assert "从 GitHub Release 下载" in user_guide
@@ -100,7 +100,7 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     assert "--runtime-dir" in development
     assert "--output-zip" in development
     assert "GitHub Actions 会在 windows-latest runner" in development
-    assert "可在 GitHub Actions 页面手动运行 CI" in development
+    assert "在 GitHub Actions 页面手动运行 CI" in development
     assert "workflow_dispatch" in development
     assert "lnu-thesis-local-windows.zip" in development
     assert "导出反馈包.bat" in development
@@ -110,8 +110,10 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
     assert "软件版本从 GitHub 发布，用户论文和密钥不进入 GitHub" in development
     assert "手动检查 GitHub Release 新版本" in development
     assert "不会自动下载或安装更新" in development
-    assert "CI 在 push、pull_request 或 workflow_dispatch 中会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`" in development
-    assert "当 GitHub Release 发布触发 CI 时，会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}`" in development
+    assert "发布前先创建 Draft Release" in development
+    assert "`workflow_dispatch`" in development
+    assert "`release_tag`" in development
+    assert "目标 Release 仍为 draft" in development
     assert "verify_release_artifact.py" in development
     assert "lnu-thesis-local-windows.zip.sha256" in development
     assert "扫描 zip 不含本地论文、反馈包、env、日志或状态数据库" in development
@@ -166,6 +168,8 @@ def test_github_beta_release_documents_exist_and_state_product_boundary():
         "GitHub Release tag 与 Windows smoke 报告的 Release tag 一致",
         "GitHub Actions 页面手动运行 CI",
         "workflow_dispatch",
+        "Draft Release",
+        "release_tag",
         "点击“检查新版本”",
         "不会自动下载或安装更新",
     ):
@@ -316,12 +320,15 @@ def test_ci_builds_windows_local_bundle_on_windows_runner():
         "runs-on: windows-latest",
         "python-version: '3.11'",
         "python -m pip wheel '.[api]' -w dist\\wheelhouse",
-        "python -m venv dist\\windows-runtime",
-        ".\\dist\\windows-runtime\\Scripts\\python.exe -m pip install --no-index --find-links dist\\wheelhouse 'thesis-format-tool[api]'",
-        ".\\dist\\windows-runtime\\Scripts\\python.exe -m article_api.local_app doctor --state-root dist\\windows-state --runtime-root dist\\windows-data",
+        'Invoke-WebRequest "https://www.python.org/ftp/python/$pythonVersion/python-$pythonVersion-embed-amd64.zip"',
+        '009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b',
+        "Expand-Archive dist\\python-embed.zip -DestinationPath dist\\windows-runtime",
+        "Add-Content dist\\windows-runtime\\python311._pth",
+        "--target dist\\windows-runtime\\Lib\\site-packages 'thesis-format-tool[api]'",
+        ".\\dist\\windows-runtime\\python.exe -m article_api.local_app doctor --state-root dist\\windows-state --runtime-root dist\\windows-data",
         "$releaseApiUrl = \"https://api.github.com/repos/${{ github.repository }}/releases/latest\"",
-        "if (\"${{ github.event_name }}\" -eq \"release\")",
-        "$releaseApiUrl = \"https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}\"",
+        "if (\"${{ inputs.release_tag }}\")",
+        "$releaseApiUrl = \"https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ inputs.release_tag }}\"",
         "python scripts\\build_windows_local_bundle.py --runtime-dir dist\\windows-runtime --output-zip dist\\lnu-thesis-local-windows.zip --release-api-url $releaseApiUrl",
         "python scripts\\verify_release_artifact.py dist\\lnu-thesis-local-windows.zip --sha256-output dist\\lnu-thesis-local-windows.zip.sha256",
         "Smoke extracted Windows local web flow",
@@ -335,23 +342,31 @@ def test_ci_builds_windows_local_bundle_on_windows_runner():
         "快速开始.txt",
     ):
         assert fragment in workflow
+    assert "python -m venv dist\\windows-runtime" not in workflow
 
 
-def test_ci_uploads_windows_bundle_to_github_release_when_release_is_published():
+def test_ci_uploads_validated_windows_bundle_to_an_existing_draft_release():
     workflow_path = PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
     assert workflow_path.exists()
     workflow = workflow_path.read_text(encoding="utf-8")
 
     for fragment in (
-        "release:",
-        "types: [published]",
+        "release_tag:",
+        "publish-draft-release-assets:",
+        "needs: [test, windows-local-bundle]",
         "permissions:",
         "contents: write",
-        "Upload Windows bundle to GitHub Release",
+        "actions/download-artifact@v4",
+        "Verify target release is still a draft",
+        "--json isDraft",
+        ".target_commitish",
+        'test "$target_sha" = "$GITHUB_SHA"',
+        "Upload validated Windows bundle to draft GitHub Release",
         "gh release upload",
-        "${{ github.event.release.tag_name }}",
-        "dist\\lnu-thesis-local-windows.zip",
-        "dist\\lnu-thesis-local-windows.zip.sha256",
+        "${{ inputs.release_tag }}",
+        "dist/lnu-thesis-local-windows.zip",
+        "dist/lnu-thesis-local-windows.zip.sha256",
         "--clobber",
     ):
         assert fragment in workflow
+    assert "types: [published]" not in workflow

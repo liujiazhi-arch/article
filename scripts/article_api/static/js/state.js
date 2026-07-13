@@ -10,6 +10,7 @@ const state = {
   renderResult: null,
   activeEvidenceIndex: 0,
   highlightVisible: true,
+  applyRunning: false,
 };
 
 const listeners = new Set();

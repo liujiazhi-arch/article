@@ -126,6 +126,37 @@ def test_frontend_js_wires_workbench_plan_summary():
     assert "createPlan(upload.stored_path)" in app_js
 
 
+def test_frontend_submits_selected_repair_scopes_and_blocks_duplicate_runs():
+    static_root = ROOT / "scripts" / "article_api" / "static"
+    html = (static_root / "index.html").read_text(encoding="utf-8")
+    app_js = (static_root / "js" / "app.js").read_text(encoding="utf-8")
+    state_js = (static_root / "js" / "state.js").read_text(encoding="utf-8")
+
+    for scope_id in (
+        "page",
+        "abstract",
+        "toc",
+        "headings",
+        "body_paragraphs",
+        "figures_tables",
+        "references",
+        "acknowledgement",
+        "appendix",
+    ):
+        assert f'data-scope-option="{scope_id}"' in html
+        assert f'value="{scope_id}"' in html
+    assert 'type="checkbox" name="repair-scope"' in html
+    assert "function selectedScopeIds" in app_js
+    assert "createApplyJob(current.docxUpload.upload_id, { scopes })" in app_js
+    assert "applyRunning" in app_js
+    assert "button.disabled" in app_js
+    assert 'stateNode.textContent = input.checked ? "已选择" : "未选择"' in app_js
+    assert 'requiresReview ? "需人工确认"' in app_js
+    assert "selectedScopes:" not in state_js
+    assert "setState({ selectedScopes" not in app_js
+    assert "createApplyJob(current.docxUpload.upload_id, {})" not in app_js
+
+
 def test_frontend_js_wires_format_radar_from_plan_summary():
     static_root = ROOT / "scripts" / "article_api" / "static"
     app_js = (static_root / "js" / "app.js").read_text(encoding="utf-8")

@@ -209,6 +209,7 @@ def test_release_smoke_rejects_prebuilt_wheelhouse_inside_cleaned_work_dir(monke
 def test_release_smoke_http_flow_uses_python_module_serve(monkeypatch, tmp_path):
     release_smoke = _load_release_smoke()
     popen_calls: list[list[str]] = []
+    upload_urls: list[str] = []
 
     class FakeProcess:
         def __init__(self, command, **kwargs):
@@ -227,19 +228,28 @@ def test_release_smoke_http_flow_uses_python_module_serve(monkeypatch, tmp_path)
 
     monkeypatch.setattr(release_smoke.subprocess, "Popen", FakeProcess)
     monkeypatch.setattr(release_smoke, "_build_smoke_docx", lambda *args, **kwargs: None)
+    monkeypatch.setattr(release_smoke, "_build_smoke_pdf", lambda *args, **kwargs: None, raising=False)
     monkeypatch.setattr(release_smoke, "_available_port", lambda: 49231)
     monkeypatch.setattr(release_smoke, "_wait_for_ready", lambda base_url: {"status": "ready"})
-    monkeypatch.setattr(
-        release_smoke,
-        "_post_multipart_file",
-        lambda *args, **kwargs: {"upload_id": "upload-1"},
-    )
-    monkeypatch.setattr(release_smoke, "_request_json", lambda *args, **kwargs: {"job_id": "job-1", "summary": {}})
+    def fake_upload(url, **_kwargs):
+        upload_urls.append(url)
+        return {"upload_id": "pdf-1" if url.endswith("/uploads/pdf") else "docx-1"}
+
+    def fake_request(url, **_kwargs):
+        if url.endswith("/render-review-jobs"):
+            return {"job_id": "render-job"}
+        if url.endswith("/jobs/render-job/result"):
+            return {"result": {"page_count": 1}}
+        if url.endswith("/jobs/apply-job/result"):
+            return {"summary": {}}
+        return {"job_id": "apply-job"}
+
+    monkeypatch.setattr(release_smoke, "_post_multipart_file", fake_upload)
+    monkeypatch.setattr(release_smoke, "_request_json", fake_request)
     monkeypatch.setattr(release_smoke, "_wait_for_job", lambda *args, **kwargs: {"status": "succeeded"})
     monkeypatch.setattr(release_smoke, "_request_bytes", lambda *args, **kwargs: b"docx")
 
     payload = release_smoke._run_http_smoke(
-        article_local=tmp_path / "venv" / "bin" / "lnu-thesis-local",
         venv_python=Path(sys.executable),
         state_root=tmp_path / "state",
         runtime_root=tmp_path / "runtime",
@@ -247,6 +257,12 @@ def test_release_smoke_http_flow_uses_python_module_serve(monkeypatch, tmp_path)
     )
 
     assert payload["status"] == "ok"
+    assert payload["render_job_status"] == "succeeded"
+    assert payload["render_page_count"] == 1
+    assert upload_urls == [
+        "http://127.0.0.1:49231/uploads/docx",
+        "http://127.0.0.1:49231/uploads/pdf",
+    ]
     assert popen_calls == [
         [
             str(Path(sys.executable)),

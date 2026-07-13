@@ -103,7 +103,7 @@ class UploadApplyRequest(BaseModel):
     candidate_mode: str | None = Field(default=None, pattern="^(fast_candidate|compact_candidate)$")
     dry_run: bool = False
     force: bool = False
-    stage_input: bool = False
+    stage_input: bool = True
     runtime_root: str | None = None
     max_attempts: int = Field(default=1, ge=1)
     retry_delay_seconds: float = Field(default=0.0, ge=0)

@@ -225,6 +225,10 @@ def test_verify_request_supports_staging_fields():
     assert request.runtime_root == "/tmp/article-runtime"
 
 
+def test_upload_apply_stages_input_by_default():
+    assert UploadApplyRequest().stage_input is True
+
+
 def test_verify_request_supports_worker_control_fields():
     request = VerifyRequest(
         file_path="demo.docx",
@@ -307,14 +311,14 @@ def test_fake_app_health_ready_version_and_summary_endpoints(monkeypatch, tmp_do
     assert "/static/{asset_path:path}" in routes
     assert health_payload["service"] == "article-api"
     assert health_payload["status"] == "ok"
-    assert version_payload["version"] == "0.1.1"
+    assert version_payload["version"] == "0.1.2"
     assert version_payload["api_version"] == "v0"
     assert version_payload["update_check"]["mode"] == "manual"
     assert version_payload["update_check"]["configured"] is False
     assert version_payload["update_check"]["auto_update"] is False
     assert "只检查软件版本，不上传论文" in version_payload["update_check"]["privacy"]
     assert updates_payload["status"] == "not_configured"
-    assert updates_payload["current_version"] == "0.1.1"
+    assert updates_payload["current_version"] == "0.1.2"
     assert updates_payload["update_available"] is False
     assert updates_payload["auto_update"] is False
     assert "ARTICLE_LOCAL_RELEASE_API_URL" in updates_payload["next_action"]

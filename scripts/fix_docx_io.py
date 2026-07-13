@@ -156,6 +156,24 @@ def _validate_written_docx(path: str) -> None:
         raise RuntimeError(f"输出文件无法被 python-docx 重新打开: {path}") from exc
 
 
+def _with_jpg_content_type(source_zip: zipfile.ZipFile, updated_parts: dict[str, bytes]) -> dict[str, bytes]:
+    package_names = set(source_zip.namelist()) | set(updated_parts)
+    if not any(name.lower().endswith(".jpg") for name in package_names):
+        return updated_parts
+
+    content = updated_parts.get("[Content_Types].xml") or source_zip.read("[Content_Types].xml")
+    root = ET.fromstring(content)
+    defaults = root.findall(f"{{{CONTENT_TYPES_NS}}}Default")
+    if any(item.get("Extension", "").lower() == "jpg" for item in defaults):
+        return updated_parts
+
+    default = ET.SubElement(root, f"{{{CONTENT_TYPES_NS}}}Default")
+    default.set("Extension", "jpg")
+    default.set("ContentType", "image/jpeg")
+    normalized_content = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    return {**updated_parts, "[Content_Types].xml": normalized_content}
+
+
 def write_docx_atomically(input_path: str, output_path: str, updated_parts: dict[str, bytes]) -> None:
     output_dir = os.path.dirname(os.path.abspath(output_path)) or "."
     temp_output_path = None
@@ -170,14 +188,15 @@ def write_docx_atomically(input_path: str, output_path: str, updated_parts: dict
             temp_output_path = temp_handle.name
 
         with zipfile.ZipFile(input_path, "r") as source_zip, zipfile.ZipFile(temp_output_path, "w", zipfile.ZIP_DEFLATED) as target_zip:
+            parts_to_write = _with_jpg_content_type(source_zip, updated_parts)
             written_files = set()
             for item in source_zip.infolist():
-                if item.filename in updated_parts:
-                    target_zip.writestr(item, updated_parts[item.filename])
+                if item.filename in parts_to_write:
+                    target_zip.writestr(item, parts_to_write[item.filename])
                     written_files.add(item.filename)
                 else:
                     target_zip.writestr(item, source_zip.read(item.filename))
-            for filename, content in updated_parts.items():
+            for filename, content in parts_to_write.items():
                 if filename not in written_files:
                     target_zip.writestr(filename, content)
 

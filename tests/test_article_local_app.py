@@ -44,6 +44,7 @@ def test_build_doctor_report_uses_requested_roots(monkeypatch, tmp_path):
     assert report["roots"]["state_root"] == str(state_root.resolve())
     assert report["roots"]["runtime_root"] == str(runtime_root.resolve())
     assert report["checks"]["storage"]["status"] == "ok"
+    assert report["checks"]["pdf_runtime"]["status"] == "ok"
     assert report["storage"]["schema_version"] == storage.SCHEMA_VERSION
     assert report["storage"]["index_count"] >= 1
     assert report["runtime"]["worker_model"] == "single"

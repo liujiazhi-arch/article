@@ -52,6 +52,8 @@ def test_pyproject_declares_python_first_metadata():
     assert project["requires-python"].startswith(">=")
     assert "python-docx>=1.1,<2" in project["dependencies"]
     assert "PyYAML>=6,<7" in project["dependencies"]
+    assert "pypdfium2>=5,<6" in project["dependencies"]
+    assert "Pillow>=11,<13" in project["dependencies"]
     assert "fastapi>=0.115,<1" in data["project"]["optional-dependencies"]["api"]
     assert "uvicorn>=0.30,<1" in data["project"]["optional-dependencies"]["api"]
     assert "python-multipart>=0.0.9,<1" in data["project"]["optional-dependencies"]["api"]

@@ -15,6 +15,10 @@ if __package__ in {None, ""}:
 import audit_thesis
 
 from thesis_tool.conclusion_report import render_ai_render_context, render_student_render_report
+from thesis_tool.pdf_backend import (
+    convert_pdf_with_pdfium as _convert_pdf_with_pdfium,
+    extract_pdf_text_pages_with_pdfium as _extract_pdf_text_pages_with_pdfium,
+)
 from thesis_tool.render_analyzer import analyze_page_images
 from thesis_tool.workflow import (
     PREFLIGHT_BLOCKED,
@@ -171,9 +175,18 @@ end run
 
 
 def _convert_pdf_to_page_images(input_pdf: str, output_dir: str) -> None:
-    pdftoppm = _find_pdftoppm()
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
+    for stale_page in resolved_output_dir.glob("page-*.png"):
+        stale_page.unlink()
+    try:
+        pdftoppm = _find_pdftoppm()
+    except RuntimeError:
+        try:
+            _convert_pdf_with_pdfium(input_pdf, resolved_output_dir)
+        except Exception as exc:
+            raise RuntimeError(f"PDF 转页图失败。\n{exc}") from exc
+        return
     prefix = str(resolved_output_dir / "page")
     try:
         subprocess.run(
@@ -292,6 +305,7 @@ def _extract_pdf_page_texts(pdf_path: str | None, *, page_count: int | None = No
     if not resolved_pdf.exists():
         return {}, _empty_render_text_summary(source="pdf", warnings=[f"PDF 不存在，未抽取页文本: {resolved_pdf}"])
 
+    poppler_error: Exception | None = None
     try:
         pdftotext = _find_pdftotext()
         completed = subprocess.run(
@@ -301,11 +315,16 @@ def _extract_pdf_page_texts(pdf_path: str | None, *, page_count: int | None = No
             text=True,
         )
     except (RuntimeError, subprocess.CalledProcessError) as exc:
-        return {}, _empty_render_text_summary(source="pdf", warnings=[str(exc)])
-
-    raw_pages = str(completed.stdout or "").split("\f")
-    if raw_pages and raw_pages[-1] == "":
-        raw_pages = raw_pages[:-1]
+        poppler_error = exc
+        try:
+            raw_pages = _extract_pdf_text_pages_with_pdfium(resolved_pdf)
+        except Exception as pdfium_error:
+            warnings = [str(poppler_error), str(pdfium_error)]
+            return {}, _empty_render_text_summary(source="pdf", warnings=warnings)
+    else:
+        raw_pages = str(completed.stdout or "").split("\f")
+        if raw_pages and raw_pages[-1] == "":
+            raw_pages = raw_pages[:-1]
     selected_pages = raw_pages[:page_count] if page_count is not None else raw_pages
     page_texts = {index: text.strip() for index, text in enumerate(selected_pages, start=1) if text.strip()}
     warnings: list[str] = []

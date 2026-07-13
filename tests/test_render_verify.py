@@ -69,6 +69,70 @@ def test_find_external_tool_missing_raises_original_message(monkeypatch):
         )
 
 
+def test_convert_pdf_to_page_images_removes_stale_pages(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "proof.pdf"
+    pdf_path.write_bytes(b"%PDF")
+    page_dir = tmp_path / "pages"
+    page_dir.mkdir()
+    stale_page = page_dir / "page-01.png"
+    stale_page.write_bytes(b"old")
+
+    def fake_run(command, **_kwargs):
+        Path(f"{command[-1]}-1.png").write_bytes(b"new")
+        return SimpleNamespace(stdout="", stderr="")
+
+    monkeypatch.setattr(render_verify_module, "_find_pdftoppm", lambda: "/usr/bin/pdftoppm")
+    monkeypatch.setattr(render_verify_module.subprocess, "run", fake_run)
+
+    render_verify_module._convert_pdf_to_page_images(str(pdf_path), str(page_dir))
+
+    assert not stale_page.exists()
+    assert (page_dir / "page-1.png").read_bytes() == b"new"
+
+
+def test_convert_pdf_to_page_images_uses_pdfium_when_poppler_is_missing(monkeypatch, tmp_path):
+    from PIL import Image
+
+    pdf_path = tmp_path / "proof.pdf"
+    Image.new("RGB", (80, 60), "white").save(pdf_path, "PDF", resolution=72)
+    page_dir = tmp_path / "pages"
+
+    def missing_poppler():
+        raise RuntimeError("pdftoppm missing")
+
+    monkeypatch.setattr(render_verify_module, "_find_pdftoppm", missing_poppler)
+
+    render_verify_module._convert_pdf_to_page_images(str(pdf_path), str(page_dir))
+
+    page_images = render_verify_module._collect_page_images(page_dir)
+    assert len(page_images) == 1
+    with Image.open(page_images[0]) as rendered:
+        assert rendered.format == "PNG"
+        assert rendered.width > 80
+
+
+def test_extract_pdf_page_texts_uses_pdfium_when_pdftotext_is_missing(monkeypatch, tmp_path):
+    pdf_path = tmp_path / "rendered.pdf"
+    pdf_path.write_bytes(b"%PDF")
+
+    def missing_poppler():
+        raise RuntimeError("pdftotext missing")
+
+    monkeypatch.setattr(render_verify_module, "_find_pdftotext", missing_poppler)
+    monkeypatch.setattr(
+        render_verify_module,
+        "_extract_pdf_text_pages_with_pdfium",
+        lambda _path: ["第一页正文", "第 2 章 实验材料与方法"],
+        raising=False,
+    )
+
+    page_texts, summary = render_verify_module._extract_pdf_page_texts(str(pdf_path), page_count=2)
+
+    assert page_texts == {1: "第一页正文", 2: "第 2 章 实验材料与方法"}
+    assert summary["available"] is True
+    assert summary["page_text_extraction_warning_count"] == 0
+
+
 def test_word_pdf_export_script_targets_opened_file_not_active_document(monkeypatch, tmp_path):
     source_path = tmp_path / "render_verify_word_source.docx"
     source_path.write_bytes(b"docx")

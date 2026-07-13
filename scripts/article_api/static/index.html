@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>辽宁大学毕业论文格式修正器</title>
+  <link rel="icon" href="/static/assets/lnu-emblem.jpg" type="image/jpeg">
   <link rel="stylesheet" href="/static/styles/tokens.css">
   <link rel="stylesheet" href="/static/styles/themes.css">
-  <link rel="stylesheet" href="/static/styles/layout.css?v=20260617-upload-circle">
+  <link rel="stylesheet" href="/static/styles/layout.css?v=20260711-scope-controls">
 </head>
 <body data-app="lnu-thesis-workbench" data-theme="snow">
   <main class="app-shell">
@@ -101,13 +102,15 @@
           <div class="rail-section scope-section">
             <p class="rail-title">修复范围</p>
             <div class="scope-stack">
-              <div class="scope-chip">页面设置 <small>可修</small></div>
-              <div class="scope-chip">摘要关键词 <small>可修</small></div>
-              <div class="scope-chip">目录更新 <small>可修</small></div>
-              <div class="scope-chip">标题编号 <small>可修</small></div>
-              <div class="scope-chip">正文段落 <small>可修</small></div>
-              <div class="scope-chip">图表规则 <small>可看</small></div>
-              <div class="scope-chip">参考文献 <small>可修</small></div>
+              <label class="scope-chip" data-scope-option="page"><input type="checkbox" name="repair-scope" value="page" disabled><span>页面设置</span><small data-scope-state>等待方案</small></label>
+              <label class="scope-chip" data-scope-option="abstract"><input type="checkbox" name="repair-scope" value="abstract" disabled><span>摘要关键词</span><small data-scope-state>等待方案</small></label>
+              <label class="scope-chip" data-scope-option="toc"><input type="checkbox" name="repair-scope" value="toc" disabled><span>目录更新</span><small data-scope-state>等待方案</small></label>
+              <label class="scope-chip" data-scope-option="headings"><input type="checkbox" name="repair-scope" value="headings" disabled><span>标题编号</span><small data-scope-state>等待方案</small></label>
+              <label class="scope-chip" data-scope-option="body_paragraphs"><input type="checkbox" name="repair-scope" value="body_paragraphs" disabled><span>正文段落</span><small data-scope-state>等待方案</small></label>
+              <label class="scope-chip" data-scope-option="figures_tables"><input type="checkbox" name="repair-scope" value="figures_tables" disabled><span>图表规则</span><small data-scope-state>等待方案</small></label>
+              <label class="scope-chip" data-scope-option="references"><input type="checkbox" name="repair-scope" value="references" disabled><span>参考文献</span><small data-scope-state>等待方案</small></label>
+              <label class="scope-chip" data-scope-option="acknowledgement"><input type="checkbox" name="repair-scope" value="acknowledgement" disabled><span>致谢</span><small data-scope-state>等待方案</small></label>
+              <label class="scope-chip" data-scope-option="appendix"><input type="checkbox" name="repair-scope" value="appendix" disabled><span>附录</span><small data-scope-state>等待方案</small></label>
             </div>
           </div>
         </aside>
@@ -127,7 +130,7 @@
                 <div class="upload-action-rail">
                   <button class="upload-action primary" type="button" data-action="choose-docx"><b>选择论文</b></button>
                   <button class="upload-action" type="button" data-action="create-plan"><b>修复方案</b></button>
-                  <button class="upload-action" type="button" data-action="create-apply-job"><b>生成结果</b></button>
+                  <button class="upload-action" type="button" data-action="create-apply-job" disabled><b>生成结果</b></button>
                 </div>
               </div>
             </div>
@@ -312,6 +315,6 @@
     </div>
   </main>
 
-  <script type="module" src="/static/js/app.js?v=20260617-upload-circle"></script>
+  <script type="module" src="/static/js/app.js?v=20260711-scope-controls"></script>
 </body>
 </html>

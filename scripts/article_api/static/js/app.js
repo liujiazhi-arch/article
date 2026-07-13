@@ -98,6 +98,49 @@ function renderFormatRadar(summary) {
   label.textContent = totalAttention > 0 ? `${totalAttention}项需确认` : "格式较稳";
 }
 
+function selectedScopeIds(root = document) {
+  return Array.from(root.querySelectorAll("[data-scope-option] input:checked:not(:disabled)"), (input) => input.value);
+}
+
+function updateApplyButtons(root = document) {
+  const current = getState();
+  const canRun = Boolean(current.docxUpload) && selectedScopeIds(root).length > 0 && !current.applyRunning;
+  root.querySelectorAll("[data-action='create-apply-job']").forEach((button) => {
+    button.disabled = !canRun;
+    const label = button.querySelector("b");
+    if (label) label.textContent = current.applyRunning ? "正在生成" : "生成结果";
+  });
+}
+
+function renderScopeOptions(plan, root = document) {
+  const scopes = new Map((Array.isArray(plan?.scopes) ? plan.scopes : []).map((scope) => [scope.id, scope]));
+  root.querySelectorAll("[data-scope-option]").forEach((option) => {
+    const scope = scopes.get(option.dataset.scopeOption);
+    const available = Number(scope?.autofixable_count || 0) > 0;
+    const requiresReview = Number(scope?.manual_review_count || 0) > 0 || Number(scope?.unsupported_count || 0) > 0;
+    const input = option.querySelector("input");
+    const stateNode = option.querySelector("[data-scope-state]");
+    if (input) {
+      input.disabled = !available;
+      input.checked = available;
+    }
+    if (stateNode) {
+      stateNode.textContent = available ? "已选择" : requiresReview ? "需人工确认" : plan ? "无需处理" : "等待方案";
+    }
+  });
+  updateApplyButtons(root);
+}
+
+function bindScopeControls(root) {
+  root.querySelectorAll("[data-scope-option] input").forEach((input) => {
+    input.addEventListener("change", () => {
+      const stateNode = input.closest("[data-scope-option]").querySelector("[data-scope-state]");
+      stateNode.textContent = input.checked ? "已选择" : "未选择";
+      updateApplyButtons(root);
+    });
+  });
+}
+
 function renderWorkbenchPlan(plan) {
   const summary = planSummary(plan);
   renderFormatRadar(summary);
@@ -105,6 +148,7 @@ function renderWorkbenchPlan(plan) {
   setWorkbenchMetric("manual-confirmation", summary.manualConfirmation);
   setWorkbenchMetric("output-kind", "修复副本");
   const scopes = Array.isArray(plan?.scopes) ? plan.scopes : [];
+  renderScopeOptions(plan);
   const focusScopes = scopes
     .filter((scope) => Number(scope.failed_count || 0) > 0)
     .slice(0, 3)
@@ -118,6 +162,7 @@ function renderWorkbenchPlan(plan) {
 }
 
 function renderWorkbenchPlanPending(fileName) {
+  renderScopeOptions(null);
   renderFormatRadar({ failedCount: 0, manualConfirmation: 0 });
   setWorkbenchMetric("autofixable-scopes", "生成中");
   setWorkbenchMetric("manual-confirmation", "生成中");
@@ -130,13 +175,14 @@ function renderWorkbenchPlanPending(fileName) {
 }
 
 function renderWorkbenchPlanUnavailable(message) {
+  renderScopeOptions(null);
   renderFormatRadar({ failedCount: 0, manualConfirmation: 1 });
   setWorkbenchMetric("autofixable-scopes", "待重试");
   setWorkbenchMetric("manual-confirmation", "待重试");
   renderWorkbenchLedger([
     { time: "刚刚", message: "论文已上传", status: "完成" },
     { time: "刚刚", message: message || "修复方案暂时不可用", status: "提示" },
-    { time: "等待", message: "可以稍后重新上传或直接生成修正结果", status: "待处理" },
+    { time: "等待", message: "请重新生成方案后选择修复范围", status: "待处理" },
   ]);
 }
 
@@ -386,14 +432,21 @@ function bindUploads(root) {
   });
   root.querySelectorAll("[data-action='create-apply-job']").forEach((button) => {
     button.addEventListener("click", async () => {
+      const current = getState();
+      if (!current.docxUpload) {
+        setStatus("请先上传论文", "选择 docx 文件后再生成修正结果");
+        return;
+      }
+      const scopes = selectedScopeIds(root);
+      if (!scopes.length) {
+        setStatus("请选择修复范围", "先生成方案 再勾选需要处理的范围");
+        return;
+      }
+      setState({ applyRunning: true });
+      updateApplyButtons(root);
       try {
-        const current = getState();
-        if (!current.docxUpload) {
-          setStatus("请先上传论文", "选择 docx 文件后再生成修正结果");
-          return;
-        }
         setStatus("正在生成修正结果", "请稍候");
-        const job = await createApplyJob(current.docxUpload.upload_id, {});
+        const job = await createApplyJob(current.docxUpload.upload_id, { scopes });
         setState({ activeJob: job });
         await pollJob(job.job_id);
         const resultPayload = await getJobResult(job.job_id);
@@ -403,9 +456,13 @@ function bindUploads(root) {
         showScreen("result");
       } catch (error) {
         showError(error);
+      } finally {
+        setState({ applyRunning: false });
+        updateApplyButtons(root);
       }
     });
   });
+  bindScopeControls(root);
   root.querySelectorAll("[data-action='refresh-render-result']").forEach((button) => {
     button.addEventListener("click", () => renderCurrentPdfReview());
   });

@@ -870,6 +870,73 @@ def _submit_job(job_id: str) -> None:
         _ACTIVE_FUTURES[job_id] = future
 
 
+def _available_retry_upload(upload_id: str, *, label: str = "Upload") -> dict[str, Any]:
+    upload = storage.get_upload(upload_id)
+    if upload is None:
+        raise RuntimeError(f"{label} not found for retry: {upload_id}")
+    stored_path = upload.get("stored_path")
+    if not stored_path or not os.path.exists(stored_path):
+        raise RuntimeError(f"{label}ed file is unavailable for retry: {upload_id}")
+    return upload
+
+
+def _retry_source_patch(
+    request: dict[str, Any],
+    runtime: dict[str, Any],
+    resolved_request: dict[str, Any],
+) -> dict[str, Any]:
+    upload_id = (
+        runtime.get("source_upload_id")
+        or request.get("upload_id")
+        or request.get("docx_upload_id")
+        or resolved_request.get("upload_id")
+    )
+    if upload_id:
+        upload = _available_retry_upload(upload_id)
+        return {
+            "file_path": upload["stored_path"],
+            "upload_id": upload_id,
+            "source_display_name": upload["file_name"],
+        }
+    source_path = runtime.get("source_file_path") or request.get("file_path") or resolved_request.get("file_path")
+    patch = {"file_path": audit_thesis.validate_docx_path(source_path)}
+    if resolved_request.get("source_display_name"):
+        patch["source_display_name"] = resolved_request["source_display_name"]
+    return patch
+
+
+def _retry_pdf_patch(request: dict[str, Any]) -> dict[str, Any]:
+    pdf_upload_id = request.get("pdf_upload_id")
+    if not pdf_upload_id:
+        return {}
+    upload = _available_retry_upload(pdf_upload_id, label="PDF upload")
+    return {
+        "rendered_pdf": upload["stored_path"],
+        "pdf_display_name": upload["file_name"],
+    }
+
+
+def _render_retry_options(
+    operation: str,
+    resolved_request: dict[str, Any],
+) -> dict[str, Any]:
+    if operation != "render-verify":
+        return {}
+    fields = (
+        "profile_path",
+        "strict_profile",
+        "scopes",
+        "renderer",
+        "workflow_mode",
+        "stage_input",
+        "runtime_root",
+        "max_attempts",
+        "retry_delay_seconds",
+        "timeout_seconds",
+    )
+    return {field: deepcopy(resolved_request[field]) for field in fields if field in resolved_request}
+
+
 def retry_job(job_id: str) -> dict[str, Any]:
     payload = storage.get_job(job_id, include_result=True)
     if payload is None:
@@ -878,29 +945,17 @@ def retry_job(job_id: str) -> dict[str, Any]:
         raise RuntimeError(f"Job retry is only available after completion: {job_id}")
 
     request = _clone_dict(payload["request"])
-    execution_request = _clone_dict(request)
     runtime = payload.get("runtime") or {}
     resolved_request = payload.get("resolved_request") or {}
-    upload_id = runtime.get("source_upload_id") or request.get("upload_id") or resolved_request.get("upload_id")
-    if upload_id:
-        upload = storage.get_upload(upload_id)
-        if upload is None:
-            raise RuntimeError(f"Upload not found for retry: {upload_id}")
-        stored_path = upload.get("stored_path")
-        if not stored_path or not os.path.exists(stored_path):
-            raise RuntimeError(f"Uploaded file is unavailable for retry: {upload_id}")
-        execution_request["file_path"] = stored_path
-        execution_request["upload_id"] = upload_id
-        execution_request["source_display_name"] = upload["file_name"]
-    else:
-        source_file_path = runtime.get("source_file_path") or request.get("file_path") or resolved_request.get("file_path")
-        execution_request["file_path"] = audit_thesis.validate_docx_path(source_file_path)
-        if resolved_request.get("source_display_name"):
-            execution_request["source_display_name"] = resolved_request["source_display_name"]
-
-    request["retry_of_job_id"] = job_id
-    execution_request["retry_of_job_id"] = job_id
-    execution_request["_public_request"] = request
+    public_request = {**request, "retry_of_job_id": job_id}
+    execution_request = {
+        **request,
+        **_render_retry_options(payload["operation"], resolved_request),
+        **_retry_source_patch(request, runtime, resolved_request),
+        **_retry_pdf_patch(request),
+        "retry_of_job_id": job_id,
+        "_public_request": public_request,
+    }
     return create_job(payload["operation"], execution_request)
 
 

@@ -34,6 +34,10 @@ python3 scripts/release_smoke.py --work-dir /tmp/article-release-smoke --wheelho
 - 上传 `.docx`
 - 创建 apply job
 - 下载 output artifact
+- 上传一页 PDF
+- 创建 render-review job 并确认页图生成
+
+PDF 页图和文本在系统没有 Poppler 时会回退到包内 `pypdfium2` 与 Pillow；Windows zip 不依赖用户另装 `pdftoppm` 或 `pdftotext`。
 
 如需验证真实浏览器里的本地控制台交互，可运行：
 
@@ -129,11 +133,13 @@ python3 scripts/release_smoke.py --work-dir /tmp/article-release-smoke --wheelho
 python3 scripts/local_browser_smoke.py --work-dir /tmp/article-local-browser-smoke
 ```
 
-Windows 本地网页包需要在 Windows clean 环境准备运行目录，例如：
+Windows 本地网页包必须使用官方 embeddable Python。普通 venv 含构建机绝对路径，不能复制到学生电脑。GitHub Actions 会固定下载 Python 3.11.9 embeddable zip、校验 SHA256，并把 wheelhouse 安装到相对目录：
 
-```bat
-py -3.11 -m venv dist\windows-runtime
-dist\windows-runtime\Scripts\python.exe -m pip install --no-index --find-links C:\article-wheelhouse thesis-format-tool[api]
+```powershell
+Expand-Archive dist\python-embed.zip -DestinationPath dist\windows-runtime
+New-Item -ItemType Directory -Force dist\windows-runtime\Lib\site-packages | Out-Null
+Add-Content dist\windows-runtime\python311._pth -Value "Lib\site-packages`r`nimport site" -Encoding ascii
+python -m pip install --no-index --find-links C:\article-wheelhouse --target dist\windows-runtime\Lib\site-packages thesis-format-tool[api]
 ```
 
 准备好 `dist\windows-runtime` 后，在仓库根目录组装 zip：
@@ -145,11 +151,11 @@ python3 scripts/verify_release_artifact.py dist/lnu-thesis-local-windows.zip --s
 python3 scripts/windows_bundle_smoke.py dist/lnu-thesis-local-windows.zip --work-dir dist/windows-bundle-http-smoke --command-timeout-seconds 600 --json-output dist/windows-bundle-smoke.json
 ```
 
-`verify_release_artifact.py` 会确认 zip 只有一个顶层目录 `论文格式检查本地版/`，扫描 zip 不含本地论文、反馈包、env、日志或状态数据库，也不包含真实本地 state/runtime 数据，确认双击入口、快速开始文案和可选 GitHub Release API 地址格式存在，并生成 `lnu-thesis-local-windows.zip.sha256`。`windows_bundle_smoke.py` 会解压 zip，用随包 `app\Scripts\python.exe` 运行 `python.exe -m article_api.local_app doctor`，再启动本地服务并跑上传 `.docx`、创建 apply job、下载 output artifact 的网页链路，并可用 `--json-output` 保存证据 JSON。GitHub Actions 会在 windows-latest runner 上执行同类 smoke：构建 wheelhouse、准备 `dist\windows-runtime`、组装 `lnu-thesis-local-windows.zip`、检查 zip 内容，并对解压后的 zip 跑完整本地网页链路。CI 会上传 `release-smoke-evidence-*` 和 `windows-bundle-smoke-evidence` artifacts，作为发布前 smoke 证据。CI 在 push、pull_request 或 workflow_dispatch 中会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`；当 GitHub Release 发布触发 CI 时，会传入 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}`，让 Beta 或正式发布包里的“检查新版本”指向当前发布页。
+`verify_release_artifact.py` 会确认 zip 只有一个顶层目录 `论文格式检查本地版/`，扫描 zip 不含本地论文、反馈包、env、日志或状态数据库，也不包含真实本地 state/runtime 数据，并拒绝 `pyvenv.cfg`、缺失 Python DLL/标准库/VC runtime 或含绝对路径的 `python311._pth`。`windows_bundle_smoke.py` 会解压 zip，用随包 `app\python.exe` 运行 doctor，再启动本地服务并跑 DOCX 上传、apply、下载以及 PDF 上传、render-review、页图生成链路，并可用 `--json-output` 保存证据 JSON。GitHub Actions 会在 windows-latest runner 上执行同类 smoke：构建 wheelhouse、准备 `dist\windows-runtime`、组装 `lnu-thesis-local-windows.zip`、检查 zip 内容，并对解压后的 zip 跑完整本地网页链路。CI 会上传 `release-smoke-evidence-*` 和 `windows-bundle-smoke-evidence` artifacts，作为发布前 smoke 证据。普通 push、pull_request 或不带 tag 的 workflow_dispatch 使用 `--release-api-url https://api.github.com/repos/${{ github.repository }}/releases/latest`。
 
-可在 GitHub Actions 页面手动运行 CI（`workflow_dispatch`），用于发布 Release 前预构建 Windows 本地网页包并检查 `windows-latest` smoke。这个手动运行只证明 GitHub runner 上的构建链路可用，不能替代发布后的 Release 资产检查，也不能替代 Windows clean 环境双击启动和 WPS/Word 实机复核。
+发布前先创建 Draft Release，再在 GitHub Actions 页面手动运行 CI（`workflow_dispatch`）并填写 `release_tag`。此时包内版本检查地址使用 `/releases/tags/<release-tag>`；只有 Python 测试和 Windows bundle smoke 都通过，而且目标 Release 仍为 draft，CI 才会上传 zip 和 sha256。确认资产和证据后再发布 Release，不能先公开再等待构建结果。
 
-当 GitHub Release 发布为 `published` 时，CI 会把 `lnu-thesis-local-windows.zip` 和 `lnu-thesis-local-windows.zip.sha256` 上传到该 Release。Release 文案仍需要明确：这是 Beta，修复稿必须人工复核，论文默认只在本机处理，不要把论文或密钥上传到 issue。
+这个 Draft Release 流程只证明 GitHub runner 上的构建链路可用，不能替代 Windows clean 环境双击启动和 WPS/Word 实机复核。Release 文案仍需要明确：这是 Beta，修复稿必须人工复核，论文默认只在本机处理，不要把论文或密钥上传到 issue。
 
 发布后可用 GitHub CLI 做远端状态复核：
 

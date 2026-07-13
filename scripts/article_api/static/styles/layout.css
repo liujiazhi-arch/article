@@ -1073,7 +1073,7 @@
     .scope-chip {
       position: relative;
       display: grid;
-      grid-template-columns: 12px minmax(0, 1fr);
+      grid-template-columns: 18px minmax(0, 1fr);
       gap: 10px;
       align-items: start;
       min-height: 54px;
@@ -1091,6 +1091,29 @@
         0 12px 32px rgba(0, 0, 0, 0.12);
     }
 
+    .scope-chip input {
+      width: 16px;
+      height: 16px;
+      margin: 2px 0 0;
+      accent-color: var(--accent);
+    }
+
+    .scope-chip span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .scope-chip:has(input:checked) {
+      box-shadow:
+        inset 3px 0 0 var(--accent),
+        inset 0 0 0 1px var(--line-strong),
+        0 12px 32px rgba(0, 0, 0, 0.12);
+    }
+
+    .scope-chip:has(input:disabled) {
+      opacity: 0.72;
+    }
+
     .scope-chip::after {
       content: "";
       position: absolute;
@@ -1104,23 +1127,13 @@
       opacity: 0.52;
     }
 
-    .scope-chip::before {
-      content: "";
-      width: 9px;
-      height: 9px;
-      margin-top: 5px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 16px var(--accent-soft);
-    }
-
     .scope-chip small {
       grid-column: 2;
       margin-top: -2px;
-      color: rgba(255, 255, 255, 0.46);
+      color: rgba(255, 255, 255, 0.76);
       font-family: var(--font-mono);
-      font-size: 10px;
-      letter-spacing: 0.03em;
+      font-size: 12px;
+      letter-spacing: 0;
     }
 
     .workspace-core {
@@ -1346,6 +1359,12 @@
     .upload-action:hover {
       transform: translateY(-2px);
       border-color: var(--line-strong);
+    }
+
+    .upload-action:disabled {
+      cursor: not-allowed;
+      opacity: 0.48;
+      transform: none;
     }
 
     .visually-hidden {
@@ -2773,7 +2792,7 @@
       }
 
       .scope-chip {
-        grid-template-columns: 10px minmax(0, 1fr) auto;
+        grid-template-columns: 18px minmax(0, 1fr);
         min-height: 50px;
         font-size: 13px;
       }
@@ -2783,9 +2802,9 @@
       }
 
       .scope-chip small {
-        grid-column: 3;
-        justify-self: end;
-        margin-top: 2px;
+        grid-column: 2;
+        justify-self: start;
+        margin-top: -2px;
       }
 
       .runway {
@@ -2946,7 +2965,13 @@
       }
 
       .theme-strip {
+        position: relative;
+        left: auto;
+        bottom: auto;
+        transform: none;
+        width: fit-content;
         max-width: calc(100vw - 24px);
+        margin: -78px auto 16px;
         overflow-x: auto;
       }
     }

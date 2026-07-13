@@ -51,13 +51,13 @@ def _write_bundle_zip(
 ) -> None:
     entries = {
         "论文格式检查本地版/启动论文格式检查.bat": (
-            'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"\r\n'
+            'set "ARTICLE_PYTHON=%~dp0app\\python.exe"\r\n'
             'set "ARTICLE_LOCAL_RELEASE_API_URL=https://api.github.com/repos/example/article/releases/latest"\r\n'
             '"%ARTICLE_PYTHON%" -m article_api.local_app doctor\r\n'
             '"%ARTICLE_PYTHON%" -m article_api.local_app serve\r\n'
         ).encode("utf-8-sig"),
         "论文格式检查本地版/导出反馈包.bat": (
-            'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"\r\n'
+            'set "ARTICLE_PYTHON=%~dp0app\\python.exe"\r\n'
             '"%ARTICLE_PYTHON%" -m article_api.local_app feedback "%~dp0反馈包.zip"\r\n'
         ).encode("utf-8-sig"),
         "论文格式检查本地版/快速开始.txt": (
@@ -68,8 +68,14 @@ def _write_bundle_zip(
             "检查新版本只检查软件版本，不上传论文，也不会自动下载或安装更新\r\n"
             "反馈包默认不包含论文原文、修复稿或 API key\r\n"
         ).encode("utf-8-sig"),
-        "论文格式检查本地版/app/Scripts/python.exe": b"python",
-        "论文格式检查本地版/app/Scripts/lnu-thesis-local.exe": b"article-local",
+        "论文格式检查本地版/app/python.exe": b"python",
+        "论文格式检查本地版/app/python3.dll": b"abi-dll",
+        "论文格式检查本地版/app/python311.dll": b"dll",
+        "论文格式检查本地版/app/python311.zip": b"stdlib",
+        "论文格式检查本地版/app/python311._pth": b"python311.zip\n.\nLib\\site-packages\nimport site\n",
+        "论文格式检查本地版/app/vcruntime140.dll": b"runtime",
+        "论文格式检查本地版/app/vcruntime140_1.dll": b"runtime",
+        "论文格式检查本地版/app/LICENSE.txt": b"license",
         "论文格式检查本地版/data/state/.keep": b"",
         "论文格式检查本地版/data/runtime/.keep": b"",
     }
@@ -108,7 +114,7 @@ def test_verify_windows_bundle_artifact_allows_github_release_tag_api_url(tmp_pa
         bundle_zip,
         {
             "论文格式检查本地版/启动论文格式检查.bat": (
-                'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"\r\n'
+                'set "ARTICLE_PYTHON=%~dp0app\\python.exe"\r\n'
                 'set "ARTICLE_LOCAL_RELEASE_API_URL=https://api.github.com/repos/example/article/releases/tags/v0.1.0-beta"\r\n'
                 '"%ARTICLE_PYTHON%" -m article_api.local_app doctor\r\n'
                 '"%ARTICLE_PYTHON%" -m article_api.local_app serve\r\n'
@@ -145,12 +151,12 @@ def test_verify_windows_bundle_artifact_rejects_unexpected_top_level_folder(tmp_
         bundle_zip,
         {
             "wrong-root/启动论文格式检查.bat": (
-                'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"\r\n'
+                'set "ARTICLE_PYTHON=%~dp0app\\python.exe"\r\n'
                 '"%ARTICLE_PYTHON%" -m article_api.local_app doctor\r\n'
                 '"%ARTICLE_PYTHON%" -m article_api.local_app serve\r\n'
             ).encode("utf-8-sig"),
             "wrong-root/导出反馈包.bat": (
-                'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"\r\n'
+                'set "ARTICLE_PYTHON=%~dp0app\\python.exe"\r\n'
                 '"%ARTICLE_PYTHON%" -m article_api.local_app feedback "%~dp0反馈包.zip"\r\n'
             ).encode("utf-8-sig"),
             "wrong-root/快速开始.txt": (
@@ -160,8 +166,14 @@ def test_verify_windows_bundle_artifact_rejects_unexpected_top_level_folder(tmp_
                 "GitHub 只用于下载软件版本\r\n"
                 "检查新版本只检查软件版本，不上传论文，也不会自动下载或安装更新\r\n"
             ).encode("utf-8-sig"),
-            "wrong-root/app/Scripts/python.exe": b"python",
-            "wrong-root/app/Scripts/lnu-thesis-local.exe": b"article-local",
+            "wrong-root/app/python.exe": b"python",
+            "wrong-root/app/python3.dll": b"abi-dll",
+            "wrong-root/app/python311.dll": b"dll",
+            "wrong-root/app/python311.zip": b"stdlib",
+            "wrong-root/app/python311._pth": b"python311.zip\n.\nLib\\site-packages\nimport site\n",
+            "wrong-root/app/vcruntime140.dll": b"runtime",
+            "wrong-root/app/vcruntime140_1.dll": b"runtime",
+            "wrong-root/app/LICENSE.txt": b"license",
             "wrong-root/data/state/.keep": b"",
             "wrong-root/data/runtime/.keep": b"",
         },
@@ -305,7 +317,7 @@ def test_verify_windows_bundle_artifact_rejects_non_github_release_api_url(tmp_p
         bundle_zip,
         {
             "论文格式检查本地版/启动论文格式检查.bat": (
-                'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"\r\n'
+                'set "ARTICLE_PYTHON=%~dp0app\\python.exe"\r\n'
                 'set "ARTICLE_LOCAL_RELEASE_API_URL=https://example.com/releases/latest"\r\n'
                 '"%ARTICLE_PYTHON%" -m article_api.local_app doctor\r\n'
                 '"%ARTICLE_PYTHON%" -m article_api.local_app serve\r\n'

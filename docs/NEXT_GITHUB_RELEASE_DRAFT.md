@@ -2,7 +2,7 @@
 
 > 发布前把 `<release-tag>`、`<version>` 和校验值替换成最终值。当前草稿用于前端最终确认后直接粘贴到 GitHub Release。
 
-## `v0.1.1-beta` - Windows 本地网页包 Beta
+## `v0.1.2-beta` - Windows 本地网页包 Beta
 
 这是面向辽宁大学本科毕业论文 `.docx` 的本地格式审查与辅助修复工具。普通用户下载 Windows zip 后，完整解压，双击 `启动论文格式检查.bat`，浏览器会打开本机网页；在网页里上传论文、查看审查结果、选择修复项，并下载修复副本。
 
@@ -19,6 +19,12 @@
 
 ## 本版本改进
 
+- Windows 包改用官方 Python 3.11.9 embeddable runtime，不再复制构建机虚拟环境。
+- 内置 PDFium 页图与文本复核后端，在未安装 Poppler 的干净 Windows 环境也可运行 PDF 复核。
+- 修复 DOCX 上传后并发修复输出冲突、PDF 复核证据互相覆盖和复核任务重试失败。
+- 修复 WPS 文档缺少 JPG content type 时无法生成修复稿的问题。
+- 强化反馈包脱敏和体积限制，避免论文文件名、学生姓名及超大诊断日志进入反馈包。
+- Draft Release 上传门禁绑定本次 workflow commit，防止其他分支构建覆盖目标草稿资产。
 - 仓库改名为 `lnu-thesis-format-tool`，发布包改名为 `lnu-thesis-local-windows.zip`。
 - 新增 `lnu-thesis-local` 等命令入口，旧 `article-*` 命令继续保留兼容。
 - Windows 本地包发布链路完善：自带 Python 运行环境、双击启动脚本、快速开始说明、本地数据目录和反馈包导出入口。

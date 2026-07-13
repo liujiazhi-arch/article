@@ -30,7 +30,7 @@ def build_render_review_job_kwargs(
         "source_display_name": docx_upload.get("file_name"),
         "pdf_display_name": pdf_upload.get("file_name"),
         "runtime_root": docx_upload.get("runtime_root") or pdf_upload.get("runtime_root"),
-        "stage_input": False,
+        "stage_input": True,
         "max_attempts": request.max_attempts,
         "retry_delay_seconds": request.retry_delay_seconds,
         "timeout_seconds": request.timeout_seconds,

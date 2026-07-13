@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 from . import app as app_module
 from . import app_ops
 from . import storage
 from .local_env import command_with_roots, resolved_roots, root_env_scope, utcnow
+
+
+def _pdf_runtime_check() -> dict:
+    errors: list[str] = []
+    for module_name in ("pypdfium2", "PIL.Image"):
+        try:
+            importlib.import_module(module_name)
+        except Exception as exc:
+            errors.append(f"{module_name}: {exc}")
+    return {
+        "status": "ok" if not errors else "error",
+        "backend": "pypdfium2",
+        "errors": errors,
+    }
 
 
 def _doctor_headline(status: str, issues: list[str]) -> str:
@@ -55,6 +70,7 @@ def _doctor_recommended_actions(
     summary_view: dict,
     state_root: Path,
     runtime_root: Path,
+    pdf_runtime: dict,
 ) -> list[str]:
     serve_cmd = command_with_roots("lnu-thesis-local serve", state_root=state_root, runtime_root=runtime_root)
     doctor_cmd = command_with_roots("lnu-thesis-local doctor", state_root=state_root, runtime_root=runtime_root)
@@ -71,6 +87,8 @@ def _doctor_recommended_actions(
         actions.append("检查 failed job，并按需通过 `/jobs/{job_id}/retry` 或 UI 重提任务。")
     if summary_view["checks"]["retention"]["status"] == "warn":
         actions.append("检查 retention 配置和最近一次 sweep 错误，必要时手动运行 retention sweep。")
+    if pdf_runtime["status"] != "ok":
+        actions.append("重新安装论文格式检查工具，补齐内置 PDF 复核运行组件后再运行 doctor。")
     if not actions:
         actions.append(f"可以直接启动本地 API：`{serve_cmd}`")
     if summary_view["jobs"]["total"] > 0 or summary_view["uploads"]["total"] > 0:
@@ -86,16 +104,21 @@ def build_doctor_report(*, state_root: str | None = None, runtime_root: str | No
         runtime_view = app_module._ops_runtime_payload()
     runtime_root_view = storage_view["runtime_root"]
     roots_shared = resolved_state_root == resolved_runtime_root
+    pdf_runtime = _pdf_runtime_check()
     issues = _doctor_issues(
         summary_view=summary_view,
         storage_view=storage_view,
         runtime_view=runtime_view,
         runtime_root_view=runtime_root_view,
     )
+    if pdf_runtime["status"] != "ok":
+        issues = [*issues, "内置 PDF 复核运行组件不可用。"]
+    status = "error" if pdf_runtime["status"] != "ok" else summary_view["status"]
     recommended_actions = _doctor_recommended_actions(
         summary_view=summary_view,
         state_root=resolved_state_root,
         runtime_root=resolved_runtime_root,
+        pdf_runtime=pdf_runtime,
     )
     return {
         "service": app_ops.SERVICE_NAME,
@@ -103,9 +126,9 @@ def build_doctor_report(*, state_root: str | None = None, runtime_root: str | No
         "version": app_ops.SERVICE_VERSION,
         "api_version": app_ops.API_VERSION,
         "observed_at": utcnow(),
-        "status": summary_view["status"],
+        "status": status,
         "summary": {
-            "headline": _doctor_headline(summary_view["status"], issues),
+            "headline": _doctor_headline(status, issues),
             "issue_count": len(issues),
             "issues": issues,
             "recommended_actions": recommended_actions,
@@ -117,7 +140,7 @@ def build_doctor_report(*, state_root: str | None = None, runtime_root: str | No
             "state_root_writable": storage_view["storage"]["state_root_writable"],
             "runtime_root_writable": runtime_root_view["writable"],
         },
-        "checks": summary_view["checks"],
+        "checks": {**summary_view["checks"], "pdf_runtime": pdf_runtime},
         "inventory": {
             "jobs": summary_view["jobs"],
             "uploads": summary_view["uploads"],

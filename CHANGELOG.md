@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 - GitHub Beta
+
+- Replace the copied Windows virtual environment with the official Python 3.11.9 embeddable runtime.
+- Bundle PDFium/Pillow fallback support and verify DOCX apply/download plus PDF render-review in release smoke.
+- Isolate concurrent repair and render-review workspaces, restore PDF review retries, and harden WPS DOCX output compatibility.
+- Harden feedback archive redaction, diagnostic size limits, Draft Release commit binding, and Windows evidence checks.
+
 ## 0.1.1 - GitHub Beta
 
 - 仓库与发布资产改名为 `lnu-thesis-format-tool` / `lnu-thesis-local-windows.zip`。

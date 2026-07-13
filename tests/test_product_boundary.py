@@ -60,6 +60,15 @@ def test_readme_declares_single_document_product_boundary():
         assert forbidden not in readme
 
 
+def test_user_docs_route_pdf_evidence_through_render_verify():
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    user_guide = (PROJECT_ROOT / "docs" / "USER_GUIDE.md").read_text(encoding="utf-8")
+
+    assert "audit --rendered-pdf" not in readme
+    assert "audit --rendered-pdf" not in user_guide
+    assert "render-verify 修复后_正文段落.docx --profile lnu --rendered-pdf" in readme
+
+
 def test_repo_root_does_not_track_boundary_external_output_indexes():
     tracked = _git_lines("ls-files", "outputs")
     deleted = set(_git_lines("ls-files", "--deleted", "outputs"))
