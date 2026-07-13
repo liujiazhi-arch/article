@@ -91,6 +91,8 @@ def run_render_verify(
     renderer: str = "auto",
     rendered_pdf: str | None = None,
     page_images_dir: str | None = None,
+    pdf_matches_docx_confirmed: bool = False,
+    generate_static_toc: bool = False,
     workflow_mode: str | None = None,
 ) -> dict:
     return app_module.build_render_verify_payload(
@@ -102,6 +104,8 @@ def run_render_verify(
         renderer=renderer,
         rendered_pdf=rendered_pdf,
         page_images_dir=page_images_dir,
+        pdf_matches_docx_confirmed=pdf_matches_docx_confirmed,
+        generate_static_toc=generate_static_toc,
         workflow_mode=workflow_mode,
     )
 
@@ -154,6 +158,8 @@ def _build_parser() -> argparse.ArgumentParser:
     render_verify_parser.add_argument("--scope", action="append", default=None)
     render_verify_parser.add_argument("--renderer", choices=["auto", "word-pdf"], default="auto")
     render_verify_parser.add_argument("--rendered-pdf")
+    render_verify_parser.add_argument("--pdf-matches-docx-confirmed", action="store_true")
+    render_verify_parser.add_argument("--generate-static-toc", action="store_true")
     render_verify_parser.add_argument("--page-images-dir")
     render_verify_parser.add_argument("--workflow-mode", choices=["default_user", "agent_candidate"])
     render_verify_parser.set_defaults(handler=_handle_render_verify)
@@ -264,6 +270,8 @@ def _handle_render_verify(args: argparse.Namespace) -> int:
             renderer=args.renderer,
             rendered_pdf=args.rendered_pdf,
             page_images_dir=args.page_images_dir,
+            pdf_matches_docx_confirmed=args.pdf_matches_docx_confirmed,
+            generate_static_toc=args.generate_static_toc,
             workflow_mode=args.workflow_mode,
         )
     )

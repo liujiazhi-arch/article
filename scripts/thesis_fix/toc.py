@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import re
 import xml.etree.ElementTree as ET
 
@@ -7,6 +8,14 @@ from thesis_fix.dependencies import require
 
 
 BODY_TOC_BOOKMARK_NAME = "BodyTocRange"
+
+
+def _restore_element(target, snapshot):
+    target.clear()
+    target.attrib.update(snapshot.attrib)
+    target.text = snapshot.text
+    target.tail = snapshot.tail
+    target.extend(copy.deepcopy(list(snapshot)))
 
 
 def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair_keywords=True):
@@ -53,10 +62,24 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
     body = document_root.find("w:body", NSMAP)
     if body is None:
         return {}
+    original_root = copy.deepcopy(document_root)
 
     if repair_keywords:
         repair_misplaced_abstract_keywords(document_root, style_map=style_map)
-    existing_page_numbers = _collect_existing_toc_page_numbers(body, get_paragraph_text, W_NS)
+    existing_page_numbers, existing_toc_anchors = _collect_existing_toc_metadata(
+        body,
+        get_paragraph_text,
+        W_NS,
+    )
+    existing_toc_sect_pr = None
+    for paragraph in body.findall("w:p", NSMAP):
+        style = paragraph.find("w:pPr/w:pStyle", NSMAP)
+        if style is None or style.get(f"{{{W_NS}}}val") != "TOCPageBreak":
+            continue
+        sect_pr = paragraph.find("w:pPr/w:sectPr", NSMAP)
+        if sect_pr is not None:
+            existing_toc_sect_pr = copy.deepcopy(sect_pr)
+            break
     remove_existing_toc_artifacts(document_root)
     _remove_bookmark_range(document_root, BODY_TOC_BOOKMARK_NAME, NSMAP, W_NS)
     body_children = list(body)
@@ -205,10 +228,16 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
             _toc_page_lookup_key(clean_text),
             inherited_page_number or "",
         )
-        add_run(p_elem, text=clean_text, east_asia=entry_font, size=entry_size, bold=entry_bold)
+        entry_parent = p_elem
+        anchor = existing_toc_anchors.get(_toc_page_lookup_key(clean_text))
+        if anchor:
+            entry_parent = ET.SubElement(p_elem, f"{{{W_NS}}}hyperlink")
+            set_attr(entry_parent, "anchor", anchor)
+            set_attr(entry_parent, "history", "1")
+        add_run(entry_parent, text=clean_text, east_asia=entry_font, size=entry_size, bold=entry_bold)
         if page_number:
-            add_tab_run(p_elem, east_asia=entry_font, size=entry_size, bold=entry_bold)
-            add_run(p_elem, text=page_number, east_asia=entry_font, size=entry_size, bold=entry_bold)
+            add_tab_run(entry_parent, east_asia=entry_font, size=entry_size, bold=entry_bold)
+            add_run(entry_parent, text=page_number, east_asia=entry_font, size=entry_size, bold=entry_bold)
         return p_elem
 
     def make_toc_field_end():
@@ -232,6 +261,8 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         spacing = ET.SubElement(p_pr, f"{{{W_NS}}}spacing")
         set_attr(spacing, "before", "0")
         set_attr(spacing, "after", "0")
+        if existing_toc_sect_pr is not None:
+            p_pr.append(copy.deepcopy(existing_toc_sect_pr))
         run_elem = ET.SubElement(p_elem, f"{{{W_NS}}}r")
         br_elem = ET.SubElement(run_elem, f"{{{W_NS}}}br")
         set_attr(br_elem, "type", "page")
@@ -249,6 +280,8 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
             continue
         if paragraph_toc_level(child) != 1:
             continue
+        if match_heading_by_text(text) != 1:
+            continue
         if _is_frontmatter_title_text(text):
             continue
         if detect_backmatter_bucket(text, "h1") is not None:
@@ -256,6 +289,7 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         insert_index = idx
         break
     if insert_index is None:
+        _restore_element(document_root, original_root)
         return {}
 
     toc_headings = []
@@ -271,6 +305,7 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         toc_headings.append((text, level))
 
     if not toc_headings:
+        _restore_element(document_root, original_root)
         return {}
 
     new_paragraphs = [
@@ -291,12 +326,13 @@ def fix_insert_toc(document_root, cfg=None, style_map=None, runtime=None, repair
         set_attr,
     )
     if not bookmark_added:
+        _restore_element(document_root, original_root)
         return {}
 
     for offset, para in enumerate(new_paragraphs):
         body.insert(insert_index + offset, para)
 
-    return {}
+    return {"word/settings.xml": b""}
 
 
 def _toc_page_lookup_key(text):
@@ -323,14 +359,12 @@ def _strip_toc_entry_page_number(text):
     return extracted
 
 
-def _collect_existing_toc_page_numbers(body, get_paragraph_text, w_ns):
+def _collect_existing_toc_metadata(body, get_paragraph_text, w_ns):
     page_numbers = {}
+    anchors = {}
     in_toc = False
-    for child in list(body):
-        if child.tag != f"{{{w_ns}}}p":
-            if in_toc:
-                break
-            continue
+    nsmap = {"w": w_ns}
+    for child in body.iter(f"{{{w_ns}}}p"):
         text = str(get_paragraph_text(child) or "").strip()
         normalized = _toc_page_lookup_key(text)
         if normalized == "目录":
@@ -345,8 +379,14 @@ def _collect_existing_toc_page_numbers(body, get_paragraph_text, w_ns):
             break
         entry_text, page_number = extracted
         if entry_text:
-            page_numbers.setdefault(_toc_page_lookup_key(entry_text), page_number)
-    return page_numbers
+            key = _toc_page_lookup_key(entry_text)
+            page_numbers.setdefault(key, page_number)
+            hyperlink = child.find(".//w:hyperlink", nsmap)
+            if hyperlink is not None:
+                anchor = hyperlink.get(f"{{{w_ns}}}anchor")
+                if anchor:
+                    anchors.setdefault(key, anchor)
+    return page_numbers, anchors
 
 
 def _remove_bookmark_range(document_root, bookmark_name, nsmap, w_ns):
@@ -411,6 +451,13 @@ def _add_body_toc_bookmark(document_root, body_children, insert_index, bookmark_
     end_paragraph = None
     for child in reversed(body_children[insert_index:]):
         if child.tag == f"{{{w_ns}}}p":
+            if any(
+                "PAGE" in (instr.text or "").upper()
+                and run.find("w:rPr/w:vanish", nsmap) is not None
+                for run in child.findall(".//w:r", nsmap)
+                for instr in run.findall("w:instrText", nsmap)
+            ):
+                continue
             end_paragraph = child
             break
     if end_paragraph is None:

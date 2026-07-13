@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 
 import audit_thesis
 from _profile_utils import DEFAULT_PROFILE_ID, PROFILE_ALIASES, load_profile_bundle, resolve_template_profile_id
+from thesis_fix.cover_template import normalize_cover_fields
 from thesis_tool.scopes import list_scope_definitions, normalize_scope_names
 
 
@@ -58,10 +59,12 @@ class FixRuntime:
     renumber_headings: bool = False
     layout_rebalance: bool = False
     dry_run: bool = False
+    cover_fields: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
 class ScopeFlags:
+    cover: bool
     page: bool
     abstract: bool
     toc: bool
@@ -96,6 +99,7 @@ def build_fix_runtime(
     layout_rebalance=False,
     dry_run=False,
     strict_profile=None,
+    cover_fields=None,
 ):
     profile_bundle = load_profile_bundle(
         profile_path,
@@ -109,6 +113,12 @@ def build_fix_runtime(
     if toc:
         cfg["toc_auto"] = True
     requested_scopes = normalize_scopes(scopes)
+    normalized_cover_fields = normalize_cover_fields(cover_fields)
+    cover_requested = requested_scopes is not None and "cover" in requested_scopes
+    if cover_requested and normalized_cover_fields is None:
+        raise ValueError("cover scope 需要完整 cover_fields")
+    if normalized_cover_fields is not None and not cover_requested:
+        raise ValueError("cover_fields 只能与显式 cover scope 一起使用")
     return FixRuntime(
         cfg=cfg,
         profile_id=profile_bundle.profile_id,
@@ -120,6 +130,7 @@ def build_fix_runtime(
         renumber_headings=bool(renumber_headings),
         layout_rebalance=bool(layout_rebalance),
         dry_run=bool(dry_run),
+        cover_fields=normalized_cover_fields,
     )
 
 
@@ -143,6 +154,36 @@ def resolve_fix_heading_style_ids(heading_style_ids=None, runtime=None):
     if runtime is not None:
         return runtime.heading_style_ids
     return DEFAULT_HEADING_STYLE_IDS
+
+
+def _normalized_style_token(value) -> str:
+    return "".join(char for char in str(value or "").casefold() if char.isalnum())
+
+
+def resolve_document_heading_style_ids(style_map, runtime=None) -> dict[str, str]:
+    resolved = dict(resolve_fix_heading_style_ids(runtime=runtime))
+    for level in range(1, 5):
+        key = f"h{level}"
+        canonical = resolved[key]
+        if canonical in style_map:
+            continue
+        expected_tokens = {f"heading{level}", f"标题{level}"}
+        candidate = next(
+            (
+                style_id
+                for style_id, props in style_map.items()
+                if props.get("outlineLvl") == level - 1
+                and {
+                    _normalized_style_token(style_id),
+                    _normalized_style_token(props.get("name")),
+                }
+                & expected_tokens
+            ),
+            None,
+        )
+        if candidate:
+            resolved[key] = candidate
+    return resolved
 
 
 def normalize_scopes(scopes):
@@ -186,6 +227,7 @@ def is_lnu_profile(runtime=None):
 
 def build_scope_flags(requested_scopes) -> ScopeFlags:
     return ScopeFlags(
+        cover=requested_scopes is not None and "cover" in requested_scopes,
         page=is_scope_enabled(requested_scopes, "page"),
         abstract=is_scope_enabled(requested_scopes, "abstract"),
         toc=is_scope_enabled(requested_scopes, "toc"),

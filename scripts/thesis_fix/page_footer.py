@@ -4,6 +4,7 @@ import copy
 import os
 import xml.etree.ElementTree as ET
 
+from ooxml_namespaces import serialize_opc_root
 from thesis_fix.dependencies import require
 
 
@@ -468,8 +469,8 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
         for part_name, part_xml in center_existing_footer_page_numbers(rels_root).items():
             updated.setdefault(part_name, part_xml)
         if package_changed:
-            updated["word/_rels/document.xml.rels"] = ET.tostring(rels_root, encoding="utf-8", xml_declaration=True)
-            updated["[Content_Types].xml"] = ET.tostring(content_types_root, encoding="utf-8", xml_declaration=True)
+            updated["word/_rels/document.xml.rels"] = serialize_opc_root(rels_root, PACKAGE_REL_NS)
+            updated["[Content_Types].xml"] = serialize_opc_root(content_types_root, CONTENT_TYPES_NS)
         return updated
 
     rels_root = ET.parse(rels_path).getroot()
@@ -532,6 +533,6 @@ def fix_footer_page_number(temp_dir, document_root, cfg=None, runtime=None):
 
     return {
         "word/footer1.xml": build_footer_xml(active_cfg),
-        "word/_rels/document.xml.rels": ET.tostring(rels_root, encoding="utf-8", xml_declaration=True),
-        "[Content_Types].xml": ET.tostring(content_types_root, encoding="utf-8", xml_declaration=True),
+        "word/_rels/document.xml.rels": serialize_opc_root(rels_root, PACKAGE_REL_NS),
+        "[Content_Types].xml": serialize_opc_root(content_types_root, CONTENT_TYPES_NS),
     }

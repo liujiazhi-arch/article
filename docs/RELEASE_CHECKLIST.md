@@ -9,10 +9,10 @@
 - 运行 `python3 -m pytest -q`。
 - 确认 GitHub About 区已设置 description、homepage URL 和 topics。
 - 确认 README 首屏包含下载入口、平台状态表、隐私边界和 `docs/assets/local-console-home.png` / `docs/assets/local-console-repaired.png`。
-- 运行 `python3 scripts/release_smoke.py --work-dir /tmp/article-release-smoke --wheelhouse /tmp/article-wheelhouse --json-output /tmp/article-release-smoke.json`。
+- 运行 `python3 scripts/release_smoke.py --work-dir /tmp/article-release-smoke --wheelhouse /tmp/article-wheelhouse --json-output /tmp/article-release-smoke.json`，确认 DOCX apply/download 与 PDF render-review 都成功。
 - 可选运行浏览器级本地网页 smoke：`python3 scripts/local_browser_smoke.py --work-dir /tmp/article-local-browser-smoke --json-output /tmp/article-browser-smoke.json`，确认真实浏览器里 upload / audit / plan / apply / download 跑通并保存截图。
 - 构建 Windows zip 后运行 `python3 scripts/windows_bundle_smoke.py dist/lnu-thesis-local-windows.zip --work-dir dist/windows-bundle-http-smoke --command-timeout-seconds 600`。
-- 发布 Release 前，可在 GitHub Actions 页面手动运行 CI（`workflow_dispatch`），预先确认 Windows 本地网页包能在 `windows-latest` 构建并通过 smoke。
+- 先创建 Draft Release，再在 GitHub Actions 页面手动运行 CI（`workflow_dispatch`）并填写 `release_tag`；确认 Python 测试和 Windows bundle smoke 通过，zip 与 sha256 已上传到仍为 draft 的 Release 后再公开发布。
 - 在 GitHub Actions artifacts 中保存 `release-smoke-evidence-*` 和 `windows-bundle-smoke-evidence`，用于发布证据归档。
 - 确认 GitHub Actions Python 3.11 / 3.12 通过。
 - 发布 GitHub Release 后运行 `python3 scripts/github_release_status.py --repo <owner>/<repo> --branch main --tag <release-tag> --json-output /tmp/article-github-status.json`，确认 CI 最近一次运行成功，且 Release 资产包含 `lnu-thesis-local-windows.zip` 和 `lnu-thesis-local-windows.zip.sha256`。

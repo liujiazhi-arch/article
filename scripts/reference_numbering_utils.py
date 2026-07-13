@@ -87,6 +87,23 @@ def paragraph_has_reference_tab(p_elem) -> bool:
     return False
 
 
+def reference_paragraph_text_with_tabs(p_elem) -> str:
+    parts = []
+    for child in p_elem:
+        if child.tag == f"{{{W_NS}}}pPr":
+            continue
+        for elem in child.iter():
+            if elem.tag == f"{{{W_NS}}}t":
+                parts.append(elem.text or "")
+            elif elem.tag == f"{{{W_NS}}}tab":
+                parts.append("\t")
+    return "".join(parts)
+
+
+def paragraph_has_reference_number_tab(p_elem) -> bool:
+    return reference_number_has_tab_separator(reference_paragraph_text_with_tabs(p_elem))
+
+
 def _get_w_attr(elem, attr_name: str) -> str | None:
     return elem.get(f"{{{W_NS}}}{attr_name}") if elem is not None else None
 

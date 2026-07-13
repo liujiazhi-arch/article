@@ -82,9 +82,13 @@ def _merge_styles_xml(template_styles_path, doc_styles_path):
                 if tmpl_block is None:
                     continue
                 if doc_block is not None:
+                    block_idx = list(doc_style).index(doc_block)
                     doc_style.remove(doc_block)
-                name_idx = list(doc_style).index(doc_style.find(f"{w}name"))
-                doc_style.insert(name_idx + 1, copy.deepcopy(tmpl_block))
+                elif tag == f"{w}pPr" and doc_style.find(f"{w}rPr") is not None:
+                    block_idx = list(doc_style).index(doc_style.find(f"{w}rPr"))
+                else:
+                    block_idx = len(doc_style)
+                doc_style.insert(block_idx, copy.deepcopy(tmpl_block))
         else:
             tmpl_sid = tmpl_style.get(f"{w}styleId", "")
             if tmpl_sid and tmpl_sid in {style.get(f"{w}styleId", "") for style in doc_root.findall(f"{w}style")}:
@@ -156,6 +160,24 @@ def _validate_written_docx(path: str) -> None:
         raise RuntimeError(f"输出文件无法被 python-docx 重新打开: {path}") from exc
 
 
+def _with_jpg_content_type(source_zip: zipfile.ZipFile, updated_parts: dict[str, bytes]) -> dict[str, bytes]:
+    package_names = set(source_zip.namelist()) | set(updated_parts)
+    if not any(name.lower().endswith(".jpg") for name in package_names):
+        return updated_parts
+
+    content = updated_parts.get("[Content_Types].xml") or source_zip.read("[Content_Types].xml")
+    root = ET.fromstring(content)
+    defaults = root.findall(f"{{{CONTENT_TYPES_NS}}}Default")
+    if any(item.get("Extension", "").lower() == "jpg" for item in defaults):
+        return updated_parts
+
+    default = ET.SubElement(root, f"{{{CONTENT_TYPES_NS}}}Default")
+    default.set("Extension", "jpg")
+    default.set("ContentType", "image/jpeg")
+    normalized_content = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    return {**updated_parts, "[Content_Types].xml": normalized_content}
+
+
 def write_docx_atomically(input_path: str, output_path: str, updated_parts: dict[str, bytes]) -> None:
     output_dir = os.path.dirname(os.path.abspath(output_path)) or "."
     temp_output_path = None
@@ -170,14 +192,15 @@ def write_docx_atomically(input_path: str, output_path: str, updated_parts: dict
             temp_output_path = temp_handle.name
 
         with zipfile.ZipFile(input_path, "r") as source_zip, zipfile.ZipFile(temp_output_path, "w", zipfile.ZIP_DEFLATED) as target_zip:
+            parts_to_write = _with_jpg_content_type(source_zip, updated_parts)
             written_files = set()
             for item in source_zip.infolist():
-                if item.filename in updated_parts:
-                    target_zip.writestr(item, updated_parts[item.filename])
+                if item.filename in parts_to_write:
+                    target_zip.writestr(item, parts_to_write[item.filename])
                     written_files.add(item.filename)
                 else:
                     target_zip.writestr(item, source_zip.read(item.filename))
-            for filename, content in updated_parts.items():
+            for filename, content in parts_to_write.items():
                 if filename not in written_files:
                     target_zip.writestr(filename, content)
 

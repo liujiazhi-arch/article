@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import xml.etree.ElementTree as ET
 
+from ooxml_namespaces import declare_ignorable_namespaces
+
 
 def build_settings_with_update_fields(settings_xml=None, *, w_ns: str, nsmap: dict, set_attr) -> bytes:
     if settings_xml:
@@ -24,22 +26,26 @@ def build_updated_parts(
     *,
     ctx,
     toc_parts: dict[str, bytes],
+    cover_parts: dict[str, bytes] | None = None,
     footer_builder,
     settings_builder,
 ) -> dict[str, bytes]:
-    updated_parts: dict[str, bytes] = {}
-    if ctx.scope_flags.page and ctx.temp_dir is not None:
-        updated_parts = footer_builder(ctx.temp_dir, ctx.document_root, ctx.cfg, runtime=ctx.runtime)
+    normalized_toc_parts = dict(toc_parts)
 
-    if "word/settings.xml" in toc_parts and ctx.temp_dir is not None:
+    if "word/settings.xml" in normalized_toc_parts and ctx.temp_dir is not None:
         settings_path = os.path.join(ctx.temp_dir, "word", "settings.xml")
         existing_settings_xml = None
         if os.path.exists(settings_path):
             with open(settings_path, "rb") as handle:
                 existing_settings_xml = handle.read()
-        toc_parts["word/settings.xml"] = settings_builder(existing_settings_xml)
+        normalized_toc_parts["word/settings.xml"] = settings_builder(existing_settings_xml)
 
-    updated_parts.update(toc_parts)
+    updated_parts = dict(normalized_toc_parts)
+    for name, payload in (cover_parts or {}).items():
+        updated_parts.setdefault(name, payload)
+    if ctx.scope_flags.page and ctx.temp_dir is not None:
+        updated_parts.update(footer_builder(ctx.temp_dir, ctx.document_root, ctx.cfg, runtime=ctx.runtime))
+    declare_ignorable_namespaces(ctx.document_root)
     updated_parts["word/document.xml"] = ET.tostring(ctx.document_root, encoding="utf-8", xml_declaration=True)
 
     merged_styles_path = os.path.join(ctx.temp_dir, "word", "styles.xml") if ctx.temp_dir is not None else None

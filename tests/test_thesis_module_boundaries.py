@@ -285,6 +285,7 @@ def test_updated_parts_are_built_by_output_parts_module_without_private_wrapper(
     assert {keyword.arg for keyword in direct_calls[0].keywords} == {
         "ctx",
         "toc_parts",
+        "cover_parts",
         "footer_builder",
         "settings_builder",
     }

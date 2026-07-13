@@ -37,6 +37,36 @@ def build_artifacts(
             }
         )
 
+    if operation == "render-verify":
+        report_path = (result or {}).get("report_path")
+        if status == "succeeded" and report_path:
+            artifacts.append(
+                {
+                    "kind": "markdown",
+                    "role": REPORT_ARTIFACT_ROLE,
+                    "path": report_path,
+                    "download_name": os.path.basename(report_path),
+                    "workspace": os.path.dirname(report_path),
+                    "written": True,
+                    "exists_at_completion": os.path.exists(report_path),
+                }
+            )
+        toc_finalization = (result or {}).get("toc_finalization") or {}
+        output_path = toc_finalization.get("output_path")
+        if status == "succeeded" and toc_finalization.get("available") and output_path:
+            artifacts.append(
+                {
+                    "kind": "docx",
+                    "role": "toc-output",
+                    "path": output_path,
+                    "download_name": os.path.basename(output_path),
+                    "workspace": os.path.dirname(output_path),
+                    "written": True,
+                    "exists_at_completion": os.path.exists(output_path),
+                }
+            )
+        return artifacts
+
     if operation not in {"apply", "normalize"}:
         return artifacts
 

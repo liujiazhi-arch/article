@@ -13,6 +13,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
 
+from thesis_fix import toc as toc_fix
 from thesis_tool.workflow import apply_scoped_fix, build_scoped_fix_preview, render_scoped_fix_preview
 
 from .conftest import audit_rule_status, make_compliant_doc, make_violating_doc
@@ -46,7 +47,48 @@ def _add_mock_drawing(paragraph) -> None:
     run._r.append(OxmlElement("w:drawing"))
 
 
-def _inject_equation_layout_table(docx_path: Path, eq_number: str = "(1.1)") -> None:
+def _add_anchor_drawing(paragraph, *, drawing_id: int) -> None:
+    drawing = OxmlElement("w:drawing")
+    anchor = OxmlElement("wp:anchor")
+    for name in ("distT", "distB", "distL", "distR"):
+        anchor.set(name, "0")
+    extent = OxmlElement("wp:extent")
+    extent.set("cx", "360000")
+    extent.set("cy", "360000")
+    doc_pr = OxmlElement("wp:docPr")
+    doc_pr.set("id", str(drawing_id))
+    doc_pr.set("name", f"Anchor {drawing_id}")
+    anchor.extend((extent, doc_pr, OxmlElement("wp:cNvGraphicFramePr"), OxmlElement("a:graphic")))
+    drawing.append(anchor)
+    paragraph.add_run()._r.append(drawing)
+
+
+def _make_cover_and_body_anchor_docx(path: Path) -> None:
+    doc = Document()
+    cover = doc.add_paragraph("封面图")
+    _add_anchor_drawing(cover, drawing_id=1)
+    doc.add_paragraph("第1章 绪论").style = doc.styles["Heading 1"]
+    body = doc.add_paragraph("正文图")
+    _add_anchor_drawing(body, drawing_id=2)
+    doc.save(path)
+
+
+def _assert_cover_anchor_and_body_inline(path: Path) -> None:
+    doc = Document(path)
+    cover = _paragraph_by_prefix(doc, "封面图")
+    body = _paragraph_by_prefix(doc, "正文图")
+    assert cover._p.xpath(".//wp:anchor")
+    assert not cover._p.xpath(".//wp:inline")
+    assert not body._p.xpath(".//wp:anchor")
+    assert body._p.xpath(".//wp:inline")
+
+
+def _inject_equation_layout_table(
+    docx_path: Path,
+    eq_number: str = "(1.1)",
+    *,
+    additional_numbers: tuple[str, ...] = (),
+) -> None:
     w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     m_ns = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 
@@ -74,22 +116,23 @@ def _inject_equation_layout_table(docx_path: Path, eq_number: str = "(1.1)") -> 
         border.set(_w("sz"), "18")
         border.set(_w("color"), "000000")
 
-    tr = ET.SubElement(tbl, _w("tr"))
-    ET.SubElement(ET.SubElement(tr, _w("tc")), _w("p"))
+    for current_number in (eq_number, *additional_numbers):
+        tr = ET.SubElement(tbl, _w("tr"))
+        ET.SubElement(ET.SubElement(tr, _w("tc")), _w("p"))
 
-    math_tc = ET.SubElement(tr, _w("tc"))
-    math_p = ET.SubElement(math_tc, _w("p"))
-    omath_para = ET.SubElement(math_p, _m("oMathPara"))
-    omath = ET.SubElement(omath_para, _m("oMath"))
-    mr = ET.SubElement(omath, _m("r"))
-    mt = ET.SubElement(mr, _m("t"))
-    mt.text = "E=mc2"
+        math_tc = ET.SubElement(tr, _w("tc"))
+        math_p = ET.SubElement(math_tc, _w("p"))
+        omath_para = ET.SubElement(math_p, _m("oMathPara"))
+        omath = ET.SubElement(omath_para, _m("oMath"))
+        mr = ET.SubElement(omath, _m("r"))
+        mt = ET.SubElement(mr, _m("t"))
+        mt.text = "E=mc2"
 
-    num_tc = ET.SubElement(tr, _w("tc"))
-    num_p = ET.SubElement(num_tc, _w("p"))
-    run = ET.SubElement(num_p, _w("r"))
-    text = ET.SubElement(run, _w("t"))
-    text.text = eq_number
+        num_tc = ET.SubElement(tr, _w("tc"))
+        num_p = ET.SubElement(num_tc, _w("p"))
+        run = ET.SubElement(num_p, _w("r"))
+        text = ET.SubElement(run, _w("t"))
+        text.text = current_number
 
     body.insert(list(body).index(sect_pr), tbl)
     parts["word/document.xml"] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
@@ -432,6 +475,36 @@ def test_lnu_headings_scope_formats_h1_as_di_chapter(tmp_path):
 
     fixed_doc = Document(fixed_path)
     assert _paragraph_by_prefix(fixed_doc, "第1章 材料与方法").text == "第1章 材料与方法"
+
+
+def test_lnu_heading_fix_preserves_split_run_text_across_repeated_apply(tmp_path):
+    source_path = Path(tmp_path) / "split_run_heading_source.docx"
+    first_path = Path(tmp_path) / "split_run_heading_first.docx"
+    second_path = Path(tmp_path) / "split_run_heading_second.docx"
+    expected = "0.1 鹿茸的研究进展"
+
+    doc = Document()
+    preface = doc.add_paragraph("序  言")
+    preface.style = doc.styles["Heading 1"]
+    heading = doc.add_paragraph()
+    heading.style = doc.styles["Heading 2"]
+    heading.add_run("0.1 鹿茸的")
+    heading.add_run("研究进展")
+    doc.save(source_path)
+
+    for input_path, output_path in ((source_path, first_path), (first_path, second_path)):
+        apply_scoped_fix(
+            str(input_path),
+            str(output_path),
+            profile_path="lnu",
+            scopes=["headings"],
+        )
+
+    actual = [
+        next(paragraph.text for paragraph in Document(path).paragraphs if paragraph.text.startswith("0.1"))
+        for path in (first_path, second_path)
+    ]
+    assert actual == [expected, expected]
 
 
 def test_lnu_figures_scope_uses_zero_chapter_caption_number_for_preface(tmp_path):
@@ -1039,6 +1112,42 @@ def test_figures_scope_clears_borders_on_equation_layout_tables(tmp_path):
         assert border.get(qn("w:sz")) == "0"
 
 
+def test_figures_scope_clears_borders_on_grouped_equation_layout_table(tmp_path):
+    source_path = Path(tmp_path) / "grouped_equation_layout_table_source.docx"
+    doc = Document()
+    doc.add_paragraph("第1章 绪论").style = doc.styles["Heading 1"]
+    doc.add_paragraph("其中两条公式如下。")
+    doc.save(source_path)
+    _inject_equation_layout_table(
+        source_path,
+        "（1.3）",
+        additional_numbers=("（1.4）",),
+    )
+
+    fixed_path = Path(tmp_path) / "grouped_equation_layout_table_fixed.docx"
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    with zipfile.ZipFile(fixed_path, "r") as zf:
+        root = ET.fromstring(zf.read("word/document.xml"))
+
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    table = root.find(".//w:tbl", ns)
+    assert table is not None
+    assert len(table.findall("w:tr", ns)) == 2
+    borders = table.find("w:tblPr/w:tblBorders", ns)
+    assert borders is not None
+    for border_name in ("top", "bottom", "left", "right", "insideH", "insideV"):
+        border = borders.find(f"w:{border_name}", ns)
+        assert border is not None
+        assert border.get(qn("w:val")) == "nil"
+        assert border.get(qn("w:sz")) == "0"
+
+
 def test_body_scope_right_aligns_separate_equation_number_paragraphs(tmp_path):
     source_path = Path(tmp_path) / "separate_equation_number_source.docx"
     doc = Document()
@@ -1473,6 +1582,39 @@ def test_heading_and_table_scopes_keep_heading_spacing_after_table_block(tmp_pat
     assert lnu_tb04["passed"], lnu_tb04["issues"]
 
 
+def test_figures_scope_converges_for_adjacent_table_blocks(tmp_path):
+    source_path = Path(tmp_path) / "adjacent_tables_source.docx"
+    first_path = Path(tmp_path) / "adjacent_tables_first.docx"
+    second_path = Path(tmp_path) / "adjacent_tables_second.docx"
+    doc = Document()
+    doc.add_paragraph("第2章 实验结果与分析").style = doc.styles["Heading 1"]
+    for number in (1, 2):
+        doc.add_paragraph(f"表2.{number} 统计结果").alignment = WD_ALIGN_PARAGRAPH.CENTER
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "组别"
+        table.cell(0, 1).text = "结果"
+        table.cell(1, 0).text = "实验组"
+        table.cell(1, 1).text = str(number)
+        if number == 1:
+            doc.add_paragraph("")
+    doc.add_paragraph("下文继续分析。")
+    doc.save(source_path)
+
+    for input_path, output_path in ((source_path, first_path), (first_path, second_path)):
+        apply_scoped_fix(
+            str(input_path),
+            str(output_path),
+            profile_path="lnu",
+            scopes=["figures_tables"],
+        )
+
+    fixed_doc = Document(second_path)
+    children = list(fixed_doc.element.body.iterchildren())
+    tables = [index for index, child in enumerate(children) if child.tag == qn("w:tbl")]
+    between = children[tables[0] + 1 : tables[1]]
+    assert sum(child.tag == qn("w:p") and not "".join(child.itertext()).strip() for child in between) == 1
+
+
 def test_figures_scope_allows_table_block_at_document_end(tmp_path):
     source_path = Path(tmp_path) / "lnu_table_block_at_document_end_source.docx"
     doc = Document()
@@ -1622,6 +1764,149 @@ def test_fix_docx_writes_reopenable_docx(tmp_docx, tmp_path):
     assert len(reopened.paragraphs) > 0
 
 
+def test_fix_docx_is_part_idempotent_after_first_toc_and_page_fix(tmp_path):
+    source_path = Path(tmp_path) / "idempotent_source.docx"
+    first_path = Path(tmp_path) / "idempotent_first.docx"
+    second_path = Path(tmp_path) / "idempotent_second.docx"
+    doc = Document()
+    doc.add_paragraph("封面信息")
+    toc_title = doc.add_paragraph("Table of contents")
+    toc_title._p.get_or_add_pPr().append(OxmlElement("w:sectPr"))
+    doc.add_paragraph("第1章 绪论")
+    doc.add_paragraph("1.1 研究背景")
+    doc.add_paragraph("这是正文。")
+    doc.save(source_path)
+
+    fix_thesis.fix_docx(
+        str(source_path),
+        str(first_path),
+        profile_path="lnu",
+        scopes=["toc", "page"],
+    )
+    fix_thesis.fix_docx(
+        str(first_path),
+        str(second_path),
+        profile_path="lnu",
+        scopes=["toc", "page"],
+    )
+
+    with zipfile.ZipFile(first_path, "r") as first_zip, zipfile.ZipFile(second_path, "r") as second_zip:
+        assert first_zip.read("word/document.xml") == second_zip.read("word/document.xml")
+        assert first_zip.read("word/styles.xml") == second_zip.read("word/styles.xml")
+
+
+def test_toc_refresh_preserves_frontmatter_page_section_across_repeated_apply(tmp_path):
+    source_path = Path(tmp_path) / "frontmatter_sections_source.docx"
+    first_path = Path(tmp_path) / "frontmatter_sections_first.docx"
+    second_path = Path(tmp_path) / "frontmatter_sections_second.docx"
+
+    doc = Document()
+    cover = doc.add_paragraph("封面信息")
+    cover._p.get_or_add_pPr().append(OxmlElement("w:sectPr"))
+    doc.add_paragraph("摘  要")
+    doc.add_paragraph("摘要正文")
+    doc.add_paragraph("关键词：测试；修复")
+    manual_break = doc.add_paragraph()
+    page_break = OxmlElement("w:br")
+    page_break.set(qn("w:type"), "page")
+    manual_break.add_run()._r.append(page_break)
+    toc_title = doc.add_paragraph("目  录")
+    toc_title._p.get_or_add_pPr().append(OxmlElement("w:sectPr"))
+    doc.add_paragraph("序  言").style = doc.styles["Heading 1"]
+    doc.add_paragraph("这是正文内容。")
+    doc.save(source_path)
+
+    for input_path, output_path in ((source_path, first_path), (first_path, second_path)):
+        apply_scoped_fix(
+            str(input_path),
+            str(output_path),
+            profile_path="lnu",
+            scopes=["toc", "page", "acknowledgement"],
+            toc=True,
+        )
+
+        with zipfile.ZipFile(output_path) as zf:
+            root = ET.fromstring(zf.read("word/document.xml"))
+        paragraphs = root.findall("w:body/w:p", fix_thesis.NSMAP)
+        toc_heading = next(
+            paragraph
+            for paragraph in paragraphs
+            if paragraph.find("w:pPr/w:pStyle", fix_thesis.NSMAP) is not None
+            and paragraph.find("w:pPr/w:pStyle", fix_thesis.NSMAP).get(qn("w:val")) == "TOCHeading"
+        )
+        toc_heading_index = paragraphs.index(toc_heading)
+        assert toc_heading.find("w:pPr/w:pageBreakBefore", fix_thesis.NSMAP) is not None
+        assert not any(
+            paragraph.find('.//w:br[@w:type="page"]', fix_thesis.NSMAP) is not None
+            for paragraph in paragraphs[:toc_heading_index]
+        )
+        sections = root.findall(".//w:sectPr", fix_thesis.NSMAP)
+        assert len(sections) == 3
+        assert sections[0].find("w:footerReference", fix_thesis.NSMAP) is None
+        for section, expected_format in zip(sections[1:], ("upperRoman", "decimal")):
+            page_number = section.find("w:pgNumType", fix_thesis.NSMAP)
+            assert page_number is not None
+            assert page_number.get(qn("w:fmt")) == expected_format
+            assert page_number.get(qn("w:start")) == "1"
+            assert section.find("w:footerReference", fix_thesis.NSMAP) is not None
+
+
+def test_auto_toc_bookmark_excludes_hidden_page_marker():
+    document_root = ET.Element(f"{{{fix_thesis.W_NS}}}document")
+    body = ET.SubElement(document_root, f"{{{fix_thesis.W_NS}}}body")
+    heading = ET.SubElement(body, f"{{{fix_thesis.W_NS}}}p")
+    content = ET.SubElement(body, f"{{{fix_thesis.W_NS}}}p")
+    page_marker = ET.SubElement(body, f"{{{fix_thesis.W_NS}}}p")
+    page_run = ET.SubElement(page_marker, f"{{{fix_thesis.W_NS}}}r")
+    page_run_properties = ET.SubElement(page_run, f"{{{fix_thesis.W_NS}}}rPr")
+    ET.SubElement(page_run_properties, f"{{{fix_thesis.W_NS}}}vanish")
+    page_instruction = ET.SubElement(page_run, f"{{{fix_thesis.W_NS}}}instrText")
+    page_instruction.text = " PAGE "
+
+    assert toc_fix._add_body_toc_bookmark(
+        document_root,
+        list(body),
+        0,
+        toc_fix.BODY_TOC_BOOKMARK_NAME,
+        fix_thesis.NSMAP,
+        fix_thesis.W_NS,
+        fix_thesis.set_attr,
+    )
+    assert heading.find("w:bookmarkStart", fix_thesis.NSMAP) is not None
+    assert content.find("w:bookmarkEnd", fix_thesis.NSMAP) is not None
+    assert page_marker.find("w:bookmarkEnd", fix_thesis.NSMAP) is None
+
+
+def test_fix_docx_is_part_idempotent_after_inserting_acknowledgement(tmp_path):
+    source_path = Path(tmp_path) / "ack_idempotent_source.docx"
+    first_path = Path(tmp_path) / "ack_idempotent_first.docx"
+    second_path = Path(tmp_path) / "ack_idempotent_second.docx"
+    doc = Document()
+    doc.add_paragraph("1 绪论")
+    doc.add_paragraph("1.1 BATMAN-TCM 数据库").style = doc.styles["Heading 2"]
+    doc.add_paragraph("这是正文。")
+    doc.save(source_path)
+
+    for input_path, output_path in ((source_path, first_path), (first_path, second_path)):
+        fix_thesis.fix_docx(
+            str(input_path),
+            str(output_path),
+            profile_path="lnu",
+            toc=True,
+            scopes=["toc", "headings", "acknowledgement"],
+        )
+
+    with zipfile.ZipFile(first_path, "r") as first_zip, zipfile.ZipFile(second_path, "r") as second_zip:
+        assert first_zip.read("word/document.xml") == second_zip.read("word/document.xml")
+        assert first_zip.read("word/styles.xml") == second_zip.read("word/styles.xml")
+
+    first_doc = Document(first_path)
+    assert any(
+        paragraph.style.style_id == "TOC1" and paragraph.text.strip() == "致  谢"
+        for paragraph in first_doc.paragraphs
+    )
+
+
 def test_toc_scope_inserts_visible_toc_without_word_field(tmp_path):
     source_path = Path(tmp_path) / "visible_toc_source.docx"
     fixed_path = Path(tmp_path) / "visible_toc_fixed.docx"
@@ -1650,6 +1935,146 @@ def test_toc_scope_inserts_visible_toc_without_word_field(tmp_path):
     assert any(text.startswith("1.1") and "研究背景" in text for text in texts)
     assert not any("待核对" in text for text in texts)
     assert 'TOC \\o "1-3"' not in document_xml
+
+
+def test_toc_scope_replaces_existing_toc_content_control(tmp_path):
+    source_path = Path(tmp_path) / "sdt_toc_source.docx"
+    first_path = Path(tmp_path) / "sdt_toc_first.docx"
+    second_path = Path(tmp_path) / "sdt_toc_second.docx"
+    doc = Document()
+    doc.add_paragraph("封面信息")
+    heading = doc.add_paragraph("第1章 绪论")
+    heading.style = doc.styles["Heading 1"]
+    bookmark_start = OxmlElement("w:bookmarkStart")
+    bookmark_start.set(qn("w:id"), "42")
+    bookmark_start.set(qn("w:name"), "_TocFixture")
+    bookmark_end = OxmlElement("w:bookmarkEnd")
+    bookmark_end.set(qn("w:id"), "42")
+    heading._p.insert(1, bookmark_start)
+    heading._p.append(bookmark_end)
+    doc.add_paragraph("这是正文。")
+
+    sdt = OxmlElement("w:sdt")
+    content = OxmlElement("w:sdtContent")
+    for text, instruction in (
+        ("目  录", None),
+        (None, ' TOC \\o "1-3" \\h \\z \\u '),
+        ("第1章 绪论\t1", None),
+    ):
+        paragraph = OxmlElement("w:p")
+        run = OxmlElement("w:r")
+        node = OxmlElement("w:instrText" if instruction else "w:t")
+        node.text = instruction or text
+        run.append(node)
+        if text == "第1章 绪论\t1":
+            hyperlink = OxmlElement("w:hyperlink")
+            hyperlink.set(qn("w:anchor"), "_TocFixture")
+            hyperlink.append(run)
+            paragraph.append(hyperlink)
+        else:
+            paragraph.append(run)
+        content.append(paragraph)
+    sdt.append(content)
+    doc.element.body.insert(1, sdt)
+    doc.save(source_path)
+
+    for input_path, output_path in ((source_path, first_path), (first_path, second_path)):
+        apply_scoped_fix(
+            str(input_path),
+            str(output_path),
+            profile_path="lnu",
+            scopes=["toc"],
+            toc=True,
+        )
+        with zipfile.ZipFile(output_path) as zf:
+            root = ET.fromstring(zf.read("word/document.xml"))
+        toc_fields = [
+            instr
+            for instr in root.findall(".//w:instrText", fix_thesis.NSMAP)
+            if "TOC" in (instr.text or "").upper()
+        ]
+        toc_titles = [
+            paragraph
+            for paragraph in root.findall(".//w:p", fix_thesis.NSMAP)
+            if _normalize_spaces(fix_thesis.get_paragraph_text(paragraph)) == "目 录"
+        ]
+        toc_links = root.findall(".//w:hyperlink", fix_thesis.NSMAP)
+        assert len(toc_fields) == 1
+        assert len(toc_titles) == 1
+        assert [link.get(qn("w:anchor")) for link in toc_links] == ["_TocFixture"]
+
+
+def test_toc_scope_ignores_frontmatter_that_only_looks_like_a_heading(tmp_path):
+    source_path = Path(tmp_path) / "toc_false_heading_source.docx"
+    fixed_path = Path(tmp_path) / "toc_false_heading_fixed.docx"
+    doc = Document()
+    doc.add_paragraph("封面信息")
+
+    address = doc.add_paragraph()
+    address.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    address_run = address.add_run("123 Research Road, Leiden, NL")
+    address_run.bold = True
+    address_run.font.size = Pt(14)
+
+    abstract = doc.add_paragraph()
+    abstract.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    abstract_run = abstract.add_run("Abstract")
+    abstract_run.bold = True
+    abstract_run.font.size = Pt(14)
+    doc.add_paragraph("This is the abstract body.")
+    doc.add_paragraph("第1章 绪论")
+    doc.add_paragraph("1.1 研究背景")
+    doc.add_paragraph("这是正文。")
+    doc.save(source_path)
+
+    fix_thesis.fix_docx(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["toc"],
+    )
+
+    fixed_doc = Document(fixed_path)
+    toc_title_index = next(
+        index for index, paragraph in enumerate(fixed_doc.paragraphs)
+        if paragraph.text.strip() == "目  录"
+    )
+    toc_entries = []
+    for paragraph in fixed_doc.paragraphs[toc_title_index + 1:]:
+        if not paragraph.style.style_id.startswith("TOC"):
+            break
+        if paragraph.style.style_id in {"TOC1", "TOC2", "TOC3"}:
+            toc_entries.append(paragraph.text.strip())
+
+    assert toc_entries == ["第1章 绪论", "1.1 研究背景"]
+
+
+def test_abstract_scope_does_not_move_keywords_from_an_unrelated_english_toc(tmp_path):
+    source_path = Path(tmp_path) / "english_toc_keywords_source.docx"
+    fixed_path = Path(tmp_path) / "english_toc_keywords_fixed.docx"
+    doc = Document()
+    doc.add_paragraph("Journal manuscript")
+    doc.add_paragraph("Table of contents")
+    doc.add_paragraph("Abstract: 8")
+    doc.add_paragraph("Keywords/Subject terms: 8")
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("This is the abstract body.")
+    doc.add_paragraph("Keywords/Subject terms: alpha; beta")
+    doc.add_paragraph("第1章 绪论")
+    doc.save(source_path)
+
+    fix_thesis.fix_docx(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["abstract"],
+    )
+
+    texts = [paragraph.text.strip() for paragraph in Document(fixed_path).paragraphs]
+
+    assert texts.index("Table of contents") < texts.index("Keywords/Subject terms: 8")
+    assert texts.index("Keywords/Subject terms: 8") < texts.index("Abstract")
+    assert texts.index("Abstract") < texts.index("Keywords/Subject terms: alpha; beta")
 
 
 def test_toc_scope_preserves_existing_visible_toc_page_numbers(tmp_path):
@@ -1737,3 +2162,28 @@ def test_figures_scope_renumbers_split_run_lnu_captions(tmp_path):
     fixed_doc = Document(fixed_path)
     texts = [paragraph.text for paragraph in fixed_doc.paragraphs]
     assert "图2.1 鹿茸成分靶点与肝毒性靶点韦恩图" in texts
+
+
+def test_figures_scope_preserves_cover_anchor_and_inlines_body_anchor(tmp_path):
+    source_path = Path(tmp_path) / "anchor_scope_source.docx"
+    fixed_path = Path(tmp_path) / "anchor_scope_fixed.docx"
+    _make_cover_and_body_anchor_docx(source_path)
+
+    apply_scoped_fix(
+        str(source_path),
+        str(fixed_path),
+        profile_path="lnu",
+        scopes=["figures_tables"],
+    )
+
+    _assert_cover_anchor_and_body_inline(fixed_path)
+
+
+def test_normalize_preserves_cover_anchor_and_inlines_body_anchor(tmp_path):
+    source_path = Path(tmp_path) / "anchor_normalize_source.docx"
+    fixed_path = Path(tmp_path) / "anchor_normalize_fixed.docx"
+    _make_cover_and_body_anchor_docx(source_path)
+
+    fix_thesis.normalize_docx(str(source_path), str(fixed_path), profile_path="lnu")
+
+    _assert_cover_anchor_and_body_inline(fixed_path)

@@ -6,16 +6,32 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pytest
+
 import build_windows_local_bundle as bundle_builder
+
+
+def _write_portable_runtime(runtime_dir: Path) -> None:
+    runtime_dir.mkdir(parents=True)
+    for name in (
+        "python.exe",
+        "python3.dll",
+        "python311.dll",
+        "python311.zip",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "LICENSE.txt",
+    ):
+        (runtime_dir / name).write_bytes(name.encode("ascii"))
+    (runtime_dir / "python311._pth").write_text(
+        "python311.zip\n.\nLib\\site-packages\nimport site\n",
+        encoding="ascii",
+    )
 
 
 def test_build_windows_local_bundle_packages_launcher_readme_runtime_and_data_dirs(tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
-    scripts_dir = runtime_dir / "Scripts"
-    scripts_dir.mkdir(parents=True)
-    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
-    (scripts_dir / "python.exe").write_bytes(b"python")
-    (runtime_dir / "pyvenv.cfg").write_text("home = C:\\Python\n", encoding="utf-8")
+    _write_portable_runtime(runtime_dir)
 
     output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
 
@@ -37,12 +53,13 @@ def test_build_windows_local_bundle_packages_launcher_readme_runtime_and_data_di
         feedback_text = archive.read("论文格式检查本地版/导出反馈包.bat").decode("utf-8-sig")
         quickstart_text = archive.read("论文格式检查本地版/快速开始.txt").decode("utf-8-sig")
 
-    assert "论文格式检查本地版/app/Scripts/lnu-thesis-local.exe" in names
+    assert "论文格式检查本地版/app/python.exe" in names
+    assert "论文格式检查本地版/app/python311.dll" in names
     assert "论文格式检查本地版/导出反馈包.bat" in names
-    assert "论文格式检查本地版/app/pyvenv.cfg" in names
+    assert "论文格式检查本地版/app/pyvenv.cfg" not in names
     assert "论文格式检查本地版/data/state/.keep" in names
     assert "论文格式检查本地版/data/runtime/.keep" in names
-    assert 'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"' in launcher_text
+    assert 'set "ARTICLE_PYTHON=%~dp0app\\python.exe"' in launcher_text
     assert 'set "ARTICLE_LOCAL_RELEASE_API_URL=https://api.github.com/repos/example/article/releases/latest"' in launcher_text
     assert '"%ARTICLE_PYTHON%" -m article_api.local_app doctor' in launcher_text
     assert '"%ARTICLE_PYTHON%" -m article_api.local_app serve' in launcher_text
@@ -52,7 +69,7 @@ def test_build_windows_local_bundle_packages_launcher_readme_runtime_and_data_di
     assert "Test-NetConnection -ComputerName 127.0.0.1 -Port 8000" in launcher_text
     assert "端口 8000 已被占用" in launcher_text
     assert "请先关闭占用 8000 端口的程序" in launcher_text
-    assert 'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"' in feedback_text
+    assert 'set "ARTICLE_PYTHON=%~dp0app\\python.exe"' in feedback_text
     assert '"%ARTICLE_PYTHON%" -m article_api.local_app feedback "%~dp0反馈包.zip"' in feedback_text
     assert '--state-root "%~dp0data\\state"' in feedback_text
     assert '--runtime-root "%~dp0data\\runtime"' in feedback_text
@@ -78,10 +95,7 @@ def test_build_windows_local_bundle_packages_launcher_readme_runtime_and_data_di
 
 def test_build_windows_local_bundle_omits_release_api_url_when_unconfigured(tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
-    scripts_dir = runtime_dir / "Scripts"
-    scripts_dir.mkdir(parents=True)
-    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
-    (scripts_dir / "python.exe").write_bytes(b"python")
+    _write_portable_runtime(runtime_dir)
 
     output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
 
@@ -99,10 +113,7 @@ def test_build_windows_local_bundle_omits_release_api_url_when_unconfigured(tmp_
 
 def test_build_windows_local_bundle_accepts_release_tag_api_url(tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
-    scripts_dir = runtime_dir / "Scripts"
-    scripts_dir.mkdir(parents=True)
-    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
-    (scripts_dir / "python.exe").write_bytes(b"python")
+    _write_portable_runtime(runtime_dir)
 
     output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
     release_api_url = "https://api.github.com/repos/example/article/releases/tags/v0.1.0-beta"
@@ -122,10 +133,7 @@ def test_build_windows_local_bundle_accepts_release_tag_api_url(tmp_path):
 
 def test_build_windows_local_bundle_cli_prints_json(capsys, tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
-    scripts_dir = runtime_dir / "Scripts"
-    scripts_dir.mkdir(parents=True)
-    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
-    (scripts_dir / "python.exe").write_bytes(b"python")
+    _write_portable_runtime(runtime_dir)
 
     output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
 
@@ -152,10 +160,7 @@ def test_build_windows_local_bundle_cli_prints_json(capsys, tmp_path):
 
 def test_build_windows_local_bundle_cli_emits_utf8_when_stdout_encoding_rejects_chinese(monkeypatch, tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
-    scripts_dir = runtime_dir / "Scripts"
-    scripts_dir.mkdir(parents=True)
-    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
-    (scripts_dir / "python.exe").write_bytes(b"python")
+    _write_portable_runtime(runtime_dir)
     output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
     output = io.BytesIO()
     cp1252_stdout = io.TextIOWrapper(output, encoding="cp1252", errors="strict")
@@ -180,9 +185,8 @@ def test_build_windows_local_bundle_cli_emits_utf8_when_stdout_encoding_rejects_
 
 def test_build_windows_local_bundle_rejects_runtime_without_python_exe(tmp_path):
     runtime_dir = tmp_path / "prepared-runtime"
-    scripts_dir = runtime_dir / "Scripts"
-    scripts_dir.mkdir(parents=True)
-    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
+    _write_portable_runtime(runtime_dir)
+    (runtime_dir / "python.exe").unlink()
 
     output_zip = tmp_path / "dist" / "lnu-thesis-local-windows.zip"
 
@@ -193,6 +197,36 @@ def test_build_windows_local_bundle_rejects_runtime_without_python_exe(tmp_path)
             bundle_name="论文格式检查本地版",
         )
     except RuntimeError as exc:
-        assert "Scripts/python.exe" in str(exc)
+        assert "python.exe" in str(exc)
     else:
-        raise AssertionError("expected RuntimeError for missing Scripts/python.exe")
+        raise AssertionError("expected RuntimeError for missing python.exe")
+
+
+def test_build_windows_local_bundle_rejects_nonportable_venv_runtime(tmp_path):
+    runtime_dir = tmp_path / "prepared-runtime"
+    scripts_dir = runtime_dir / "Scripts"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "lnu-thesis-local.exe").write_bytes(b"exe")
+    (scripts_dir / "python.exe").write_bytes(b"python")
+    (runtime_dir / "pyvenv.cfg").write_text("home = C:\\hostedtoolcache\\Python\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="portable"):
+        bundle_builder.build_windows_local_bundle(
+            runtime_dir=runtime_dir,
+            output_zip=tmp_path / "bundle.zip",
+        )
+
+
+def test_build_windows_local_bundle_rejects_absolute_python_path(tmp_path):
+    runtime_dir = tmp_path / "prepared-runtime"
+    _write_portable_runtime(runtime_dir)
+    (runtime_dir / "python311._pth").write_text(
+        "python311.zip\n.\nC:\\hostedtoolcache\\site-packages\nLib\\site-packages\nimport site\n",
+        encoding="ascii",
+    )
+
+    with pytest.raises(RuntimeError, match="relative Python paths"):
+        bundle_builder.build_windows_local_bundle(
+            runtime_dir=runtime_dir,
+            output_zip=tmp_path / "bundle.zip",
+        )

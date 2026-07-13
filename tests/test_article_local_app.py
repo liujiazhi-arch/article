@@ -44,6 +44,7 @@ def test_build_doctor_report_uses_requested_roots(monkeypatch, tmp_path):
     assert report["roots"]["state_root"] == str(state_root.resolve())
     assert report["roots"]["runtime_root"] == str(runtime_root.resolve())
     assert report["checks"]["storage"]["status"] == "ok"
+    assert report["checks"]["pdf_runtime"]["status"] == "ok"
     assert report["storage"]["schema_version"] == storage.SCHEMA_VERSION
     assert report["storage"]["index_count"] >= 1
     assert report["runtime"]["worker_model"] == "single"
@@ -311,6 +312,8 @@ def test_run_render_verify_returns_payload(monkeypatch):
             "rendered_pdf": kwargs.get("rendered_pdf"),
             "page_images_dir": kwargs.get("page_images_dir"),
             "workflow_mode": kwargs.get("workflow_mode"),
+            "pdf_matches_docx_confirmed": kwargs.get("pdf_matches_docx_confirmed"),
+            "generate_static_toc": kwargs.get("generate_static_toc"),
         },
     )
 
@@ -322,6 +325,7 @@ def test_run_render_verify_returns_payload(monkeypatch):
         rendered_pdf="/tmp/export.pdf",
         page_images_dir=None,
         workflow_mode="default_user",
+        generate_static_toc=True,
     )
 
     assert payload["operation"] == "render-verify"
@@ -329,6 +333,7 @@ def test_run_render_verify_returns_payload(monkeypatch):
     assert payload["selected_scopes"] == ["toc"]
     assert payload["rendered_pdf"] == "/tmp/export.pdf"
     assert payload["workflow_mode"] == "default_user"
+    assert payload["generate_static_toc"] is True
 
 
 def test_main_profiles_outputs_json(capsys):
@@ -399,6 +404,8 @@ def test_main_render_verify_outputs_json(monkeypatch, capsys):
             "rendered_pdf": kwargs.get("rendered_pdf"),
             "page_images_dir": kwargs.get("page_images_dir"),
             "workflow_mode": kwargs.get("workflow_mode"),
+            "pdf_matches_docx_confirmed": kwargs.get("pdf_matches_docx_confirmed"),
+            "generate_static_toc": kwargs.get("generate_static_toc"),
         },
     )
 
@@ -412,6 +419,8 @@ def test_main_render_verify_outputs_json(monkeypatch, capsys):
             "toc",
             "--rendered-pdf",
             "/tmp/export.pdf",
+            "--pdf-matches-docx-confirmed",
+            "--generate-static-toc",
             "--workflow-mode",
             "default_user",
         ]
@@ -421,6 +430,8 @@ def test_main_render_verify_outputs_json(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["operation"] == "render-verify"
     assert payload["rendered_pdf"] == "/tmp/export.pdf"
+    assert payload["pdf_matches_docx_confirmed"] is True
+    assert payload["generate_static_toc"] is True
     assert payload["workflow_mode"] == "default_user"
     assert payload["page_count"] == 2
     assert payload["selected_scopes"] == ["toc"]

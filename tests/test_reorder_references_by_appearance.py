@@ -68,3 +68,38 @@ def test_reorder_references_keeps_two_adjacent_citations_comma_separated():
     reorder_references_in_document(doc, trailing_space=False)
 
     assert doc.paragraphs[0].text == "正文中同时引用[1,2]，连续三篇引用[1-3]。"
+
+
+def test_reorder_references_preserves_tab_when_number_is_unchanged():
+    doc = Document()
+    doc.add_paragraph("正文中引用[1]。")
+    doc.add_paragraph("参考文献")
+    reference = doc.add_paragraph()
+    reference.add_run("[1]")
+    reference.add_run().add_tab()
+    reference.add_run("First reference.")
+
+    reorder_references_in_document(doc, trailing_space=False)
+
+    assert doc.paragraphs[2].text == "[1]\tFirst reference."
+
+
+def test_reorder_references_preserves_split_run_text_tab_and_formatting():
+    doc = Document()
+    doc.add_paragraph("正文中引用[2]。")
+    doc.add_paragraph("参考文献")
+    reference = doc.add_paragraph()
+    reference.add_run("[")
+    reference.add_run("2")
+    reference.add_run("]")
+    reference.add_run().add_tab()
+    reference.add_run("Second ")
+    title = reference.add_run("reference")
+    title.italic = True
+    reference.add_run(".")
+
+    reorder_references_in_document(doc, trailing_space=False)
+
+    updated = doc.paragraphs[2]
+    assert updated.text == "[1]\tSecond reference."
+    assert next(run for run in updated.runs if run.text == "reference").italic is True

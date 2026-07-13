@@ -34,7 +34,7 @@ def _json_run(
 
 
 def _locate_bundle_root(extracted_root: Path) -> Path:
-    candidates = sorted(path.parent.parent.parent for path in extracted_root.rglob(BUNDLE_PYTHON_ENTRY))
+    candidates = sorted(path.parent.parent for path in extracted_root.rglob(BUNDLE_PYTHON_ENTRY))
     unique_candidates = []
     seen: set[Path] = set()
     for candidate in candidates:
@@ -69,7 +69,7 @@ def run_windows_bundle_smoke(
         archive.extractall(smoke_dir)
 
     bundle_root = _locate_bundle_root(smoke_dir)
-    python_exe = bundle_root / "app" / "Scripts" / "python.exe"
+    python_exe = bundle_root / BUNDLE_PYTHON_ENTRY
     state_root = bundle_root / "data" / "state"
     runtime_root = bundle_root / "data" / "runtime"
     state_root.mkdir(parents=True, exist_ok=True)
@@ -90,7 +90,6 @@ def run_windows_bundle_smoke(
         timeout=command_timeout,
     )
     http_smoke = release_smoke._run_http_smoke(
-        article_local=python_exe,
         venv_python=python_exe,
         state_root=state_root,
         runtime_root=runtime_root,

@@ -67,7 +67,12 @@ def _extract_report_tag(text: str) -> str:
 
 def _check_windows_report(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
-    missing_or_failed = [phrase.removesuffix(": 通过") for phrase in WINDOWS_REQUIRED_PASS_PHRASES if phrase not in text]
+    report_lines = {line.strip().removeprefix("-").strip() for line in text.splitlines()}
+    missing_or_failed = [
+        phrase.removesuffix(": 通过")
+        for phrase in WINDOWS_REQUIRED_PASS_PHRASES
+        if phrase not in report_lines
+    ]
     status = "ok" if not missing_or_failed else "failed"
     return {
         "status": status,
@@ -87,6 +92,8 @@ def _check_http_smoke_payload(
     ready_label: str,
     job_status_label: str,
     download_label: str,
+    render_status_label: str,
+    render_page_label: str,
     download_bytes: int | None = None,
 ) -> tuple[int, list[str]]:
     normalized_download_bytes = int(
@@ -103,6 +110,10 @@ def _check_http_smoke_payload(
         missing_or_failed.append(job_status_label)
     if normalized_download_bytes <= 0:
         missing_or_failed.append(download_label)
+    if http_smoke.get("render_job_status") != "succeeded":
+        missing_or_failed.append(render_status_label)
+    if int(http_smoke.get("render_page_count") or 0) < 1:
+        missing_or_failed.append(render_page_label)
     return normalized_download_bytes, missing_or_failed
 
 
@@ -120,6 +131,8 @@ def _check_release_smoke(path: Path) -> dict[str, Any]:
         ready_label="http_smoke ready",
         job_status_label="http_smoke apply job",
         download_label="http_smoke output download",
+        render_status_label="http_smoke render-review job",
+        render_page_label="http_smoke render-review pages",
     )
     if doctor.get("status") != "ok":
         missing_or_failed.append("doctor")
@@ -146,6 +159,8 @@ def _check_windows_bundle_smoke(path: Path) -> dict[str, Any]:
         ready_label="windows bundle http_smoke ready",
         job_status_label="windows bundle apply job",
         download_label="windows bundle output download",
+        render_status_label="windows bundle render-review job",
+        render_page_label="windows bundle render-review pages",
         download_bytes=int(payload.get("download_bytes") or http_smoke.get("download_bytes") or 0),
     )
     if doctor.get("status") != "ok":

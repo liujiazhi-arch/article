@@ -7,6 +7,7 @@ from pathlib import Path
 
 from docx import Document
 import pytest
+import thesis_workbench
 
 from .conftest import RULE_MUTATORS, SCRIPTS_DIR, audit_rule_status, make_compliant_doc
 
@@ -512,6 +513,33 @@ def test_workbench_render_verify_cli_rejects_artifact_tool_renderer(tmp_path):
 
     assert result.returncode == 2
     assert "artifact-tool" in result.stderr
+
+
+def test_workbench_render_verify_forwards_pdf_docx_confirmation(monkeypatch, capsys):
+    captured = {}
+
+    def fake_build(*args, **kwargs):
+        captured.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(thesis_workbench, "build_render_verify_report", fake_build)
+    monkeypatch.setattr(thesis_workbench, "render_render_verify_report", lambda report: "ok")
+
+    exit_code = thesis_workbench.main(
+        [
+            "render-verify",
+            "demo.docx",
+            "--rendered-pdf",
+            "demo.pdf",
+            "--pdf-matches-docx-confirmed",
+            "--generate-static-toc",
+        ]
+    )
+
+    assert exit_code == 0
+    assert capsys.readouterr().out.strip() == "ok"
+    assert captured["pdf_matches_docx_confirmed"] is True
+    assert captured["generate_static_toc"] is True
 
 
 def test_workbench_verify_cli_does_not_highlight_removed_lnu_f05(tmp_path):

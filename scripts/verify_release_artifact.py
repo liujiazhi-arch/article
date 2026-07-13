@@ -14,6 +14,7 @@ from windows_bundle_contract import (
     LAUNCHER_NAME,
     QUICKSTART_NAME,
     REQUIRED_SUFFIXES,
+    is_portable_python_path_text,
 )
 
 EXPECTED_BUNDLE_ROOT = BUNDLE_ROOT_NAME
@@ -149,6 +150,8 @@ def verify_windows_bundle_artifact(
         missing = [suffix for suffix in REQUIRED_SUFFIXES if _find_bundle_entry(names, bundle_root, suffix) is None]
         if missing:
             raise RuntimeError(f"Release artifact is missing required entries: {', '.join(missing)}")
+        if _find_bundle_entry(names, bundle_root, "app/pyvenv.cfg") is not None:
+            raise RuntimeError("Release artifact must contain a portable Python runtime, not a copied venv")
 
         forbidden_entries = sorted(name for name in names if _is_forbidden_entry(name))
         if forbidden_entries:
@@ -160,14 +163,18 @@ def verify_windows_bundle_artifact(
         launcher_name = _find_bundle_entry(names, bundle_root, LAUNCHER_NAME)
         feedback_name = _find_bundle_entry(names, bundle_root, FEEDBACK_LAUNCHER_NAME)
         quickstart_name = _find_bundle_entry(names, bundle_root, QUICKSTART_NAME)
+        python_path_name = _find_bundle_entry(names, bundle_root, "app/python311._pth")
         assert launcher_name is not None
         assert feedback_name is not None
         assert quickstart_name is not None
+        assert python_path_name is not None
         launcher_text = _read_text(archive, launcher_name)
         feedback_text = _read_text(archive, feedback_name)
         quickstart_text = _read_text(archive, quickstart_name)
+        if not is_portable_python_path_text(_read_text(archive, python_path_name)):
+            raise RuntimeError("Bundled Python path must use relative paths and enable site-packages")
         for fragment in (
-            'set "ARTICLE_PYTHON=%~dp0app\\Scripts\\python.exe"',
+            'set "ARTICLE_PYTHON=%~dp0app\\python.exe"',
             '"%ARTICLE_PYTHON%" -m article_api.local_app doctor',
             '"%ARTICLE_PYTHON%" -m article_api.local_app serve',
         ):

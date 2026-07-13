@@ -202,19 +202,9 @@ def _style_map_with_bold_paragraph_style(style_id: str = "AbstractTitle") -> dic
     return audit_thesis.build_style_map(styles)
 
 
-def _make_equation_layout_table(eq_number: str = "(1.1)") -> tuple[ET.Element, ET.Element]:
-    tbl = ET.Element(_w("tbl"))
-    tbl_pr = ET.SubElement(tbl, _w("tblPr"))
-    tbl_borders = ET.SubElement(tbl_pr, _w("tblBorders"))
-    for name in ("top", "bottom", "left", "right", "insideV"):
-        border = ET.SubElement(tbl_borders, _w(name))
-        border.set(_w("val"), "nil")
-        border.set(_w("sz"), "0")
-
+def _append_equation_layout_row(tbl: ET.Element, eq_number: str) -> ET.Element:
     tr = ET.SubElement(tbl, _w("tr"))
-
     ET.SubElement(ET.SubElement(tr, _w("tc")), _w("p"))
-
     math_tc = ET.SubElement(tr, _w("tc"))
     math_p = ET.SubElement(math_tc, _w("p"))
     math_p_pr = ET.SubElement(math_p, _w("pPr"))
@@ -228,7 +218,19 @@ def _make_equation_layout_table(eq_number: str = "(1.1)") -> tuple[ET.Element, E
     num_p = ET.SubElement(num_tc, _w("p"))
     num_p.append(_make_run(eq_number))
 
-    return tbl, math_p
+    return math_p
+
+
+def _make_equation_layout_table(eq_number: str = "(1.1)") -> tuple[ET.Element, ET.Element]:
+    tbl = ET.Element(_w("tbl"))
+    tbl_pr = ET.SubElement(tbl, _w("tblPr"))
+    tbl_borders = ET.SubElement(tbl_pr, _w("tblBorders"))
+    for name in ("top", "bottom", "left", "right", "insideV"):
+        border = ET.SubElement(tbl_borders, _w(name))
+        border.set(_w("val"), "nil")
+        border.set(_w("sz"), "0")
+
+    return tbl, _append_equation_layout_row(tbl, eq_number)
 
 
 def _right_cell_paragraph(tbl: ET.Element) -> ET.Element:
@@ -505,6 +507,29 @@ def test_eq02_reports_skipped_equation_number_sequence():
 
     assert not passed
     assert any("跳号" in issue or "(1.2)" in issue for issue in issues)
+
+
+def test_eq02_reads_each_number_in_grouped_equation_layout_table():
+    first_table, first_math = _make_equation_layout_table("(1.1)")
+    _set_paragraph_alignment(_right_cell_paragraph(first_table), "right")
+    grouped_table, second_math = _make_equation_layout_table("(1.2)")
+    _set_paragraph_alignment(_right_cell_paragraph(grouped_table), "right")
+    third_math = _append_equation_layout_row(grouped_table, "(1.3)")
+    _set_paragraph_alignment(_right_cell_paragraph(grouped_table), "right")
+    contexts = [
+        _ctx(1, first_math, "x (1.1)", "body", "body"),
+        _ctx(2, second_math, "x (1.2)", "body", "body"),
+        _ctx(3, third_math, "x (1.3)", "body", "body"),
+    ]
+
+    passed, issues, _ = audit_thesis.check_eq02(
+        _doc_with_paragraphs(first_table, grouped_table),
+        contexts,
+        {},
+        {"eq_number_sep": "."},
+    )
+
+    assert passed, issues
 
 
 def test_eq02_reports_out_of_order_equation_number_sequence():
@@ -1289,6 +1314,23 @@ def test_lnu_s03_accepts_page_break_before_fullwidth_ack_heading():
     assert passed, issues
 
 
+def test_lnu_s03_ignores_acknowledgement_toc_entry():
+    toc_entry = _make_paragraph("致  谢")
+    p_pr = ET.SubElement(toc_entry, _w("pPr"))
+    p_style = ET.SubElement(p_pr, _w("pStyle"))
+    p_style.set(_w("val"), "TOC1")
+    ctx = _ctx(1, toc_entry, "致  谢", "h1", "toc")
+
+    passed, issues, _ = audit_thesis.check_lnu_s03(
+        _doc_with_paragraphs(toc_entry),
+        [ctx],
+        {},
+        {},
+    )
+
+    assert passed, issues
+
+
 def test_lnu_conc01_accepts_numbered_conclusion_and_outlook_before_backmatter():
     chapter1 = _make_paragraph("1 序言")
     chapter2 = _make_paragraph("第4章 结论与展望")
@@ -1517,6 +1559,58 @@ def test_lnu_ref02_accepts_tab_after_reference_number_with_matching_tab_stop():
         {"ref_use_tab": True, "ref_hanging": 420, "ref_tab_min": 420},
     )
     assert passed, issues
+
+
+def test_lnu_ref02_rejects_tab_at_end_of_reference_entry():
+    title = _make_paragraph("参考文献")
+    ref = _make_paragraph("[1]郭光灿. 量子光学[M].")
+    trailing_tab_run = ET.SubElement(ref, _w("r"))
+    ET.SubElement(trailing_tab_run, _w("tab"))
+    p_pr = ET.SubElement(ref, _w("pPr"))
+    tabs = ET.SubElement(p_pr, _w("tabs"))
+    tab = ET.SubElement(tabs, _w("tab"))
+    tab.set(_w("val"), "left")
+    tab.set(_w("pos"), "420")
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref, "[1]郭光灿. 量子光学[M].", "reference", "backmatter"),
+    ]
+
+    passed, issues, *_ = audit_thesis.check_lnu_ref02(
+        _doc_with_paragraphs(title, ref),
+        contexts,
+        {},
+        {"ref_use_tab": True, "ref_hanging": 420, "ref_tab_min": 420},
+    )
+
+    assert not passed
+    assert any("编号后应使用制表符" in issue for issue in issues)
+
+
+def test_lnu_ref02_rejects_extra_tab_after_valid_number_separator():
+    title = _make_paragraph("参考文献")
+    ref = _make_paragraph("[1]\t郭光灿. 量子光学[M].")
+    trailing_tab_run = ET.SubElement(ref, _w("r"))
+    ET.SubElement(trailing_tab_run, _w("tab"))
+    p_pr = ET.SubElement(ref, _w("pPr"))
+    tabs = ET.SubElement(p_pr, _w("tabs"))
+    tab = ET.SubElement(tabs, _w("tab"))
+    tab.set(_w("val"), "left")
+    tab.set(_w("pos"), "420")
+    contexts = [
+        _ctx(1, title, "参考文献", "h1", "backmatter"),
+        _ctx(2, ref, "[1]\t郭光灿. 量子光学[M].", "reference", "backmatter"),
+    ]
+
+    passed, issues, *_ = audit_thesis.check_lnu_ref02(
+        _doc_with_paragraphs(title, ref),
+        contexts,
+        {},
+        {"ref_use_tab": True, "ref_hanging": 420, "ref_tab_min": 420},
+    )
+
+    assert not passed
+    assert any("多余制表符" in issue for issue in issues)
 
 
 def test_lnu_ref02_rejects_leading_zero_reference_number():
@@ -2219,6 +2313,26 @@ def test_lnu_tb03_rejects_table_line_spacing_one_point_five():
     passed, issues, _ = audit_thesis.check_lnu_tb03(doc, [], {}, {})
     assert not passed
     assert any("单倍" in msg for msg in issues)
+
+
+def test_lnu_tb03_ignores_equation_layout_tables():
+    tbl = ET.Element(_w("tbl"))
+    tr = ET.SubElement(tbl, _w("tr"))
+    for text in ("x=100", "（1.1）"):
+        tc = ET.SubElement(tr, _w("tc"))
+        p = ET.SubElement(tc, _w("p"))
+        p_pr = ET.SubElement(p, _w("pPr"))
+        spacing = ET.SubElement(p_pr, _w("spacing"))
+        spacing.set(_w("line"), "360")
+        p.append(_make_run(text, sz=21))
+    doc = _make_doc_root()
+    doc.find(_w("body")).append(tbl)
+
+    assert audit_thesis.is_equation_layout_table(tbl)
+    passed, issues, _ = audit_thesis.check_lnu_tb03(doc, [], {}, {})
+
+    assert passed
+    assert issues == []
 
 
 def test_lnu_tb04_rejects_loose_table_caption_and_missing_post_table_gap(tmp_path):

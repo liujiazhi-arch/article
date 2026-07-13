@@ -81,21 +81,24 @@ def build_verify_upload_job_kwargs(upload_id: str, request, *, resolve_upload_fn
 
 
 def build_apply_upload_job_kwargs(upload_id: str, request, *, resolve_upload_fn=resolve_upload) -> dict[str, Any]:
+    operation_payload = {
+        "output_path": request.output_path,
+        "profile_path": request.profile,
+        "scopes": request.scopes,
+        "toc": request.toc,
+        "renumber_headings": request.renumber_headings,
+        "layout_rebalance": request.layout_rebalance,
+        "candidate_mode": request.candidate_mode,
+        "strict_profile": request.strict_profile,
+        "dry_run": request.dry_run,
+        "force": request.force,
+    }
+    if request.cover_fields:
+        operation_payload["cover_fields"] = request.cover_fields.model_dump()
     return _build_upload_job_kwargs(
         upload_id,
         request,
-        {
-            "output_path": request.output_path,
-            "profile_path": request.profile,
-            "scopes": request.scopes,
-            "toc": request.toc,
-            "renumber_headings": request.renumber_headings,
-            "layout_rebalance": request.layout_rebalance,
-            "candidate_mode": request.candidate_mode,
-            "strict_profile": request.strict_profile,
-            "dry_run": request.dry_run,
-            "force": request.force,
-        },
+        operation_payload,
         resolve_upload_fn=resolve_upload_fn,
     )
 

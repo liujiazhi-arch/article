@@ -123,7 +123,14 @@ def _wait_for_job(base_url: str, job_id: str, *, timeout_seconds: float = 60.0) 
     raise RuntimeError(f"job did not finish within {timeout_seconds}s: {job_id}")
 
 
-def _post_multipart_file(url: str, *, field_name: str, file_path: Path, params: dict[str, str]) -> dict[str, Any]:
+def _post_multipart_file(
+    url: str,
+    *,
+    field_name: str,
+    file_path: Path,
+    content_type: str,
+    params: dict[str, str],
+) -> dict[str, Any]:
     boundary = f"----release-smoke-{int(time.time() * 1000)}"
     query = urllib.parse.urlencode(params)
     target = f"{url}?{query}" if query else url
@@ -131,7 +138,7 @@ def _post_multipart_file(url: str, *, field_name: str, file_path: Path, params: 
     head = (
         f"--{boundary}\r\n"
         f'Content-Disposition: form-data; name="{field_name}"; filename="{file_path.name}"\r\n'
-        "Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document\r\n\r\n"
+        f"Content-Type: {content_type}\r\n\r\n"
     ).encode("utf-8")
     tail = f"\r\n--{boundary}--\r\n".encode("utf-8")
     request = urllib.request.Request(
@@ -162,18 +169,24 @@ doc.save({str(docx_path)!r})
     _run([str(python_executable), "-c", script])
 
 
-def _run_http_smoke(
+def _build_smoke_pdf(pdf_path: Path, *, python_executable: Path) -> None:
+    script = f"""
+from PIL import Image
+image = Image.new("RGB", (595, 842), "white")
+image.save({str(pdf_path)!r}, "PDF", resolution=72)
+image.close()
+"""
+    _run([str(python_executable), "-c", script])
+
+
+def _start_http_server(
     *,
-    article_local: Path,
     venv_python: Path,
     state_root: Path,
     runtime_root: Path,
     smoke_dir: Path,
-) -> dict[str, Any]:
-    docx_path = smoke_dir / "release_smoke.docx"
-    _build_smoke_docx(docx_path, python_executable=venv_python)
-    port = _available_port()
-    base_url = f"http://127.0.0.1:{port}"
+) -> tuple[str, subprocess.Popen[str]]:
+    base_url = f"http://127.0.0.1:{_available_port()}"
     process = subprocess.Popen(
         [
             str(venv_python),
@@ -183,7 +196,7 @@ def _run_http_smoke(
             "--host",
             "127.0.0.1",
             "--port",
-            str(port),
+            base_url.rsplit(":", 1)[-1],
             "--state-root",
             str(state_root),
             "--runtime-root",
@@ -194,46 +207,134 @@ def _run_http_smoke(
         stderr=subprocess.PIPE,
         text=True,
     )
+    return base_url, process
+
+
+def _stop_http_server(process: subprocess.Popen[str]) -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+def _run_apply_http_smoke(base_url: str, docx_path: Path, runtime_root: Path) -> dict[str, Any]:
+    upload = _post_multipart_file(
+        f"{base_url}/uploads/docx",
+        field_name="file",
+        file_path=docx_path,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        params={"runtime_root": str(runtime_root)},
+    )
+    job = _request_json(
+        f"{base_url}/uploads/{urllib.parse.quote(upload['upload_id'])}/jobs/apply",
+        method="POST",
+        payload={"scopes": ["headings"], "runtime_root": str(runtime_root), "stage_input": True},
+        timeout=10.0,
+    )
+    status = _wait_for_job(base_url, job["job_id"])
+    if status.get("status") != "succeeded":
+        raise RuntimeError(f"release smoke apply job failed: {status}")
+    result = _request_json(f"{base_url}/jobs/{urllib.parse.quote(job['job_id'])}/result", timeout=10.0)
+    output = _request_bytes(
+        f"{base_url}/jobs/{urllib.parse.quote(job['job_id'])}/artifacts/output/download",
+        timeout=20.0,
+    )
+    if not output:
+        raise RuntimeError("release smoke output download returned no bytes")
+    output_path = docx_path.with_name(f"{docx_path.stem}_fixed.docx")
+    output_path.write_bytes(output)
+    output_upload = _post_multipart_file(
+        f"{base_url}/uploads/docx",
+        field_name="file",
+        file_path=output_path,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        params={"runtime_root": str(runtime_root)},
+    )
+    return {
+        "upload_id": upload["upload_id"],
+        "output_upload_id": output_upload["upload_id"],
+        "job_id": job["job_id"],
+        "job_status": status["status"],
+        "business_status": (result.get("summary") or {}).get("business_status"),
+        "download_bytes": len(output),
+    }
+
+
+def _run_render_http_smoke(
+    base_url: str,
+    docx_upload_id: str,
+    pdf_path: Path,
+    runtime_root: Path,
+) -> dict[str, Any]:
+    pdf_upload = _post_multipart_file(
+        f"{base_url}/uploads/pdf",
+        field_name="file",
+        file_path=pdf_path,
+        content_type="application/pdf",
+        params={"runtime_root": str(runtime_root)},
+    )
+    job = _request_json(
+        f"{base_url}/uploads/{urllib.parse.quote(docx_upload_id)}/render-review-jobs",
+        method="POST",
+        payload={"pdf_upload_id": pdf_upload["upload_id"], "pdf_matches_docx_confirmed": True},
+        timeout=10.0,
+    )
+    status = _wait_for_job(base_url, job["job_id"])
+    if status.get("status") != "succeeded":
+        raise RuntimeError(f"release smoke render-review job failed: {status}")
+    result_payload = _request_json(f"{base_url}/jobs/{urllib.parse.quote(job['job_id'])}/result", timeout=10.0)
+    result = result_payload.get("result") or {}
+    page_count = int(result.get("page_count") or (result.get("summary") or {}).get("page_count") or 0)
+    if page_count != 1:
+        raise RuntimeError(f"release smoke render-review returned {page_count} pages")
+    summary = result.get("summary") or {}
+    if (
+        result.get("evidence_trust") != "user-confirmed"
+        or result.get("pdf_matches_docx_confirmed") is not True
+        or summary.get("pdf_matches_docx_confirmed") is not True
+    ):
+        raise RuntimeError("release smoke render-review did not preserve confirmed PDF evidence")
+    return {
+        "render_upload_id": pdf_upload["upload_id"],
+        "render_job_id": job["job_id"],
+        "render_job_status": status["status"],
+        "render_page_count": page_count,
+        "render_evidence_trust": result["evidence_trust"],
+        "render_pdf_matches_docx_confirmed": result["pdf_matches_docx_confirmed"],
+    }
+
+
+def _run_http_smoke(
+    *,
+    venv_python: Path,
+    state_root: Path,
+    runtime_root: Path,
+    smoke_dir: Path,
+) -> dict[str, Any]:
+    docx_path = smoke_dir / "release_smoke.docx"
+    pdf_path = smoke_dir / "release_smoke.pdf"
+    _build_smoke_docx(docx_path, python_executable=venv_python)
+    _build_smoke_pdf(pdf_path, python_executable=venv_python)
+    base_url, process = _start_http_server(
+        venv_python=venv_python,
+        state_root=state_root,
+        runtime_root=runtime_root,
+        smoke_dir=smoke_dir,
+    )
     try:
         ready = _wait_for_ready(base_url)
-        upload = _post_multipart_file(
-            f"{base_url}/uploads/docx",
-            field_name="file",
-            file_path=docx_path,
-            params={"runtime_root": str(runtime_root)},
-        )
-        job = _request_json(
-            f"{base_url}/uploads/{urllib.parse.quote(upload['upload_id'])}/jobs/apply",
-            method="POST",
-            payload={"scopes": ["headings"], "runtime_root": str(runtime_root), "stage_input": True},
-            timeout=10.0,
-        )
-        status = _wait_for_job(base_url, job["job_id"])
-        if status.get("status") != "succeeded":
-            raise RuntimeError(f"release smoke apply job failed: {status}")
-        result = _request_json(f"{base_url}/jobs/{urllib.parse.quote(job['job_id'])}/result", timeout=10.0)
-        output = _request_bytes(
-            f"{base_url}/jobs/{urllib.parse.quote(job['job_id'])}/artifacts/output/download",
-            timeout=20.0,
-        )
-        if not output:
-            raise RuntimeError("release smoke output download returned no bytes")
+        apply_result = _run_apply_http_smoke(base_url, docx_path, runtime_root)
+        render_result = _run_render_http_smoke(base_url, apply_result["output_upload_id"], pdf_path, runtime_root)
         return {
             "status": "ok",
             "ready": ready.get("status"),
-            "upload_id": upload["upload_id"],
-            "job_id": job["job_id"],
-            "job_status": status["status"],
-            "business_status": (result.get("summary") or {}).get("business_status"),
-            "download_bytes": len(output),
+            **apply_result,
+            **render_result,
         }
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+        _stop_http_server(process)
 
 
 def _resolve_latest_wheel(wheel_dir: Path) -> Path:
@@ -312,7 +413,6 @@ def run_release_smoke(
     if "lnu-checker-2026" not in profiles_stdout:
         raise RuntimeError("thesis-workbench profiles did not expose lnu-checker-2026")
     http_smoke = _run_http_smoke(
-        article_local=article_local,
         venv_python=venv_python,
         state_root=state,
         runtime_root=runtime,

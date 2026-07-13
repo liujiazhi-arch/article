@@ -13,7 +13,9 @@ from windows_bundle_contract import (
     BUNDLE_ROOT_NAME,
     FEEDBACK_LAUNCHER_NAME,
     LAUNCHER_NAME,
+    PORTABLE_RUNTIME_FILES,
     QUICKSTART_NAME,
+    is_portable_python_path_text,
 )
 
 
@@ -187,12 +189,14 @@ def build_windows_local_bundle(
 ) -> dict:
     resolved_runtime_dir = _resolve_path(runtime_dir)
     resolved_output_zip = _resolve_path(output_zip)
-    lnu_thesis_local = resolved_runtime_dir / "Scripts" / "lnu-thesis-local.exe"
-    python_exe = resolved_runtime_dir / "Scripts" / "python.exe"
-    if not lnu_thesis_local.exists():
-        raise RuntimeError(f"Windows runtime is missing Scripts/lnu-thesis-local.exe: {resolved_runtime_dir}")
-    if not python_exe.exists():
-        raise RuntimeError(f"Windows runtime is missing Scripts/python.exe: {resolved_runtime_dir}")
+    if (resolved_runtime_dir / "pyvenv.cfg").exists():
+        raise RuntimeError("Windows runtime must be portable; a copied venv cannot run on another computer")
+    for required_name in PORTABLE_RUNTIME_FILES:
+        if not (resolved_runtime_dir / required_name).is_file():
+            raise RuntimeError(f"Portable Windows runtime is missing {required_name}: {resolved_runtime_dir}")
+    python_path_text = (resolved_runtime_dir / "python311._pth").read_text(encoding="ascii")
+    if not is_portable_python_path_text(python_path_text):
+        raise RuntimeError("Portable Windows runtime must use relative Python paths and enable site-packages")
 
     resolved_output_zip.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="lnu-thesis-windows-bundle-") as temp_dir:
@@ -211,14 +215,14 @@ def build_windows_local_bundle(
         quickstart_path = bundle_root / QUICKSTART_NAME
         _write_bundle_launcher(
             launcher_path,
-            python_executable=app_dir / "Scripts" / "python.exe",
+            python_executable=app_dir / "python.exe",
             state_root=state_root,
             runtime_root=runtime_root,
             release_api_url=release_api_url,
         )
         _write_feedback_launcher(
             feedback_launcher_path,
-            python_executable=app_dir / "Scripts" / "python.exe",
+            python_executable=app_dir / "python.exe",
             state_root=state_root,
             runtime_root=runtime_root,
         )

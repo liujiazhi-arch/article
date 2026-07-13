@@ -43,7 +43,7 @@ HEADING_PATTERNS: dict[int, re.Pattern[str]] = {
     3: re.compile(r"^\d+\.\d+\.\d+(?!\.\d)\s*\S"),
     4: re.compile(r"^\d+\.\d+\.\d+\.\d+"),
 }
-ARABIC_H1_PATTERN = re.compile(r"^\d+(?![.\d])\s+\S")
+ARABIC_H1_PATTERN = re.compile(r"^\d{1,3}(?![.\d])\s+(?=[^\r\n]*[\u4e00-\u9fff])\S")
 UNNUMBERED_H1_TITLES = frozenset(
     {
         "绪论",
@@ -77,6 +77,12 @@ def _false_heading_reason(text: str) -> str | None:
     compact = _normalize_compact_text(text)
     if not compact:
         return None
+    if compact in {"毕业论文（设计）", "毕业论文(设计)", "本科毕业论文（设计）", "本科毕业论文(设计)"}:
+        return "cover_title"
+    if re.search(r"\bORCID\s*:?\s*\d{4}-\d{4}", text, re.IGNORECASE):
+        return "contact_metadata"
+    if re.search(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", text):
+        return "contact_metadata"
     if re.fullmatch(r"\d+(?:\.\d+)?[eE][+-]?\d+", compact):
         return "scientific_notation"
     if re.fullmatch(r"\d+\.\d+", compact):
@@ -619,7 +625,7 @@ def classify_paragraph(p_elem, style_map):
     first_line = ind_elem.get(f"{{{W_NS}}}firstLine") if ind_elem is not None else None
     zero_first_line = first_line in (None, "0")
     jc_val = _get_paragraph_alignment(p_pr, style_props)
-    if max_sz is not None and max_sz >= 28 and has_heading_bold_signal:
+    if not false_heading_text and max_sz is not None and max_sz >= 28 and has_heading_bold_signal:
         if jc_val == "center":
             return "h1"
         if jc_val == "left" or (jc_val is None and zero_first_line):

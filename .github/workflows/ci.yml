@@ -2,10 +2,13 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional existing draft Release tag for validated Windows assets
+        required: false
+        type: string
   push:
   pull_request:
-  release:
-    types: [published]
 
 permissions:
   contents: read
@@ -58,8 +61,6 @@ jobs:
 
   windows-local-bundle:
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -75,22 +76,29 @@ jobs:
 
       - name: Prepare bundled runtime
         run: |
-          python -m venv dist\windows-runtime
-          .\dist\windows-runtime\Scripts\python.exe -m pip install --no-index --find-links dist\wheelhouse 'thesis-format-tool[api]'
-          .\dist\windows-runtime\Scripts\python.exe -m article_api.local_app doctor --state-root dist\windows-state --runtime-root dist\windows-data
+          $pythonVersion = "3.11.9"
+          Invoke-WebRequest "https://www.python.org/ftp/python/$pythonVersion/python-$pythonVersion-embed-amd64.zip" -OutFile dist\python-embed.zip
+          $expectedSha256 = "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b"
+          $actualSha256 = (Get-FileHash dist\python-embed.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) { throw "Embedded Python SHA256 mismatch" }
+          Expand-Archive dist\python-embed.zip -DestinationPath dist\windows-runtime
+          New-Item -ItemType Directory -Force dist\windows-runtime\Lib\site-packages | Out-Null
+          Add-Content dist\windows-runtime\python311._pth -Value "Lib\site-packages`r`nimport site" -Encoding ascii
+          python -m pip install --no-index --find-links dist\wheelhouse --target dist\windows-runtime\Lib\site-packages 'thesis-format-tool[api]'
+          .\dist\windows-runtime\python.exe -m article_api.local_app doctor --state-root dist\windows-state --runtime-root dist\windows-data
 
       - name: Build Windows local web bundle
         run: |
           $releaseApiUrl = "https://api.github.com/repos/${{ github.repository }}/releases/latest"
-          if ("${{ github.event_name }}" -eq "release") {
-            $releaseApiUrl = "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}"
+          if ("${{ inputs.release_tag }}") {
+            $releaseApiUrl = "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ inputs.release_tag }}"
           }
           python scripts\build_windows_local_bundle.py --runtime-dir dist\windows-runtime --output-zip dist\lnu-thesis-local-windows.zip --release-api-url $releaseApiUrl
           python scripts\verify_release_artifact.py dist\lnu-thesis-local-windows.zip --sha256-output dist\lnu-thesis-local-windows.zip.sha256
 
       - name: Smoke bundle contents
         run: |
-          python -c "import pathlib, zipfile; names=set(zipfile.ZipFile(r'dist\lnu-thesis-local-windows.zip').namelist()); assert any(name.endswith('/启动论文格式检查.bat') for name in names); assert any(name.endswith('/导出反馈包.bat') for name in names); assert any(name.endswith('/快速开始.txt') for name in names); assert any(name.endswith('/app/Scripts/lnu-thesis-local.exe') for name in names); assert any(name.endswith('/app/Scripts/python.exe') for name in names); assert pathlib.Path(r'dist\lnu-thesis-local-windows.zip.sha256').exists()"
+          python -c "import pathlib, zipfile; names=set(zipfile.ZipFile(r'dist\lnu-thesis-local-windows.zip').namelist()); assert any(name.endswith('/启动论文格式检查.bat') for name in names); assert any(name.endswith('/导出反馈包.bat') for name in names); assert any(name.endswith('/快速开始.txt') for name in names); assert any(name.endswith('/app/python.exe') for name in names); assert any(name.endswith('/app/python311.dll') for name in names); assert any(name.endswith('/app/python311.zip') for name in names); assert any(name.endswith('/app/python311._pth') for name in names); assert not any(name.endswith('/app/pyvenv.cfg') for name in names); assert pathlib.Path(r'dist\lnu-thesis-local-windows.zip.sha256').exists()"
 
       - name: Smoke extracted Windows local web flow
         run: |
@@ -108,9 +116,34 @@ jobs:
           name: windows-bundle-smoke-evidence
           path: dist\windows-bundle-smoke.json
 
-      - name: Upload Windows bundle to GitHub Release
-        if: github.event_name == 'release'
+  publish-draft-release-assets:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}
+    needs: [test, windows-local-bundle]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: lnu-thesis-local-windows.zip
+          path: dist
+
+      - name: Verify target release is still a draft
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" dist\lnu-thesis-local-windows.zip dist\lnu-thesis-local-windows.zip.sha256 --clobber
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true"
+          target_commitish="$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq .target_commitish)"
+          target_ref="$(jq -nr --arg value "$target_commitish" '$value|@uri')"
+          target_sha="$(gh api "repos/$GH_REPO/commits/$target_ref" --jq .sha)"
+          test "$target_sha" = "$GITHUB_SHA"
+
+      - name: Upload validated Windows bundle to draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release upload "$RELEASE_TAG" dist/lnu-thesis-local-windows.zip dist/lnu-thesis-local-windows.zip.sha256 --clobber

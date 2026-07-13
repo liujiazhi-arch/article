@@ -408,18 +408,15 @@ def _looks_like_text_equation_cell(text):
         return False
     return _EQ_LAYOUT_TEXT_SYMBOL_RE.search(compact) is not None
 
-def is_equation_layout_table(tbl_elem):
-    if tbl_elem is None:
-        return False
-
-    rows = tbl_elem.findall("w:tr", NSMAP)
-    if len(rows) != 1:
-        return False
-    cells = rows[0].findall("w:tc", NSMAP)
+def _is_equation_layout_row(row_elem):
+    cells = row_elem.findall("w:tc", NSMAP)
     if len(cells) not in (2, 3):
         return False
 
-    has_math_object = tbl_elem.find(".//m:oMath", MNSMAP) is not None or tbl_elem.find(".//m:oMathPara", MNSMAP) is not None
+    has_math_object = (
+        row_elem.find(".//m:oMath", MNSMAP) is not None
+        or row_elem.find(".//m:oMathPara", MNSMAP) is not None
+    )
     has_text_equation = any(_looks_like_text_equation_cell(_compact_table_cell_text(tc_elem)) for tc_elem in cells[:-1])
     if not has_math_object and not has_text_equation:
         return False
@@ -434,6 +431,14 @@ def is_equation_layout_table(tbl_elem):
             return False
 
     return True
+
+
+def is_equation_layout_table(tbl_elem):
+    if tbl_elem is None:
+        return False
+
+    rows = tbl_elem.findall("w:tr", NSMAP)
+    return bool(rows) and all(_is_equation_layout_row(row_elem) for row_elem in rows)
 
 def get_non_equation_layout_tables(document_root):
     tables = document_root.findall(".//w:tbl", NSMAP)

@@ -363,6 +363,8 @@ def render_verify_document(
     renderer: str = "auto",
     rendered_pdf: str | None = None,
     page_images_dir: str | None = None,
+    pdf_matches_docx_confirmed: bool = False,
+    generate_static_toc: bool = False,
 ) -> dict[str, Any]:
     return build_render_verify_report(
         file_path,
@@ -373,6 +375,8 @@ def render_verify_document(
         renderer=renderer,
         rendered_pdf=rendered_pdf,
         page_images_dir=page_images_dir,
+        pdf_matches_docx_confirmed=pdf_matches_docx_confirmed,
+        generate_static_toc=generate_static_toc,
     )
 
 
@@ -424,6 +428,7 @@ def apply_fix(
     strict_profile: bool | None = None,
     dry_run: bool = False,
     force: bool = False,
+    cover_fields=None,
 ) -> dict[str, Any]:
     resolved_output_path = output_path or _default_output_path(file_path, scopes)
     Path(resolved_output_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
@@ -442,6 +447,7 @@ def apply_fix(
             renumber_headings=renumber_headings,
             layout_rebalance=True,
             strict_profile=strict_profile,
+            cover_fields=cover_fields,
         )
         paragraph_count = int(preview.get("paragraph_count") or 0)
         table_count = int(preview.get("table_count") or 0)
@@ -464,6 +470,7 @@ def apply_fix(
             renumber_headings=renumber_headings,
             layout_rebalance=layout_rebalance,
             strict_profile=strict_profile,
+            cover_fields=cover_fields,
         )
         return {
             "mode": "preview",
@@ -492,6 +499,7 @@ def apply_fix(
             "table_count": preview.get("table_count"),
             "heading_style_candidates": preview.get("heading_style_candidates"),
             "targeted_modules": dict(preview.get("targeted_modules") or {}),
+            "cover_replacement": preview.get("cover_replacement"),
             "notes": list(preview.get("notes") or []),
         }
 
@@ -521,6 +529,21 @@ def apply_fix(
                 ),
             )
 
+    cover_replacement = None
+    if selected_scopes and "cover" in selected_scopes:
+        cover_preview = build_scoped_fix_preview(
+            file_path,
+            output_path=resolved_output_path,
+            profile_path=profile_path,
+            scopes=scopes,
+            toc=toc,
+            renumber_headings=renumber_headings,
+            layout_rebalance=layout_rebalance,
+            strict_profile=strict_profile,
+            cover_fields=cover_fields,
+        )
+        cover_replacement = cover_preview.get("cover_replacement")
+
     written_output_path = apply_scoped_fix(
         file_path,
         resolved_output_path,
@@ -530,6 +553,7 @@ def apply_fix(
         renumber_headings=renumber_headings,
         layout_rebalance=layout_rebalance,
         strict_profile=strict_profile,
+        cover_fields=cover_fields,
     )
     verification_payload = verify_document(
         str(written_output_path),
@@ -555,6 +579,7 @@ def apply_fix(
         "degraded_from_compact": degraded_from_compact,
         "degrade_reason": degrade_reason,
         "layout_rebalance": bool(layout_rebalance),
+        "cover_replacement": cover_replacement,
         "guard": _serialize_apply_guard(
             diagnostics,
             checked=not force,

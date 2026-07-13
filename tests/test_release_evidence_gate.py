@@ -76,6 +76,8 @@ def _write_release_smoke(path: Path, *, status: str = "ok") -> None:
                         "ready": "ready",
                         "job_status": "succeeded",
                         "download_bytes": 1234,
+                        "render_job_status": "succeeded",
+                        "render_page_count": 1,
                     },
                 },
             }
@@ -99,6 +101,8 @@ def _write_windows_bundle_smoke(path: Path, *, status: str = "ok", job_status: s
                         "ready": "ready",
                         "job_status": job_status,
                         "download_bytes": 2345 if job_status == "succeeded" else 0,
+                        "render_job_status": job_status,
+                        "render_page_count": 1 if job_status == "succeeded" else 0,
                     },
                 },
             }
@@ -148,6 +152,8 @@ def test_release_evidence_gate_http_smoke_failure_mapping_is_centralized():
         ready_label="http_smoke ready",
         job_status_label="http_smoke apply job",
         download_label="http_smoke output download",
+        render_status_label="http_smoke render-review job",
+        render_page_label="http_smoke render-review pages",
     )
 
     release_source = inspect.getsource(release_evidence_gate._check_release_smoke)
@@ -160,6 +166,8 @@ def test_release_evidence_gate_http_smoke_failure_mapping_is_centralized():
         "http_smoke ready",
         "http_smoke apply job",
         "http_smoke output download",
+        "http_smoke render-review job",
+        "http_smoke render-review pages",
     ]
     assert "_check_http_smoke_payload(" in release_source
     assert "_check_http_smoke_payload(" in windows_source
@@ -298,6 +306,29 @@ def test_release_evidence_gate_blocks_missing_windows_wps_proof(tmp_path):
     assert payload["status"] == "not_ready"
     assert payload["checks"]["windows_smoke_report"]["status"] == "failed"
     assert "用 WPS/Word 打开修复稿" in payload["checks"]["windows_smoke_report"]["missing_or_failed"][0]
+
+
+def test_release_evidence_gate_rejects_unselected_windows_report_placeholders(tmp_path):
+    release_evidence_gate = _load_release_evidence_gate()
+    report_path = tmp_path / "windows-report.md"
+    report_path.write_text(
+        "\n".join(
+            [
+                "# Windows 实机 smoke 证据报告",
+                "- Release tag: v0.1.0",
+                *[
+                    f"- {phrase} / 不通过"
+                    for phrase in release_evidence_gate.WINDOWS_REQUIRED_PASS_PHRASES
+                ],
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = release_evidence_gate._check_windows_report(report_path)
+
+    assert result["status"] == "failed"
+    assert result["missing_or_failed"]
 
 
 def test_release_evidence_gate_blocks_missing_github_release_assets(tmp_path):

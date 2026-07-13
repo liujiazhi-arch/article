@@ -134,6 +134,16 @@ def build_parser():
         help="可选：按 scope 复用结构复查结论，可重复传入，或用逗号分隔多个值",
     )
     render_verify_parser.add_argument("--rendered-pdf", help="可选：使用用户手动导出的 PDF 作为渲染证据")
+    render_verify_parser.add_argument(
+        "--pdf-matches-docx-confirmed",
+        action="store_true",
+        help="确认 --rendered-pdf 来自当前 DOCX",
+    )
+    render_verify_parser.add_argument(
+        "--generate-static-toc",
+        action="store_true",
+        help="根据已确认的同版 PDF 生成静态目录版 DOCX",
+    )
     render_verify_parser.add_argument("--page-images-dir", help="可选：使用用户手动导出的 PNG 页图目录作为渲染证据")
     return parser
 
@@ -170,10 +180,10 @@ def _render_apply_risk_warning(diagnostics: dict, *, renumber_headings: bool, se
     return lines, assessment.should_block
 
 
-def main():
+def main(argv=None):
     parser = build_parser()
     try:
-        args = parser.parse_args()
+        args = parser.parse_args(argv)
 
         if args.command == "scopes":
             for scope in list_scope_definitions():
@@ -364,6 +374,8 @@ def main():
                 renderer=args.renderer,
                 rendered_pdf=args.rendered_pdf,
                 page_images_dir=args.page_images_dir,
+                pdf_matches_docx_confirmed=args.pdf_matches_docx_confirmed,
+                generate_static_toc=args.generate_static_toc,
             )
             print(render_render_verify_report(report))
             return 0

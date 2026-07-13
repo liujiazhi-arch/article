@@ -25,7 +25,7 @@ def _load_windows_bundle_smoke():
 
 def _write_bundle_zip(zip_path: Path, *, bundle_name: str = "论文格式检查本地版") -> None:
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(f"{bundle_name}/app/Scripts/python.exe", b"python")
+        archive.writestr(f"{bundle_name}/app/python.exe", b"python")
         archive.writestr(f"{bundle_name}/data/state/.keep", b"")
         archive.writestr(f"{bundle_name}/data/runtime/.keep", b"")
         archive.writestr(f"{bundle_name}/启动论文格式检查.bat", "@echo off\r\n")
@@ -60,7 +60,7 @@ def test_windows_bundle_smoke_extracts_bundle_runs_doctor_and_http_smoke(monkeyp
     )
 
     bundle_root = work_dir / "论文格式检查本地版"
-    python_exe = bundle_root / "app" / "Scripts" / "python.exe"
+    python_exe = bundle_root / "app" / "python.exe"
     state_root = bundle_root / "data" / "state"
     runtime_root = bundle_root / "data" / "runtime"
     assert payload["status"] == "ok"
@@ -89,7 +89,6 @@ def test_windows_bundle_smoke_extracts_bundle_runs_doctor_and_http_smoke(monkeyp
     ]
     assert http_calls == [
         {
-            "article_local": python_exe,
             "venv_python": python_exe,
             "state_root": state_root,
             "runtime_root": runtime_root,
@@ -102,8 +101,8 @@ def test_windows_bundle_smoke_rejects_ambiguous_bundle_roots(monkeypatch, tmp_pa
     windows_bundle_smoke = _load_windows_bundle_smoke()
     bundle_zip = tmp_path / "lnu-thesis-local-windows.zip"
     with zipfile.ZipFile(bundle_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("one/app/Scripts/python.exe", b"python")
-        archive.writestr("two/app/Scripts/python.exe", b"python")
+        archive.writestr("one/app/python.exe", b"python")
+        archive.writestr("two/app/python.exe", b"python")
 
     def fail_json_run(*args, **kwargs):
         raise AssertionError("doctor should not run for ambiguous bundles")

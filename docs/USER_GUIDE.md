@@ -4,7 +4,7 @@
 
 ## 安装
 
-面向普通学生的目标形态是 Windows zip：从 GitHub Release 下载 `lnu-thesis-local-windows.zip`，解压后双击 `启动论文格式检查.bat`，浏览器会自动打开本地网页。小程序/云端网页不是首处理端，真正的 `.docx` 审查和修复优先在这个本地网页包里完成。当前 GitHub Beta 如果还没有拿到 zip 包，可按下面的开发者方式安装。
+面向普通学生的目标形态是 Windows zip。`v0.1.2-beta` 完成 clean Windows 和 WPS/Word 实机验收并发布后，可从 GitHub Release 下载 `lnu-thesis-local-windows.zip`，解压后双击 `启动论文格式检查.bat`。小程序/云端网页不是首处理端。新包发布前请不要把公开的 `v0.1.1-beta` 当成本轮修复版本；开发验证可按下面的开发者方式安装。
 
 GitHub 只负责分发软件版本、文档和脱敏问题反馈，不负责同步论文数据。不要把论文、修复稿、API key、本地日志或未检查的反馈包上传到 GitHub issue。
 
@@ -45,7 +45,7 @@ lnu-thesis-local serve
 
 启动本地 API 后，浏览器打开 `http://127.0.0.1:<port>/`。
 
-PDF 复核需要先用 Word 或 WPS 导出 PDF，再上传到工具中查看页面问题。
+PDF 复核需要先用 Word 或 WPS 导出 PDF，再上传到工具中查看页面问题。若目录页码不一致且全部正文标题都能与同版 PDF 精确对应，页面会提供静态目录版下载。下载后仍需重新导出 PDF 并再次复核。通过实机验收后的 `v0.1.2-beta` Windows 本地包会包含 PDF 复核运行组件，不需要另外安装 Poppler。
 
 界面示例：
 
@@ -76,7 +76,8 @@ thesis-workbench verify 修复后_摘要.docx --profile lnu --scope abstract
 - 支持：单个 `.docx` 文档。
 - 支持：生成修复副本。
 - 支持：部分规则自动修复，部分规则提示人工复核。
-- 不承诺：封面自动完美归一化。
+- 支持：显式选择封面并填写完整六项信息后，生成辽宁大学固定 A4 封面；边界不明确时拒绝替换。
+- 不承诺：固定封面不经 Word/WPS 人工检查即可直接提交。
 - 不承诺：所有论文自动完美修好。
 - 不承诺：替代导师、学院、学校的最终审核。
 
@@ -99,6 +100,14 @@ thesis-workbench verify 修复后_摘要.docx --profile lnu --scope abstract
 **目录或分页不一致**
 
 启用目录修复时，工具会直接写入可见的自动目录域结果。若后续继续修改正文导致分页变化，再在 Word/WPS 中更新目录域并复核页码；最终分页以 Word/WPS 打开结果为准。
-如果你手里已经有 Word/WPS 导出的 PDF，也可以把它传给 `thesis-workbench audit --rendered-pdf`，工具会把目录条目页码和正文实际渲染页不一致的问题合并进审查结果。
+如果你手里已经有 Word/WPS 导出的 PDF，可以运行 `thesis-workbench render-verify 修复后.docx --profile lnu --rendered-pdf 修复后.pdf --pdf-matches-docx-confirmed --generate-static-toc`。只有确认 PDF 来自当前 DOCX 时才使用确认参数。映射完整时会在报告目录生成 `static_toc.docx`；映射不完整时不会写文件。
+
+静态目录页码只适用于本次 DOCX、本次字体环境和本次 Word/WPS 分页。下载后不要先修改正文，应直接重新导出 PDF，再上传复核一次。若正文、字体、页边距或渲染软件发生变化，需要重新生成静态目录。
+
+**需要固定封面**
+
+在修复范围中显式选择封面，并填写题目、学院、专业、姓名、指导教师和完成日期。工具只在旧封面边界能够明确识别时替换；正文直接从摘要开始时可以插入新封面。字段缺失、封面与正文边界不明确或 profile 不匹配时不会写出候选稿。
+
+固定版式使用辽宁大学校名字样和校徽，封面页不设置页脚或页码。长题目、个人信息、分节和后续页码仍需在实际提交环境的 Word/WPS 中人工确认。
 
 更多启动、端口、SmartScreen、`.docx` 和反馈包问题见 [故障排查](TROUBLESHOOTING.md)。

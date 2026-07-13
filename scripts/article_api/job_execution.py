@@ -22,8 +22,12 @@ def handler_request(resolved_request: dict[str, Any]) -> dict[str, Any]:
     payload.pop("stage_input", None)
     payload.pop("runtime_root", None)
     payload.pop("upload_id", None)
+    payload.pop("docx_upload_id", None)
+    payload.pop("pdf_upload_id", None)
     payload.pop("source_file_path", None)
     payload.pop("source_display_name", None)
+    payload.pop("pdf_display_name", None)
+    payload.pop("workflow_mode", None)
     payload.pop("output_dir", None)
     payload.pop("max_attempts", None)
     payload.pop("retry_delay_seconds", None)
@@ -54,6 +58,24 @@ def transient_internal_error_payload(message: str) -> dict[str, Any]:
     return api_errors.error_payload("internal_error", exc_type="RuntimeError", message=message, http_status=500)
 
 
+def _communicate_process(process, *, timeout_seconds: float | None, on_heartbeat=None) -> tuple[str, str]:
+    start = time.monotonic()
+    while True:
+        elapsed = time.monotonic() - start
+        if timeout_seconds is not None and elapsed >= float(timeout_seconds):
+            process.kill()
+            process.communicate()
+            raise subprocess.TimeoutExpired(process.args, timeout=timeout_seconds)
+        wait_seconds = 1.0
+        if timeout_seconds is not None:
+            wait_seconds = min(wait_seconds, max(float(timeout_seconds) - elapsed, 0.001))
+        try:
+            return process.communicate(timeout=wait_seconds)
+        except subprocess.TimeoutExpired:
+            if on_heartbeat is not None:
+                on_heartbeat()
+
+
 def run_handler_subprocess(
     operation: str,
     request: dict[str, Any],
@@ -81,22 +103,11 @@ def run_handler_subprocess(
         )
         if on_phase is not None:
             on_phase("processing")
-        start = time.monotonic()
-        last_heartbeat = start
-        while True:
-            return_code = process.poll()
-            now = time.monotonic()
-            if return_code is not None:
-                break
-            if timeout_seconds is not None and (now - start) >= float(timeout_seconds):
-                process.kill()
-                process.wait()
-                raise subprocess.TimeoutExpired(process.args, timeout=timeout_seconds)
-            if on_heartbeat is not None and (now - last_heartbeat) >= 1.0:
-                on_heartbeat()
-                last_heartbeat = now
-            time.sleep(0.1)
-        stdout, stderr = process.communicate()
+        stdout, stderr = _communicate_process(
+            process,
+            timeout_seconds=timeout_seconds,
+            on_heartbeat=on_heartbeat,
+        )
     finally:
         if request_path:
             try:

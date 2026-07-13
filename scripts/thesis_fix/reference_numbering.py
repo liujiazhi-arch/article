@@ -5,7 +5,11 @@ import re
 import xml.etree.ElementTree as ET
 
 from _thesis_utils import NSMAP, W_NS
-from reference_numbering_utils import paragraph_has_reference_tab, parse_reference_number_prefix
+from reference_numbering_utils import (
+    paragraph_has_reference_number_tab,
+    paragraph_has_reference_tab,
+    parse_reference_number_prefix,
+)
 from sections._xml_helpers import get_run_text
 
 
@@ -90,59 +94,58 @@ def _remove_tab_after_ref_number(p_elem):
         p_pr.remove(tabs)
 
 
-def _inject_tab_after_ref_number(p_elem):
-    """
-    将参考文献编号 [N] 后紧跟的空格替换为 <w:tab/>，实现精确对齐。
-    注意：只检查文本 run 中的 <w:tab/>（不包括 pPr 里的制表位定义）。
-    """
-    for run in p_elem.findall(f".//{{{W_NS}}}r"):
-        if run.find(f"{{{W_NS}}}tab") is not None:
-            return
+def _remove_reference_tabs(p_elem):
+    parent_map = {child: parent for parent in p_elem.iter() for child in parent}
+    for run in list(p_elem.findall(".//w:r", NSMAP)):
+        tabs = list(run.findall("w:tab", NSMAP))
+        if not tabs:
+            continue
+        for tab in tabs:
+            run.remove(tab)
+        non_properties = [child for child in run if child.tag != f"{{{W_NS}}}rPr"]
+        parent = parent_map.get(run)
+        if not non_properties and parent is not None:
+            parent.remove(run)
 
-    runs = p_elem.findall(f".//{{{W_NS}}}r")
-    if not runs:
+
+def _inject_tab_after_ref_number(p_elem):
+    inline_tabs = p_elem.findall(".//w:r/w:tab", NSMAP)
+    if paragraph_has_reference_number_tab(p_elem) and len(inline_tabs) == 1:
+        return
+    target = None
+    for run in p_elem.findall(".//w:r", NSMAP):
+        text_elems = run.findall(".//w:t", NSMAP)
+        text = "".join(elem.text or "" for elem in text_elems)
+        match = re.match(r"^(\[\d+\])[ \u00a0]*(.*)$", text, re.DOTALL)
+        if match:
+            target = (run, text_elems, match.group(1), match.group(2))
+            break
+        if text.strip():
+            return
+    if target is None:
         return
 
-    for run in runs:
-        t_elems = run.findall(f"{{{W_NS}}}t")
-        text = "".join(t.text or "" for t in t_elems)
-        if not text.strip():
-            continue
+    run, text_elems, number_text, remainder = target
+    _remove_reference_tabs(p_elem)
+    parent_map = {child: parent for parent in p_elem.iter() for child in parent}
+    parent = parent_map.get(run)
+    if parent is None:
+        return
+    text_elems[0].text = number_text
+    text_elems[0].attrib.pop(f"{{{XML_SPACE_NS}}}space", None)
+    for extra in text_elems[1:]:
+        extra.text = ""
 
-        match = re.match(r"^(\[\d+\])([ \u00a0]+)(.*)", text, re.DOTALL)
-        if not match:
-            break
-
-        num_part = match.group(1)
-        rest_part = match.group(3)
-
-        if len(t_elems) == 1:
-            t_elems[0].text = num_part
-            t_elems[0].set(f"{{{XML_SPACE_NS}}}space", "preserve")
-        else:
-            t_elems[0].text = num_part
-            for text_elem in t_elems[1:]:
-                run.remove(text_elem)
-
-        children = list(p_elem)
-        if run not in children:
-            break
-
-        rpr = run.find(f"{{{W_NS}}}rPr")
-        idx = children.index(run)
-
-        tab_run = ET.Element(f"{{{W_NS}}}r")
+    insert_at = list(parent).index(run) + 1
+    rpr = run.find("w:rPr", NSMAP)
+    tab_run = ET.Element(f"{{{W_NS}}}r")
+    if rpr is not None:
+        tab_run.append(copy.deepcopy(rpr))
+    ET.SubElement(tab_run, f"{{{W_NS}}}tab")
+    parent.insert(insert_at, tab_run)
+    if remainder:
+        text_run = ET.Element(f"{{{W_NS}}}r")
         if rpr is not None:
-            tab_run.append(copy.deepcopy(rpr))
-        ET.SubElement(tab_run, f"{{{W_NS}}}tab")
-        p_elem.insert(idx + 1, tab_run)
-
-        if rest_part:
-            text_run = ET.Element(f"{{{W_NS}}}r")
-            if rpr is not None:
-                text_run.append(copy.deepcopy(rpr))
-            t_new = ET.SubElement(text_run, f"{{{W_NS}}}t")
-            t_new.text = rest_part
-            t_new.set(f"{{{XML_SPACE_NS}}}space", "preserve")
-            p_elem.insert(idx + 2, text_run)
-        break
+            text_run.append(copy.deepcopy(rpr))
+        ET.SubElement(text_run, f"{{{W_NS}}}t").text = remainder
+        parent.insert(insert_at + 1, text_run)

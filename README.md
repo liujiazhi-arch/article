@@ -7,21 +7,22 @@
 
 GitHub Beta 目标：给辽宁大学本科毕业论文提供本地 `.docx` 格式审查和分 scope 修复。工具基于 OOXML 结构分析运行，默认只处理单文档，生成修复副本，不覆盖原文档。
 
-普通学生首选 Windows 本地网页 zip：下载、解压、双击 `启动论文格式检查.bat`，浏览器会自动打开本机网页。论文在本地处理，默认不要上传论文到外部服务器。
+`0.1.2` 完成 Windows 实机验收后，普通学生可使用本地网页 zip：下载、解压、双击 `启动论文格式检查.bat`，浏览器会自动打开本机网页。论文在本地处理，默认不要上传论文到外部服务器。
 
 产品分发边界：GitHub 只托管代码、文档、CI 和发布包，用于让用户从 Release 下载本地网页包；GitHub 不同步你的论文、API key、本地日志、运行缓存或修复稿。
 
 ## 下载
 
-当前公开 Beta Release：
+Windows 新包当前处于发布前验收，暂不建议下载公开旧包：
 
-- [v0.1.1-beta - Windows 本地网页包](https://github.com/liujiazhi-arch/lnu-thesis-format-tool/releases/tag/v0.1.1-beta)
-- 普通用户下载 `lnu-thesis-local-windows.zip`
-- `lnu-thesis-local-windows.zip.sha256` 是校验文件，普通用户可以不下载
+- [v0.1.1-beta](https://github.com/liujiazhi-arch/lnu-thesis-format-tool/releases/tag/v0.1.1-beta) 是历史预览包，不包含当前 `0.1.2` 的 Windows 便携运行时和 PDF 复核修复
+- 请等待 `v0.1.2-beta` 完成 clean Windows 和 WPS/Word 实机验收后再下载使用
 
-不要在压缩包预览窗口里直接运行。请先完整解压 zip，再双击 `启动论文格式检查.bat`。
+新包发布后不要在压缩包预览窗口里直接运行。请先完整解压 zip，再双击 `启动论文格式检查.bat`。
 
 ## 普通学生怎么用
+
+以下步骤适用于通过实机验收后的 `v0.1.2-beta`：
 
 1. 从 GitHub Release 下载 `lnu-thesis-local-windows.zip`。
 2. 完整解压，双击 `启动论文格式检查.bat`。
@@ -39,7 +40,7 @@ GitHub Beta 目标：给辽宁大学本科毕业论文提供本地 `.docx` 格�
 
 | Platform | Current status | User entry |
 | --- | --- | --- |
-| Windows | Beta supported | `lnu-thesis-local-windows.zip` |
+| Windows | 0.1.2 release validation pending | Wait for the validated `v0.1.2-beta` zip |
 | macOS | Planned experimental package | Not yet released |
 | Linux | Developer/source use only | `pip install '.[api]'` |
 
@@ -54,7 +55,8 @@ GitHub Beta 目标：给辽宁大学本科毕业论文提供本地 `.docx` 格�
 - 手动检查 GitHub Release 新版本：只请求软件版本元数据，不上传论文、修复稿、任务记录、本地路径或日志，也不会自动下载或安装更新。
 - 生成修复副本：原文件不会被直接改写。
 - 部分规则自动修复：如标题、正文段落、目录、图表、参考文献等 scope 内的可控格式项。
-- 部分规则提示人工复核：封面、WPS/Word 最终分页、学校或导师临时要求仍需要人工确认。
+- 固定封面可选：只有显式选择封面并填写完整六项信息时，才使用辽宁大学固定 A4 版式替换或插入封面；边界不明确时拒绝处理。
+- 部分规则提示人工复核：固定封面、WPS/Word 最终分页、学校或导师临时要求都需要人工确认。
 
 不要把 Beta 版理解成一键保证最终提交版完全合规。第一版产品边界是：发现问题、生成候选修复副本、减少重复手工排版工作。
 
@@ -115,7 +117,7 @@ thesis-workbench normalize 你的论文.docx --profile lnu --output 结构整理
 
 # 全量审查
 thesis-workbench audit 你的论文.docx --profile lnu
-thesis-workbench audit 你的论文.docx --profile lnu --rendered-pdf 手动导出的.pdf
+thesis-workbench render-verify 你的论文.docx --profile lnu --rendered-pdf 手动导出的.pdf --pdf-matches-docx-confirmed
 
 # 生成 scope 计划
 thesis-workbench plan 你的论文.docx --profile lnu
@@ -135,7 +137,10 @@ thesis-workbench apply 你的论文.docx --profile lnu --scope headings --renumb
 thesis-workbench verify 修复后_正文段落.docx --profile lnu --scope body_paragraphs
 
 # 使用 Word/WPS 导出的 PDF 做渲染复核
-thesis-workbench render-verify 修复后_正文段落.docx --profile lnu --rendered-pdf 手动导出的.pdf
+thesis-workbench render-verify 修复后_正文段落.docx --profile lnu --rendered-pdf 手动导出的.pdf --pdf-matches-docx-confirmed
+
+# 目录页码不一致时生成静态目录副本
+thesis-workbench render-verify 修复后_正文段落.docx --profile lnu --rendered-pdf 手动导出的.pdf --pdf-matches-docx-confirmed --generate-static-toc
 
 # 查看 scope
 thesis-workbench scopes
@@ -175,7 +180,9 @@ python3 scripts/thesis_workbench.py verify 修复后_摘要.docx --profile lnu -
 
 当前只支持辽宁大学本科毕业论文。公开入口只有一个 profile：`lnu-checker-2026`。`CN-Common.yaml` 保留为内部基线和 LNU 继承来源，不作为公开产品 profile。
 
-封面不是当前自动修复主线的一部分。工具默认保留现有封面，不再对封面文字和封面布局做自动归一化。
+封面默认不处理。显式选择 `cover` 并填写题目、学院、专业、姓名、指导教师和完成日期后，工具会使用辽宁大学校名字样、校徽和固定 A4 版式替换可明确识别的旧封面，或在正文从摘要开始时插入封面。封面边界不明确、字段不完整或不是辽宁大学 profile 时会拒绝生成，原稿不会被覆盖。
+
+固定封面用于稳定基本框架，不承诺替代最终模板审核。下载后仍需用实际提交环境的 Word/WPS 检查校名校徽、长题目换行、个人信息、分节和页码。
 
 ## 常见问题
 
@@ -185,7 +192,7 @@ python3 scripts/thesis_workbench.py verify 修复后_摘要.docx --profile lnu -
 
 **目录页码需要复核**
 
-若启用了 `--toc`，工具会直接写入可见的自动目录域结果。之后如果继续修改正文导致分页变化，再在 Word/WPS 中更新目录域并复核页码。也可以把 Word/WPS 导出的 PDF 传给 `audit --rendered-pdf`，工具会把目录条目页码和正文实际渲染页不一致的问题合并进审查结果。
+若启用了 `--toc`，工具会直接写入可见的自动目录域结果。之后如果继续修改正文导致分页变化，再在 Word/WPS 中更新目录域并复核页码。也可以把 Word/WPS 导出的 PDF 传给 `render-verify --rendered-pdf`；确认 PDF 来自当前 DOCX 后同时传入 `--pdf-matches-docx-confirmed --generate-static-toc`。只有全部正文标题都能与 PDF 精确对应时才会生成新的 `static_toc.docx`，原稿不会被覆盖。下载后需要用同一套 Word/WPS 环境重新导出 PDF 并再次复核。
 
 **WPS 打开后分页仍不完全一致**
 

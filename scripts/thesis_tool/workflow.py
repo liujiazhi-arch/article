@@ -729,6 +729,7 @@ def apply_scoped_fix(
     layout_rebalance: bool = False,
     dry_run: bool = False,
     strict_profile: bool | None = None,
+    cover_fields=None,
 ) -> str | dict:
     normalized_scopes = normalize_scope_names(scopes)
     runtime = fix_thesis.build_fix_runtime(
@@ -739,6 +740,7 @@ def apply_scoped_fix(
         layout_rebalance=layout_rebalance,
         dry_run=dry_run,
         strict_profile=strict_profile,
+        cover_fields=cover_fields,
     )
     if dry_run:
         return fix_thesis.describe_fix_docx(
@@ -762,6 +764,7 @@ def build_scoped_fix_preview(
     renumber_headings: bool = False,
     layout_rebalance: bool = False,
     strict_profile: bool | None = None,
+    cover_fields=None,
 ) -> dict:
     preview = apply_scoped_fix(
         input_path,
@@ -772,6 +775,7 @@ def build_scoped_fix_preview(
         renumber_headings=renumber_headings,
         layout_rebalance=layout_rebalance,
         strict_profile=strict_profile,
+        cover_fields=cover_fields,
         dry_run=True,
     )
     assert isinstance(preview, dict)

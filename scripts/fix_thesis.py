@@ -79,6 +79,7 @@ from text_spacing_utils import (
     starts_with_num_cjk_exception as _starts_with_num_cjk_exception,
 )
 from thesis_fix.dependencies import configure as configure_thesis_fix_dependencies
+from thesis_fix.cover_template import plan_cover_replacement, replace_cover, validate_cover_package
 from thesis_fix.runtime import (
     DEFAULT_CFG,
     DEFAULT_HEADING_STYLE_IDS,
@@ -94,6 +95,7 @@ from thesis_fix.runtime import (
     is_scope_enabled,
     load_profile,
     normalize_scopes,
+    resolve_document_heading_style_ids,
     resolve_fix_cfg,
     resolve_fix_heading_style_ids,
     resolve_fix_profile_id,
@@ -114,6 +116,12 @@ from thesis_fix.citations import (
     fix_superscript_fonts,
     move_superscript_citations_before_terminal_punct,
     split_inline_citations,
+)
+from thesis_rules.audit_lnu import (
+    KNOWN_UNITS,
+    is_lnu_identifier_position,
+    is_lnu_unit_suffix,
+    lnu_unit_run_groups,
 )
 
 M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
@@ -256,22 +264,6 @@ HEADING_SPACING_DEFAULTS = {
 EMU_PER_CM = 360000
 COVER_IMAGE_MAX_CX = int(5.5 * EMU_PER_CM)
 COVER_IMAGE_MAX_CY = int(5.5 * EMU_PER_CM)
-def resolve_heading_style_ids(style_map, runtime=None):
-    base = resolve_fix_heading_style_ids(runtime=runtime)
-    resolved = dict(base)
-    for style_id, props in (style_map or {}).items():
-        if not style_id:
-            continue
-        outline_lvl = props.get("outlineLvl")
-        if outline_lvl not in (0, 1, 2, 3):
-            continue
-        heading_level = f"h{outline_lvl + 1}"
-        current_style_id = resolved.get(heading_level)
-        if current_style_id == f"Heading{outline_lvl + 1}":
-            resolved[heading_level] = style_id
-    return resolved
-
-
 def _get_paragraph_style_id(p_elem):
     style_elem = p_elem.find("w:pPr/w:pStyle", NSMAP)
     if style_elem is None:
@@ -317,7 +309,7 @@ def _node_targets_active_scope(node, scope_flags: ScopeFlags) -> bool:
     module = node.module
 
     if node.container_section == "cover":
-        return scope_flags.page
+        return scope_flags.cover
     if node.container_section == "toc":
         return scope_flags.toc
     if section_name in {"abstract_cn", "abstract_en"}:
@@ -452,10 +444,11 @@ def describe_fix_docx(
     document_root = ET.fromstring(document_xml)
     styles_root = ET.fromstring(styles_xml)
     style_map = build_style_map(styles_root)
-    runtime = replace(runtime, heading_style_ids=resolve_heading_style_ids(style_map, runtime=runtime))
+    runtime = replace(runtime, heading_style_ids=resolve_document_heading_style_ids(style_map, runtime=runtime))
     ctx = _rebuild_fix_context(document_root, style_map, runtime)
     heading_style_candidates = sum(1 for _ in _iter_heading_prepass_candidates(ctx.document_model, style_map, runtime))
     table_count = len(document_root.findall(".//w:tbl", NSMAP))
+    cover_replacement = _describe_cover_replacement(ctx)
     return {
         "file_path": input_path,
         "output_path": output_path,
@@ -471,11 +464,22 @@ def describe_fix_docx(
         "table_count": table_count,
         "heading_style_candidates": heading_style_candidates,
         "targeted_modules": _summarize_fix_targets(ctx.document_model, ctx.scope_flags),
+        "cover_replacement": cover_replacement,
         "notes": [
             "本次为 dry-run，未写入任何文件。",
             "标题预处理会先为高置信度标题补齐 Heading 样式，再进入格式修复。",
             "若启用目录重建，脚本会预填可见自动目录结果；后续改动正文分页后需复核目录页码。",
         ],
+    }
+
+
+def _describe_cover_replacement(ctx: FixExecutionContext) -> dict | None:
+    if not ctx.scope_flags.cover:
+        return None
+    plan = plan_cover_replacement(ctx.document_root, ctx.document_model)
+    return {
+        "status": "replaced" if plan.targets else "inserted",
+        "field_count": len(ctx.runtime.cover_fields or {}),
     }
 
 
@@ -728,9 +732,10 @@ def ensure_pstyle_first(p_pr):
     created = False
     if p_style is None:
         p_style = ET.SubElement(p_pr, f"{{{W_NS}}}pStyle")
+        created = True
+    if list(p_pr).index(p_style) != 0:
         p_pr.remove(p_style)
         p_pr.insert(0, p_style)
-        created = True
     return p_style, created
 
 
@@ -1156,35 +1161,145 @@ def fix_sp_num_cjk(p_elem, cfg=None, runtime=None):
     return _fix_spacing_between_runs(p_elem, _needs_num_cjk_space) or changed
 
 
-_UNIT_SPACE_RE = re.compile(r"(?<![A-Za-z])(\d+(?:\.\d+)?)([A-Za-z]{1,5}|℃)(?![A-Za-z])")
+_KNOWN_UNIT_PATTERN = "|".join(re.escape(unit) for unit in sorted(KNOWN_UNITS, key=lambda unit: (-len(unit), unit)))
+_UNIT_SPACE_RE = re.compile(rf"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)({_KNOWN_UNIT_PATTERN})(?![0-9A-Za-z])")
+_UNIT_SPACE_START_RE = re.compile(rf"({_KNOWN_UNIT_PATTERN})(?![0-9A-Za-z])")
 _PERCENT_UNIT_RE = re.compile(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)([%％])")
-_UNIT_SPACE_SKIP = {"e", "E", "x", "X"}
 
 
-def _needs_num_unit_space(left_text, right_text):
+def _unit_run_prefixes(p_elem, run_groups):
+    prefixes = {}
+    group_text = {}
+    for run in p_elem.findall(".//w:r", NSMAP):
+        group = run_groups.get(id(run))
+        if group is None:
+            continue
+        prefixes[id(run)] = group_text.get(group, "")
+        group_text[group] = prefixes[id(run)] + get_run_text(run)
+    return prefixes
+
+
+def _needs_num_unit_space(left_text, right_text, left_context=None):
     if not left_text or not right_text:
         return False
-    if not left_text[-1].isdigit():
+    number_match = re.search(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)$", left_text)
+    if number_match is None:
         return False
-    match = re.match(r"([A-Za-z]{1,5}|℃)", right_text)
+    context = left_context or left_text
+    if is_lnu_identifier_position(context, len(context)):
+        return False
+    match = _UNIT_SPACE_START_RE.match(right_text)
     if match is None:
         return False
-    return match.group(1) not in _UNIT_SPACE_SKIP
+    number = number_match.group(1)
+    return is_lnu_unit_suffix(number, match.group(1), prefix=context[:-len(number)])
+
+
+def _unit_text_nodes_with_groups(p_elem, run_groups):
+    nodes = []
+    group_text = {}
+    for run in p_elem.findall(".//w:r", NSMAP):
+        group = run_groups.get(id(run))
+        if group is None:
+            continue
+        for text_elem in run.findall("w:t", NSMAP):
+            prefix = group_text.get(group, "")
+            nodes.append((group, prefix, text_elem))
+            group_text[group] = prefix + (text_elem.text or "")
+    return nodes
 
 
 def _restore_space_before_percent_between_runs(p_elem):
     changed = False
     while True:
-        text_nodes = _plain_text_nodes_in_paragraph(p_elem)
+        run_groups = lnu_unit_run_groups(p_elem)
+        text_nodes = _unit_text_nodes_with_groups(p_elem, run_groups)
         inserted = False
         for index in range(1, len(text_nodes)):
-            right_text = text_nodes[index].text or ""
+            left_group, left_prefix, left_elem = text_nodes[index - 1]
+            right_group, _right_prefix, right_elem = text_nodes[index]
+            if left_group != right_group:
+                continue
+            right_text = right_elem.text or ""
             if not (right_text and right_text[0] in "%％"):
                 continue
-            left_text = text_nodes[index - 1].text or ""
+            left_text = left_elem.text or ""
             if not re.search(r"(?<![0-9A-Za-z])\d+(?:\.\d+)?$", left_text):
                 continue
-            text_nodes[index].text = f" {right_text}"
+            context = left_prefix + left_text
+            if is_lnu_identifier_position(context, len(context)):
+                continue
+            right_elem.text = f" {right_text}"
+            changed = True
+            inserted = True
+            break
+        if not inserted:
+            return changed
+
+
+def _space_lnu_unit_text(text, prefix):
+    context = prefix + text
+
+    def _unit_repl(match):
+        position = len(prefix) + match.start()
+        if is_lnu_identifier_position(context, position):
+            return match.group(0)
+        if not is_lnu_unit_suffix(match.group(1), match.group(2), prefix=context[:position]):
+            return match.group(0)
+        return f"{match.group(1)} {match.group(2)}"
+
+    updated = _UNIT_SPACE_RE.sub(_unit_repl, text)
+    percent_context = prefix + updated
+
+    def _percent_repl(match):
+        if is_lnu_identifier_position(percent_context, len(prefix) + match.start()):
+            return match.group(0)
+        return f"{match.group(1)} {match.group(2)}"
+
+    return _PERCENT_UNIT_RE.sub(_percent_repl, updated)
+
+
+def _fix_lnu_unit_spacing_inside_runs(p_elem, run_groups):
+    changed = False
+    run_prefixes = _unit_run_prefixes(p_elem, run_groups)
+    safe_runs = [run for run in p_elem.findall(".//w:r", NSMAP) if id(run) in run_groups]
+    for run in safe_runs:
+        prefix = run_prefixes[id(run)]
+        for text_elem in run.findall("w:t", NSMAP):
+            original = text_elem.text or ""
+            updated = _space_lnu_unit_text(original, prefix)
+            if updated != original:
+                text_elem.text = updated
+                changed = True
+            prefix += updated
+    return changed
+
+
+def _fix_lnu_unit_spacing_between_runs(p_elem, run_groups):
+    changed = False
+    while True:
+        run_prefixes = _unit_run_prefixes(p_elem, run_groups)
+        inserted = False
+        non_empty_runs = [run for run in p_elem.findall(".//w:r", NSMAP) if get_run_text(run)]
+        for left_run, right_run in zip(non_empty_runs, non_empty_runs[1:]):
+            left_group = run_groups.get(id(left_run))
+            right_group = run_groups.get(id(right_run))
+            if left_group is None or left_group != right_group:
+                continue
+            left_text = get_run_text(left_run)
+            right_text = get_run_text(right_run)
+            left_context = run_prefixes[id(left_run)] + left_text
+            if not _needs_num_unit_space(left_text, right_text, left_context):
+                continue
+            if left_text[-1].isspace() or right_text[0].isspace():
+                continue
+            parents = {child: parent for parent in p_elem.iter() for child in parent}
+            parent = parents.get(right_run)
+            if parent is None:
+                continue
+            parent_children = list(parent)
+            insert_at = parent_children.index(right_run)
+            parent.insert(insert_at, _make_text_run_like(left_run, " "))
             changed = True
             inserted = True
             break
@@ -1193,42 +1308,10 @@ def _restore_space_before_percent_between_runs(p_elem):
 
 
 def fix_lnu_unit_spacing(p_elem):
-    """在正文中为“数字+单位/百分号”补一个空格。"""
-    changed = False
-    for text_elem in p_elem.findall(".//w:t", NSMAP):
-        original = text_elem.text
-        if not original:
-            continue
-
-        def _repl(match):
-            unit = match.group(2)
-            if unit in _UNIT_SPACE_SKIP:
-                return match.group(0)
-            return f"{match.group(1)} {unit}"
-
-        updated = _UNIT_SPACE_RE.sub(_repl, original)
-        updated = _PERCENT_UNIT_RE.sub(r"\1 \2", updated)
-        if updated != original:
-            text_elem.text = updated
-            changed = True
-    while True:
-        inserted = False
-        non_empty_runs = [run for run in p_elem.findall(".//w:r", NSMAP) if get_run_text(run)]
-        for left_run, right_run in zip(non_empty_runs, non_empty_runs[1:]):
-            left_text = get_run_text(left_run)
-            right_text = get_run_text(right_run)
-            if not _needs_num_unit_space(left_text, right_text):
-                continue
-            if left_text[-1].isspace() or right_text[0].isspace():
-                continue
-            parent_children = list(p_elem)
-            insert_at = parent_children.index(right_run)
-            p_elem.insert(insert_at, _make_text_run_like(left_run, " "))
-            changed = True
-            inserted = True
-            break
-        if not inserted:
-            break
+    """在正文中为“数字+单位/摄氏度/百分号”补一个空格。"""
+    run_groups = lnu_unit_run_groups(p_elem)
+    changed = _fix_lnu_unit_spacing_inside_runs(p_elem, run_groups)
+    changed = _fix_lnu_unit_spacing_between_runs(p_elem, run_groups) or changed
     changed = _restore_space_before_percent_between_runs(p_elem) or changed
     return changed
 
@@ -1328,7 +1411,7 @@ def normalize_toc_title_paragraph(document_root, style_map=None, cfg=None):
     p_elem = toc_title.elem
     before_xml = ET.tostring(p_elem, encoding="unicode")
     p_pr = ensure_ppr(p_elem)
-    p_style = get_or_create(p_pr, "w:pStyle")
+    p_style, _created = ensure_pstyle_first(p_pr)
     changed = 0
     if p_style.get(f"{{{W_NS}}}val") != "TOCHeading":
         set_attr(p_style, "val", "TOCHeading")
@@ -1345,6 +1428,12 @@ def normalize_toc_title_paragraph(document_root, style_map=None, cfg=None):
             set_attr(spacing, attr, value)
             changed += 1
 
+    sect_pr = p_pr.find("w:sectPr", NSMAP)
+    if sect_pr is not None and list(p_pr)[-1] is not sect_pr:
+        p_pr.remove(sect_pr)
+        p_pr.append(sect_pr)
+        changed += 1
+
     active_cfg = cfg or {}
     title_font = str(active_cfg.get("toc_title_font", "黑体") or "黑体")
     title_size = int(active_cfg.get("toc_title_size", 32) or 32)
@@ -1357,78 +1446,111 @@ def normalize_toc_title_paragraph(document_root, style_map=None, cfg=None):
     return changed
 
 
-def normalize_toc_entry_paragraphs(document_root, style_map=None, cfg=None):
-    model = build_document_model(document_root, style_map or {})
+def _toc_entry_level(node, p_pr, name_map):
+    style_val = audit_thesis.get_w_attr(p_pr.find("w:pStyle", NSMAP), "val")
+    normalized_name = name_map.get(style_val, "")
+    if style_val == "TOC1" or "toc1" in normalized_name:
+        return 1, False
+    if style_val == "TOC2" or "toc2" in normalized_name:
+        return 2, False
+    if style_val == "TOC3" or "toc3" in normalized_name:
+        return 3, False
+    entry_text = re.sub(r"(?:\t+\s*\d+\s*)+$", "", node.text).strip()
+    inferred_level = match_heading_by_text(entry_text)
+    return (inferred_level if inferred_level in {1, 2, 3} else 1), True
+
+
+def _set_toc_entry_style(p_pr, entry_level):
+    styles = p_pr.findall("w:pStyle", NSMAP)
     changed = 0
-    active_cfg = cfg or {}
-    name_map = _style_name_map(style_map or {})
-    for node in model.paragraphs:
-        if node.module != "toc_entry":
-            continue
+    if styles:
+        p_style = styles[0]
+        for duplicate in styles[1:]:
+            p_pr.remove(duplicate)
+            changed += 1
+    else:
+        p_style = ET.Element(f"{{{W_NS}}}pStyle")
+        p_pr.insert(0, p_style)
+        changed += 1
+    expected_style = f"TOC{entry_level}"
+    if audit_thesis.get_w_attr(p_style, "val") != expected_style:
+        set_attr(p_style, "val", expected_style)
+        changed += 1
+    return changed
 
-        p_elem = node.elem
-        before_xml = ET.tostring(p_elem, encoding="unicode")
-        p_pr = ensure_ppr(p_elem)
-        style_val = audit_thesis.get_w_attr(p_pr.find("w:pStyle", NSMAP), "val")
-        normalized_name = name_map.get(style_val, "")
-        if style_val == "TOC1" or normalized_name.endswith("toc1") or normalized_name.endswith("toc1char") or "toc1" in normalized_name:
-            entry_font = str(active_cfg.get("toc_level1_font", active_cfg.get("toc_entry_font", "宋体")) or "宋体")
-            entry_size = int(active_cfg.get("toc_level1_size", active_cfg.get("toc_entry_size", 22)) or 22)
-            expected_after = int((active_cfg.get("toc_level1_after_pt", 5) or 5) * 20)
-            entry_bold = False
-        elif style_val == "TOC2" or "toc2" in normalized_name:
-            entry_font = str(active_cfg.get("toc_entry_font", "宋体") or "宋体")
-            entry_size = int(active_cfg.get("toc_entry_size", 22) or 22)
-            expected_after = int((active_cfg.get("toc_level2_after_pt", 5) or 5) * 20)
-            entry_bold = False
-        else:
-            entry_font = str(active_cfg.get("toc_entry_font", "宋体") or "宋体")
-            entry_size = int(active_cfg.get("toc_entry_size", 22) or 22)
-            expected_after = int((active_cfg.get("toc_level3_after_pt", 5) or 5) * 20)
-            entry_bold = False
-        ind = p_pr.find("w:ind", NSMAP)
-        if style_val == "TOC1" or normalized_name.endswith("toc1") or normalized_name.endswith("toc1char") or "toc1" in normalized_name:
-            if ind is not None:
-                p_pr.remove(ind)
-                changed += 1
-        spacing = get_or_create(p_pr, "w:spacing")
-        expected_line = int(active_cfg.get("toc_entry_line", 276) or 276)
-        if spacing.get(f"{{{W_NS}}}before") != "0":
-            set_attr(spacing, "before", "0")
-            changed += 1
-        if spacing.get(f"{{{W_NS}}}after") != str(expected_after):
-            set_attr(spacing, "after", str(expected_after))
-            changed += 1
-        if spacing.get(f"{{{W_NS}}}line") != str(expected_line):
-            set_attr(spacing, "line", str(expected_line))
-            changed += 1
-        if spacing.get(f"{{{W_NS}}}lineRule") != "auto":
-            set_attr(spacing, "lineRule", "auto")
-            changed += 1
 
-        tabs = insert_tabs_before_spacing(p_pr)
-        right_tab = None
-        for tab in tabs.findall("w:tab", NSMAP):
-            if tab.get(f"{{{W_NS}}}val") == "right":
-                right_tab = tab
-                break
-        if right_tab is None:
-            right_tab = ET.SubElement(tabs, f"{{{W_NS}}}tab")
-            changed += 1
-        expected_tab_pos = str(int(active_cfg.get("toc_tab_pos", 9000) or 9000))
-        for attr, value in (("val", "right"), ("leader", "dot"), ("pos", expected_tab_pos)):
-            if right_tab.get(f"{{{W_NS}}}{attr}") != value:
-                set_attr(right_tab, attr, value)
-                changed += 1
+def _toc_entry_format(active_cfg, entry_level):
+    if entry_level == 1:
+        entry_font = str(active_cfg.get("toc_level1_font", active_cfg.get("toc_entry_font", "宋体")) or "宋体")
+        entry_size = int(active_cfg.get("toc_level1_size", active_cfg.get("toc_entry_size", 22)) or 22)
+    else:
+        entry_font = str(active_cfg.get("toc_entry_font", "宋体") or "宋体")
+        entry_size = int(active_cfg.get("toc_entry_size", 22) or 22)
+    after_key = f"toc_level{entry_level}_after_pt"
+    expected_after = int((active_cfg.get(after_key, 5) or 5) * 20)
+    return entry_font, entry_size, expected_after
 
-        for run_elem in p_elem.findall(".//w:r", NSMAP):
-            run_text = get_run_text(run_elem)
-            if not run_text.strip():
-                continue
-            set_run_font(run_elem, entry_font, ascii_font="Times New Roman", size=entry_size, bold=entry_bold)
-        if ET.tostring(p_elem, encoding="unicode") != before_xml:
+
+def _normalize_toc_entry_spacing(p_pr, entry_level, expected_after, active_cfg):
+    changed = 0
+    ind = p_pr.find("w:ind", NSMAP)
+    if entry_level == 1 and ind is not None:
+        p_pr.remove(ind)
+        changed += 1
+    spacing = get_or_create(p_pr, "w:spacing")
+    expected_line = str(int(active_cfg.get("toc_entry_line", 276) or 276))
+    expected = (("before", "0"), ("after", str(expected_after)), ("line", expected_line), ("lineRule", "auto"))
+    for attr, value in expected:
+        if spacing.get(f"{{{W_NS}}}{attr}") != value:
+            set_attr(spacing, attr, value)
             changed += 1
     return changed
+
+
+def _normalize_toc_entry_tab(p_pr, active_cfg):
+    tabs = insert_tabs_before_spacing(p_pr)
+    right_tab = next(
+        (tab for tab in tabs.findall("w:tab", NSMAP) if tab.get(f"{{{W_NS}}}val") == "right"),
+        None,
+    )
+    changed = 0
+    if right_tab is None:
+        right_tab = ET.SubElement(tabs, f"{{{W_NS}}}tab")
+        changed += 1
+    expected_tab_pos = str(int(active_cfg.get("toc_tab_pos", 9000) or 9000))
+    for attr, value in (("val", "right"), ("leader", "dot"), ("pos", expected_tab_pos)):
+        if right_tab.get(f"{{{W_NS}}}{attr}") != value:
+            set_attr(right_tab, attr, value)
+            changed += 1
+    return changed
+
+
+def _normalize_toc_entry_node(node, name_map, active_cfg):
+    p_elem = node.elem
+    before_xml = ET.tostring(p_elem, encoding="unicode")
+    p_pr = ensure_ppr(p_elem)
+    entry_level, needs_style = _toc_entry_level(node, p_pr, name_map)
+    changed = _set_toc_entry_style(p_pr, entry_level) if needs_style else 0
+    entry_font, entry_size, expected_after = _toc_entry_format(active_cfg, entry_level)
+    changed += _normalize_toc_entry_spacing(p_pr, entry_level, expected_after, active_cfg)
+    changed += _normalize_toc_entry_tab(p_pr, active_cfg)
+    for run_elem in p_elem.findall(".//w:r", NSMAP):
+        if get_run_text(run_elem).strip():
+            set_run_font(run_elem, entry_font, ascii_font="Times New Roman", size=entry_size, bold=False)
+    if changed == 0 and ET.tostring(p_elem, encoding="unicode") != before_xml:
+        return 1
+    return changed
+
+
+def normalize_toc_entry_paragraphs(document_root, style_map=None, cfg=None):
+    model = build_document_model(document_root, style_map or {})
+    name_map = _style_name_map(style_map or {})
+    active_cfg = cfg or {}
+    return sum(
+        _normalize_toc_entry_node(node, name_map, active_cfg)
+        for node in model.paragraphs
+        if node.module == "toc_entry"
+    )
 
 
 def remove_duplicate_body_toc_title(document_root, style_map=None):
@@ -1870,11 +1992,11 @@ def fix_soft_line_breaks(document_root, cfg=None, runtime=None, style_map=None):
     return changed
 
 
-def normalize_object_wrapping(document_root, cfg=None, runtime=None):
+def normalize_object_wrapping(document_root, cfg=None, runtime=None, style_map=None):
     _configure_thesis_fix_dependencies()
     from thesis_fix.tables_figures import normalize_object_wrapping as _impl
 
-    return _impl(document_root, cfg, runtime)
+    return _impl(document_root, cfg, runtime, style_map)
 
 def fix_page_margins(document_root, cfg=None, runtime=None):
     cfg = resolve_fix_cfg(cfg=cfg, runtime=runtime)
@@ -1891,14 +2013,26 @@ def fix_page_margins(document_root, cfg=None, runtime=None):
         main_sect = body.find("w:sectPr", NSMAP)
         if main_sect is not None:
             body_sect_prs.append(main_sect)
-        # 段落内的分节符中，跳过第一节（封面节），保留其余
+        paragraphs = body.findall("w:p", NSMAP)
         inline_sects = [
-            p.find("w:pPr/w:sectPr", NSMAP)
-            for p in body.findall("w:p", NSMAP)
+            (index, p.find("w:pPr/w:sectPr", NSMAP))
+            for index, p in enumerate(paragraphs)
         ]
-        inline_sects = [s for s in inline_sects if s is not None]
-        # 第一个 inline sectPr 通常是封面节，跳过；其余正常修改
-        body_sect_prs.extend(inline_sects[1:])
+        inline_sects = [(index, sect_pr) for index, sect_pr in inline_sects if sect_pr is not None]
+        frontmatter_start = next(
+            (
+                index for index, paragraph in enumerate(paragraphs)
+                if _is_frontmatter_title_text(get_paragraph_text(paragraph).strip())
+            ),
+            None,
+        )
+        if frontmatter_start is None:
+            body_sect_prs.extend(sect_pr for _index, sect_pr in inline_sects[1:])
+        else:
+            body_sect_prs.extend(
+                sect_pr for index, sect_pr in inline_sects
+                if index >= frontmatter_start
+            )
     for sect_pr in body_sect_prs:
         pg_mar = sect_pr.find("w:pgMar", NSMAP)
         if pg_mar is None:
@@ -2009,7 +2143,7 @@ def fix_heading_paragraph(p_elem, alignment, set_size, cfg=None, heading_style_i
 
 
 def fix_heading_num_space(p_elem):
-    """确保标题编号与标题文字之间保留一个半角空格，同时不重写后续 run。
+    """确保标题编号与标题文字之间保留一个半角空格，同时保留 run 格式节点。
     处理编号跨多个 run 的情况（如 run1='1. ' / run2='1 研究背景'）。
     """
     run_elems = p_elem.findall(".//w:r", NSMAP)
@@ -2033,37 +2167,7 @@ def fix_heading_num_space(p_elem):
     if clean_text == full_text:
         return  # 已合规，无需修改
 
-    # 将清理后的完整文本写回第一个 run，清空其余 run 的文本
-    first_text_elem = None
-    for run_elem in run_elems:
-        text_elem = run_elem.find("w:t", NSMAP)
-        if text_elem is not None and text_elem.text:
-            first_text_elem = text_elem
-            break
-    if first_text_elem is None:
-        return
-
-    first_text_elem.text = clean_text
-    first_text_elem.set(f"{{{XML_SPACE_NS}}}space", "preserve")
-
-    # 清空后续 run 中原来属于"编号+标题"部分的文本（保留格式标签）
-    chars_written = len(clean_text)
-    chars_from_orig = len(full_text)
-    if chars_written != chars_from_orig:
-        # 原文本已被第一个 run 完全替换，清除其余 run 中重复的文本
-        skip_chars = len(full_text) - len(first_text_elem.text or "")
-        remaining = skip_chars
-        for run_elem in run_elems[1:]:
-            if remaining <= 0:
-                break
-            text_elem = run_elem.find("w:t", NSMAP)
-            if text_elem is not None and text_elem.text:
-                if len(text_elem.text) <= remaining:
-                    remaining -= len(text_elem.text)
-                    text_elem.text = ""
-                else:
-                    text_elem.text = text_elem.text[remaining:]
-                    remaining = 0
+    rewrite_paragraph_text_preserve_runs(p_elem, clean_text)
 
 
 def fix_run_fonts(p_elem, east_asia, ascii_font):
@@ -2096,7 +2200,12 @@ def fix_heading_spacing(p_elem, heading_level, cfg=None, after_twip=None, runtim
 
 def fix_heading_page_break(p_elem):
     p_pr = ensure_ppr(p_elem)
-    page_break_before = get_or_create(p_pr, "w:pageBreakBefore")
+    page_break_before = p_pr.find("w:pageBreakBefore", NSMAP)
+    if page_break_before is None:
+        page_break_before = ET.Element(f"{{{W_NS}}}pageBreakBefore")
+        spacing = p_pr.find("w:spacing", NSMAP)
+        insert_at = len(p_pr) if spacing is None else list(p_pr).index(spacing)
+        p_pr.insert(insert_at, page_break_before)
     set_attr(page_break_before, "val", "1")
 
 
@@ -2343,6 +2452,8 @@ def repair_misplaced_abstract_keywords(document_root, style_map=None):
         p_style = p_elem.find("w:pPr/w:pStyle", NSMAP)
         placeholder_style_id = p_style.get(f"{{{W_NS}}}val") if p_style is not None else None
         break
+    if placeholder_idx is None:
+        return 0
 
     misplaced_idx = None
     for idx in range(toc_end_idx + 1, len(paragraphs)):
@@ -2362,16 +2473,23 @@ def repair_misplaced_abstract_keywords(document_root, style_map=None):
     misplaced_para = paragraphs[misplaced_idx]
     _normalize_misplaced_keywords_paragraph(misplaced_para, style_id=placeholder_style_id)
 
-    if placeholder_idx is not None:
-        placeholder_para = paragraphs[placeholder_idx]
-        body.remove(placeholder_para)
-        insert_idx = placeholder_idx
-    else:
-        insert_idx = toc_start_idx
+    placeholder_para = paragraphs[placeholder_idx]
+    body.remove(placeholder_para)
+    insert_idx = placeholder_idx
 
     body.remove(misplaced_para)
     body.insert(insert_idx, misplaced_para)
     return 1
+
+
+def _first_frontmatter_paragraph_index(document_model, paragraph_indexes):
+    indexes = [
+        paragraph_indexes[id(node.elem)]
+        for node in document_model.paragraphs
+        if node.container_section in {"abstract_cn", "abstract_en", "toc"}
+        and id(node.elem) in paragraph_indexes
+    ]
+    return min(indexes, default=None)
 
 
 def normalize_frontmatter_page_sections(document_root, style_map=None):
@@ -2392,6 +2510,7 @@ def normalize_frontmatter_page_sections(document_root, style_map=None):
     first_body_idx = paragraph_indexes.get(id(body_nodes[0].elem))
     if first_body_idx is None or first_body_idx <= 0:
         return 0
+    first_frontmatter_idx = _first_frontmatter_paragraph_index(document_model, paragraph_indexes)
 
     final_sect_pr = body.find("w:sectPr", NSMAP)
     if final_sect_pr is None:
@@ -2405,6 +2524,8 @@ def normalize_frontmatter_page_sections(document_root, style_map=None):
     if final_pg_num_type.get(f"{{{W_NS}}}start") != "1":
         set_attr(final_pg_num_type, "start", "1")
         changed += 1
+    if first_frontmatter_idx is None:
+        return changed
 
     target_para = paragraphs[first_body_idx - 1]
     target_p_pr = ensure_ppr(target_para)
@@ -2420,7 +2541,13 @@ def normalize_frontmatter_page_sections(document_root, style_map=None):
         candidate_sect_pr = sect_pr
         break
 
-    if candidate_sect_pr is None:
+    candidate_idx = paragraph_indexes.get(id(candidate_para)) if candidate_para is not None else None
+    candidate_is_cover = (
+        candidate_idx is not None
+        and first_frontmatter_idx is not None
+        and candidate_idx < first_frontmatter_idx
+    )
+    if candidate_sect_pr is None or candidate_is_cover:
         candidate_sect_pr = copy.deepcopy(final_sect_pr)
         candidate_para = None
     elif candidate_para is not target_para:
@@ -2471,9 +2598,11 @@ def cleanup_frontmatter_redundant_page_breaks(document_root, style_map=None):
     changed = 0
 
     while True:
-        paragraphs = [child for child in list(body) if child.tag == f"{{{W_NS}}}p"]
+        body_children = list(body)
+        paragraphs = [child for child in body_children if child.tag == f"{{{W_NS}}}p"]
         if len(paragraphs) < 2:
             return changed
+        body_indexes = {id(child): idx for idx, child in enumerate(body_children)}
 
         document_model = build_document_model(document_root, style_map or {})
         body_nodes = document_model.section_nodes("body", effective=False)
@@ -2483,14 +2612,7 @@ def cleanup_frontmatter_redundant_page_breaks(document_root, style_map=None):
 
         local_change = False
         for idx in range(1, upper_bound):
-            prev_para = paragraphs[idx - 1]
             curr_para = paragraphs[idx]
-
-            if not _paragraph_has_manual_page_break(prev_para):
-                continue
-            if get_paragraph_text(prev_para).strip():
-                continue
-
             curr_text = get_paragraph_text(curr_para).strip()
             if not curr_text:
                 continue
@@ -2509,6 +2631,36 @@ def cleanup_frontmatter_redundant_page_breaks(document_root, style_map=None):
             if first_body_idx is not None and idx == first_body_idx:
                 is_boundary_heading = True
             if not is_boundary_heading:
+                continue
+
+            prev_idx = idx - 1
+            next_body_idx = body_indexes[id(curr_para)]
+            while prev_idx >= 0:
+                prev_para = paragraphs[prev_idx]
+                prev_body_idx = body_indexes[id(prev_para)]
+                if prev_body_idx != next_body_idx - 1:
+                    prev_idx = -1
+                    break
+                if _paragraph_has_manual_page_break(prev_para):
+                    break
+                has_structural_content = (
+                    prev_para.find("w:pPr/w:sectPr", NSMAP) is not None
+                    or prev_para.find(".//w:instrText", NSMAP) is not None
+                    or prev_para.find(".//w:fldChar", NSMAP) is not None
+                    or prev_para.find(".//w:fldSimple", NSMAP) is not None
+                    or prev_para.find(".//w:drawing", NSMAP) is not None
+                    or prev_para.find(".//w:pict", NSMAP) is not None
+                    or prev_para.find(".//w:object", NSMAP) is not None
+                    or prev_para.find(f".//{{{M_NS}}}oMath") is not None
+                )
+                if get_paragraph_text(prev_para).strip() or has_structural_content:
+                    prev_idx = -1
+                    break
+                next_body_idx = prev_body_idx
+                prev_idx -= 1
+            if prev_idx < 0 or not _paragraph_has_manual_page_break(prev_para):
+                continue
+            if get_paragraph_text(prev_para).strip():
                 continue
 
             prev_sect_pr = prev_para.find("w:pPr/w:sectPr", NSMAP)
@@ -2540,6 +2692,24 @@ def remove_existing_toc_artifacts(document_root):
         return 0
 
     removed = 0
+    removed_bookmark_ids = set()
+
+    def remove_body_child(child):
+        for marker_name in ("bookmarkStart", "bookmarkEnd"):
+            for marker in child.findall(f".//w:{marker_name}", NSMAP):
+                bookmark_id = marker.get(f"{{{W_NS}}}id")
+                if bookmark_id is not None:
+                    removed_bookmark_ids.add(bookmark_id)
+        body.remove(child)
+
+    for child in list(body):
+        if child.tag != f"{{{W_NS}}}sdt":
+            continue
+        if not any(_has_toc_field_instr(paragraph) for paragraph in child.findall(".//w:p", NSMAP)):
+            continue
+        remove_body_child(child)
+        removed += 1
+
     children = list(body)
     block_indexes: list[int] = []
     block_start_idx, block_end_idx = find_contiguous_toc_block_range(
@@ -2567,20 +2737,30 @@ def remove_existing_toc_artifacts(document_root):
 
     for idx in sorted(set(block_indexes), reverse=True):
         child = children[idx]
-        body.remove(child)
+        remove_body_child(child)
         removed += 1
 
     for child in list(body):
         if child.tag != f"{{{W_NS}}}p":
             continue
         if _is_toc_placeholder_text(get_paragraph_text(child)):
-            body.remove(child)
+            remove_body_child(child)
             removed += 1
             continue
         if not is_generated_toc_paragraph(child):
             continue
-        body.remove(child)
+        remove_body_child(child)
         removed += 1
+
+    if removed_bookmark_ids:
+        parent_map = {child: parent for parent in document_root.iter() for child in parent}
+        for marker_name in ("bookmarkStart", "bookmarkEnd"):
+            for marker in document_root.findall(f".//w:{marker_name}", NSMAP):
+                if marker.get(f"{{{W_NS}}}id") not in removed_bookmark_ids:
+                    continue
+                parent = parent_map.get(marker)
+                if parent is not None:
+                    parent.remove(marker)
 
     return removed
 
@@ -2693,12 +2873,17 @@ def _collect_visible_toc_headings(document_root, style_map=None, cfg=None):
     max_level = max(1, min(int((cfg or {}).get("toc_max_level", 3) or 3), 3))
     model = build_document_model(document_root, style_map or {})
     headings = []
+    found_body_anchor = False
     for node in model.paragraphs:
         if node.section != "body":
             continue
         text = (node.text or "").strip()
         if not text:
             continue
+        if not found_body_anchor:
+            if match_heading_by_text(text) != 1 or _is_frontmatter_title_text(text):
+                continue
+            found_body_anchor = True
         level = None
         if node.kind in {"h1", "h2", "h3"}:
             level = int(node.kind[1])
@@ -3087,13 +3272,14 @@ def _right_align_equation_number_paragraph(p_elem) -> int:
 
 
 def _right_align_equation_layout_table_number(tbl_elem) -> int:
-    cells = tbl_elem.findall("w:tr/w:tc", NSMAP)
-    if not cells:
-        return 0
     changed = 0
-    for p_elem in cells[-1].findall("w:p", NSMAP):
-        if _compact_paragraph_text(p_elem):
-            changed += _right_align_equation_number_paragraph(p_elem)
+    for row_elem in tbl_elem.findall("w:tr", NSMAP):
+        cells = row_elem.findall("w:tc", NSMAP)
+        if not cells:
+            continue
+        for p_elem in cells[-1].findall("w:p", NSMAP):
+            if _compact_paragraph_text(p_elem):
+                changed += _right_align_equation_number_paragraph(p_elem)
     return 1 if changed else 0
 
 
@@ -3858,7 +4044,7 @@ def fix_lnu_s03(document_root, cfg, allowed_titles=None):
         pb = p_pr.find("w:pageBreakBefore", NSMAP)
         if pb is None:
             pb = ET.SubElement(p_pr, f"{{{W_NS}}}pageBreakBefore")
-        set_attr(pb, "val", "true")
+        set_attr(pb, "val", "1")
         fixed += 1
     return fixed
 
@@ -4117,7 +4303,9 @@ def _apply_shared_document_prepasses(ctx: FixExecutionContext) -> FixExecutionCo
             fix_soft_line_breaks(ctx.document_root, cfg=ctx.cfg, runtime=ctx.runtime, style_map=ctx.style_map)
         ) or structural_changed
     if ctx.scope_flags.figures:
-        structural_changed = bool(normalize_object_wrapping(ctx.document_root)) or structural_changed
+        structural_changed = bool(
+            normalize_object_wrapping(ctx.document_root, style_map=ctx.style_map)
+        ) or structural_changed
     if structural_changed:
         ctx = _refresh_fix_context(ctx)
     return ctx
@@ -4191,6 +4379,21 @@ def _apply_toc_prepasses(ctx: FixExecutionContext) -> tuple[FixExecutionContext,
     return ctx, {}
 
 
+def _refresh_auto_toc_after_postpasses(ctx: FixExecutionContext, toc_parts: dict):
+    if not (ctx.scope_flags.toc and ctx.scope_flags.acknowledgement and ctx.cfg.get("toc_auto")):
+        return ctx, toc_parts
+    refreshed_parts = fix_insert_toc(
+        ctx.document_root,
+        ctx.cfg,
+        style_map=ctx.style_map,
+        runtime=ctx.runtime,
+        repair_keywords=False,
+    )
+    merged_parts = dict(toc_parts)
+    merged_parts.update(refreshed_parts)
+    return _refresh_fix_context(ctx), merged_parts
+
+
 def _apply_frontmatter_pagination_prepasses(ctx: FixExecutionContext) -> FixExecutionContext:
     if not ctx.scope_flags.page:
         return ctx
@@ -4202,18 +4405,30 @@ def _apply_frontmatter_pagination_prepasses(ctx: FixExecutionContext) -> FixExec
 
 
 def _apply_document_level_prepasses(ctx: FixExecutionContext):
+    cover_parts: dict[str, bytes] = {}
+    if ctx.scope_flags.cover:
+        replacement = replace_cover(
+            ctx.document_root,
+            ctx.document_model,
+            ctx.temp_dir,
+            ctx.runtime.template_profile_id,
+            ctx.runtime.cover_fields,
+        )
+        cover_parts = replacement.updated_parts
+        ctx = _refresh_fix_context(ctx)
     ctx = _apply_shared_document_prepasses(ctx)
     ctx = _apply_heading_style_prepass(ctx)
 
     if ctx.scope_flags.page:
-        fix_page_margins(ctx.document_root, ctx.cfg, runtime=ctx.runtime)
         fix_cover_layout(ctx.document_root, ctx.paragraph_sections, runtime=ctx.runtime)
     ctx = _apply_abstract_prepasses(ctx)
     _apply_heading_numbering_prepasses(ctx)
     ctx = _apply_equation_prepasses(ctx)
     ctx, toc_parts = _apply_toc_prepasses(ctx)
     ctx = _apply_frontmatter_pagination_prepasses(ctx)
-    return ctx, toc_parts
+    if ctx.scope_flags.page:
+        fix_page_margins(ctx.document_root, ctx.cfg, runtime=ctx.runtime)
+    return ctx, toc_parts, cover_parts
 
 
 def _apply_protected_paragraph_fix(p_elem, paragraph_type, section_name, ctx: FixExecutionContext):
@@ -4592,7 +4807,7 @@ def normalize_docx(input_path, output_path, profile_path=None, strict_profile=No
     document_root = ET.fromstring(document_xml)
     styles_root = ET.fromstring(styles_xml)
     style_map = build_style_map(styles_root)
-    runtime = replace(runtime, heading_style_ids=resolve_heading_style_ids(style_map, runtime=runtime))
+    runtime = replace(runtime, heading_style_ids=resolve_document_heading_style_ids(style_map, runtime=runtime))
     ctx = _rebuild_fix_context(document_root, style_map, runtime)
     operations: dict[str, int] = {}
 
@@ -4604,7 +4819,7 @@ def normalize_docx(input_path, output_path, profile_path=None, strict_profile=No
     soft_line_breaks_changed = fix_soft_line_breaks(ctx.document_root, cfg=ctx.cfg, runtime=ctx.runtime, style_map=ctx.style_map)
     _record("soft_line_breaks", soft_line_breaks_changed)
 
-    object_wrapping_changed = normalize_object_wrapping(ctx.document_root)
+    object_wrapping_changed = normalize_object_wrapping(ctx.document_root, style_map=ctx.style_map)
     _record("object_wrapping", object_wrapping_changed)
     if soft_line_breaks_changed or object_wrapping_changed:
         ctx = _refresh_fix_context(ctx)
@@ -4668,6 +4883,8 @@ def normalize_docx(input_path, output_path, profile_path=None, strict_profile=No
 
 def fix_docx(input_path, output_path, profile_path=None, toc=False, scopes=None, runtime=None):
     input_path = audit_thesis.validate_docx_path(input_path)
+    if Path(input_path).expanduser().resolve() == Path(output_path).expanduser().resolve():
+        raise ValueError("输入路径与输出路径不能相同")
     runtime = runtime or build_fix_runtime(profile_path=profile_path, toc=toc, scopes=scopes)
 
     temp_dir = tempfile.mkdtemp(prefix="thesis_fix_")
@@ -4675,7 +4892,8 @@ def fix_docx(input_path, output_path, profile_path=None, toc=False, scopes=None,
         with zipfile.ZipFile(input_path, "r") as source_zip:
             source_zip.extractall(temp_dir)
 
-        inject_template_components(temp_dir, runtime.template_profile_id)
+        if set(runtime.requested_scopes or ()) != {"cover"}:
+            inject_template_components(temp_dir, runtime.template_profile_id)
 
         document_path = os.path.join(temp_dir, "word", "document.xml")
         styles_path = os.path.join(temp_dir, "word", "styles.xml")
@@ -4695,9 +4913,9 @@ def fix_docx(input_path, output_path, profile_path=None, toc=False, scopes=None,
         document_root = ET.fromstring(document_xml)
         styles_root = ET.fromstring(styles_xml)
         style_map = build_style_map(styles_root)
-        runtime = replace(runtime, heading_style_ids=resolve_heading_style_ids(style_map, runtime=runtime))
+        runtime = replace(runtime, heading_style_ids=resolve_document_heading_style_ids(style_map, runtime=runtime))
         ctx = _rebuild_fix_context(document_root, style_map, runtime, temp_dir=temp_dir)
-        ctx, toc_parts = _apply_document_level_prepasses(ctx)
+        ctx, toc_parts, cover_parts = _apply_document_level_prepasses(ctx)
 
         for paragraph_node in ctx.document_model.paragraphs:
             _apply_paragraph_fix(paragraph_node, ctx)
@@ -4707,12 +4925,14 @@ def fix_docx(input_path, output_path, profile_path=None, toc=False, scopes=None,
         ctx = _rebuild_fix_context(ctx.document_root, ctx.style_map, ctx.runtime, temp_dir=temp_dir)
         _apply_text_cleanup_passes(ctx)
         ctx = _rebuild_fix_context(ctx.document_root, ctx.style_map, ctx.runtime, temp_dir=temp_dir)
+        ctx, toc_parts = _refresh_auto_toc_after_postpasses(ctx, toc_parts)
         _apply_post_cleanup(ctx)
         ctx = _apply_equation_prepasses(ctx)
 
         updated_parts = fix_output_parts.build_updated_parts(
             ctx=ctx,
             toc_parts=toc_parts,
+            cover_parts=cover_parts,
             footer_builder=fix_footer_page_number,
             settings_builder=build_settings_with_update_fields,
         )
@@ -4720,6 +4940,8 @@ def fix_docx(input_path, output_path, profile_path=None, toc=False, scopes=None,
             footnotes_part = fix_footnote_size_part(ctx.temp_dir, ctx.cfg)
             if footnotes_part is not None:
                 updated_parts["word/footnotes.xml"] = footnotes_part
+        if ctx.scope_flags.cover:
+            validate_cover_package(ctx.temp_dir, updated_parts, ctx.runtime.cover_fields)
         write_docx_atomically(input_path, output_path, updated_parts)
         _postprocess_lnu_reference_order(output_path, runtime, ctx.cfg)
 
