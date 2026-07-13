@@ -176,6 +176,8 @@ def build_render_verify_payload(
     renderer: str = "auto",
     rendered_pdf: str | None = None,
     page_images_dir: str | None = None,
+    pdf_matches_docx_confirmed: bool = False,
+    generate_static_toc: bool = False,
     workflow_mode: str | None = None,
     render_verify_fn: Callable[..., dict[str, Any]] = render_verify_document,
 ) -> dict[str, Any]:
@@ -194,11 +196,14 @@ def build_render_verify_payload(
         renderer=renderer,
         rendered_pdf=rendered_pdf,
         page_images_dir=page_images_dir,
+        pdf_matches_docx_confirmed=pdf_matches_docx_confirmed,
+        generate_static_toc=generate_static_toc,
     )
     register_render_evidence_screenshots(payload)
     render_summary = payload.get("render_summary") or {}
     layout_score = payload.get("layout_score") or {}
     render_text_summary = payload.get("render_text_summary") or {}
+    toc_finalization = payload.get("toc_finalization") or {}
     payload.update(
         {
             "service": SERVICE_NAME,
@@ -216,7 +221,9 @@ def build_render_verify_payload(
                 "evidence_trust": payload.get("evidence_trust"),
                 "evidence_authoritative": bool(payload.get("evidence_authoritative")),
                 "layout_decision_eligible": bool(payload.get("layout_decision_eligible")),
+                "pdf_matches_docx_confirmed": bool(payload.get("pdf_matches_docx_confirmed")),
                 "render_fallback_used": bool(payload.get("render_fallback_used")),
+                "render_evidence_status": payload.get("render_evidence_status"),
                 "render_finding_count": len(payload.get("render_findings") or []),
                 "evidence_item_count": len(payload.get("evidence_items") or []),
                 "render_highest_severity": render_summary.get("highest_severity"),
@@ -233,6 +240,10 @@ def build_render_verify_payload(
                 "manual_review_rule_count": len(payload.get("manual_review_rule_ids") or []),
                 "unsupported_rule_count": len(payload.get("unsupported_rule_ids") or []),
                 "render_workflow_mode": render_workflow_mode["id"],
+                "toc_finalization_status": toc_finalization.get("status"),
+                "toc_output_available": bool(toc_finalization.get("available")),
+                "toc_entry_count": toc_finalization.get("entry_count"),
+                "toc_mapped_count": toc_finalization.get("mapped_count"),
             },
         }
     )

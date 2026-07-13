@@ -269,6 +269,8 @@ def resolve_request(
         resolved.setdefault("renderer", "auto")
         resolved.setdefault("rendered_pdf", None)
         resolved.setdefault("page_images_dir", None)
+        resolved.setdefault("pdf_matches_docx_confirmed", False)
+        resolved.setdefault("generate_static_toc", False)
         resolved.setdefault("workflow_mode", "default_user")
         if not resolved.get("rendered_pdf") and not resolved.get("page_images_dir"):
             raise ValueError("PDF 复核需要上传导出的 PDF 文件。")
@@ -329,9 +331,19 @@ def build_result_summary(operation: str, result: dict[str, Any], resolved_reques
         summary["changed"] = bool(result.get("changed"))
         summary["operation_count"] = len(result.get("operations") or [])
     elif operation == "render-verify":
-        summary["business_status"] = result.get("status")
+        toc_finalization = result.get("toc_finalization") or {}
+        summary["business_status"] = result.get("render_evidence_status")
+        summary["render_evidence_status"] = result.get("render_evidence_status")
         summary["render_workflow_mode"] = resolved_request.get("workflow_mode")
+        summary["pdf_name"] = resolved_request.get("pdf_display_name")
         summary["evidence_count"] = len(result.get("evidence_items") or [])
+        summary["pdf_matches_docx_confirmed"] = bool(
+            result.get("pdf_matches_docx_confirmed", resolved_request.get("pdf_matches_docx_confirmed"))
+        )
+        summary["toc_finalization_status"] = toc_finalization.get("status")
+        summary["toc_output_available"] = bool(toc_finalization.get("available"))
+        summary["toc_entry_count"] = toc_finalization.get("entry_count")
+        summary["toc_mapped_count"] = toc_finalization.get("mapped_count")
     if resolved_request.get("dry_run") is not None:
         summary["dry_run"] = bool(resolved_request.get("dry_run"))
     summary["attempt_count"] = int(resolved_request.get("attempt_count") or 1)
@@ -362,6 +374,8 @@ def build_failure_summary(operation: str, resolved_request: dict[str, Any], erro
             summary["degraded_from_compact"] = False
             summary["degrade_reason"] = None
             summary["timeout_seconds"] = resolved_request.get("timeout_seconds")
+    elif operation == "render-verify":
+        summary["pdf_matches_docx_confirmed"] = bool(resolved_request.get("pdf_matches_docx_confirmed"))
     summary["attempt_count"] = int(resolved_request.get("attempt_count") or 1)
     summary["max_attempts"] = int(resolved_request.get("max_attempts") or 1)
     return summary

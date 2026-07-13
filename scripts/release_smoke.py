@@ -243,8 +243,18 @@ def _run_apply_http_smoke(base_url: str, docx_path: Path, runtime_root: Path) ->
     )
     if not output:
         raise RuntimeError("release smoke output download returned no bytes")
+    output_path = docx_path.with_name(f"{docx_path.stem}_fixed.docx")
+    output_path.write_bytes(output)
+    output_upload = _post_multipart_file(
+        f"{base_url}/uploads/docx",
+        field_name="file",
+        file_path=output_path,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        params={"runtime_root": str(runtime_root)},
+    )
     return {
         "upload_id": upload["upload_id"],
+        "output_upload_id": output_upload["upload_id"],
         "job_id": job["job_id"],
         "job_status": status["status"],
         "business_status": (result.get("summary") or {}).get("business_status"),
@@ -268,7 +278,7 @@ def _run_render_http_smoke(
     job = _request_json(
         f"{base_url}/uploads/{urllib.parse.quote(docx_upload_id)}/render-review-jobs",
         method="POST",
-        payload={"pdf_upload_id": pdf_upload["upload_id"]},
+        payload={"pdf_upload_id": pdf_upload["upload_id"], "pdf_matches_docx_confirmed": True},
         timeout=10.0,
     )
     status = _wait_for_job(base_url, job["job_id"])
@@ -279,11 +289,20 @@ def _run_render_http_smoke(
     page_count = int(result.get("page_count") or (result.get("summary") or {}).get("page_count") or 0)
     if page_count != 1:
         raise RuntimeError(f"release smoke render-review returned {page_count} pages")
+    summary = result.get("summary") or {}
+    if (
+        result.get("evidence_trust") != "user-confirmed"
+        or result.get("pdf_matches_docx_confirmed") is not True
+        or summary.get("pdf_matches_docx_confirmed") is not True
+    ):
+        raise RuntimeError("release smoke render-review did not preserve confirmed PDF evidence")
     return {
         "render_upload_id": pdf_upload["upload_id"],
         "render_job_id": job["job_id"],
         "render_job_status": status["status"],
         "render_page_count": page_count,
+        "render_evidence_trust": result["evidence_trust"],
+        "render_pdf_matches_docx_confirmed": result["pdf_matches_docx_confirmed"],
     }
 
 
@@ -307,7 +326,7 @@ def _run_http_smoke(
     try:
         ready = _wait_for_ready(base_url)
         apply_result = _run_apply_http_smoke(base_url, docx_path, runtime_root)
-        render_result = _run_render_http_smoke(base_url, apply_result["upload_id"], pdf_path, runtime_root)
+        render_result = _run_render_http_smoke(base_url, apply_result["output_upload_id"], pdf_path, runtime_root)
         return {
             "status": "ok",
             "ready": ready.get("status"),

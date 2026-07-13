@@ -14,6 +14,27 @@
 
 本轮新 tag 使用 `v0.1.2-beta`。发布前需要同步确认 README 下载链接、Release 标题、`CHANGELOG.md` 版本段落、GitHub Release tag 和 Windows 包内 `ARTICLE_LOCAL_RELEASE_API_URL`。
 
+## 当前验收状态（2026-07-13）
+
+总体结论：本地代码门禁已通过，尚未达到公开发布条件。
+
+已通过：
+
+- 全量测试 `1176 passed, 1 xfailed`，总覆盖率 `87%`。
+- Python compileall、全部前端 JavaScript 语法和 `git diff --check`。
+- 桌面及 390 px 真实浏览器流程，PDF 页图与定位框几何正常，控制台 `0 error / 0 warning`。
+- 本地浏览器 smoke 和安装态 release smoke，覆盖 doctor、profiles、DOCX apply/download 与 PDF render-review。
+- 真实样本 A 的 DOCX 两轮修复幂等：TOC 域 `1 -> 1 -> 1`，正文 token/semantic ratio 为 `1.0`，媒体、绘图和共同 OOXML 部件保持稳定。
+
+待完成：
+
+- 修正两份人工终验 PDF 后重新导出并复核。真实样本 A 仍有 9 条目录错页、图组跨页以及封面完成日期为空；真实样本 B 仍有 5 组目录错页、封面拆页、跨页表格缺续表标题、2 处可见文本错误和 3 条字体类型警告。
+- 真实样本 A 已生成 `26/26` 完整映射的静态目录候选稿，仍需人工重新导出 PDF 后复核。真实样本 B 当前缺少与终验 PDF 对应的 DOCX，静态目录门禁正确拒绝不匹配源稿。
+- 创建 GitHub Draft Release，并完成 GitHub Actions Windows bundle 门禁。
+- 在 clean Windows 环境完成双击启动、DOCX/PDF 主流程和 WPS/Word 实机复核。
+
+在以上待办完成前，不得声称 `v0.1.2-beta` 已发布就绪、两份 PDF 已终验通过或工具能够一键保证论文合规。
+
 ## 本地准备命令
 
 ```bash

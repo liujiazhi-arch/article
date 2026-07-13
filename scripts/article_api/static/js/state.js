@@ -8,6 +8,7 @@ const state = {
   jobHistory: [],
   selectedHistoryJob: null,
   renderResult: null,
+  renderResultPayload: null,
   activeEvidenceIndex: 0,
   highlightVisible: true,
   applyRunning: false,

@@ -8,7 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 import zipfile
 
 from cli_json_output import build_failed_json_payload as _build_failed_payload
@@ -29,6 +29,7 @@ DEFAULT_PLAYWRIGHT_CLI = Path.home() / ".codex" / "skills" / "playwright" / "scr
 
 _available_port = release_smoke._available_port
 _build_smoke_docx = release_smoke._build_smoke_docx
+_build_smoke_pdf = release_smoke._build_smoke_pdf
 _wait_for_ready = release_smoke._wait_for_ready
 
 
@@ -122,6 +123,252 @@ def _download_path_from_output(output: str, *, cwd: Path) -> Path | None:
     return path if path.is_absolute() else cwd / path
 
 
+def _console_error_count(output: str) -> int:
+    match = re.search(r"Total messages:\s*\d+\s*\(Errors:\s*(\d+),\s*Warnings:\s*\d+\)", output)
+    if not match:
+        raise RuntimeError("Playwright console error output could not be verified.")
+    return int(match.group(1))
+
+
+class _SmokeFiles(NamedTuple):
+    source_docx: Path
+    pdf: Path
+    downloaded_docx: Path
+    home_screenshot: Path
+    repaired_screenshot: Path
+    mobile_screenshot: Path
+
+
+_HEATMAP_READY = "() => document.querySelectorAll('[data-result-heatmap] .pass, [data-result-heatmap] .warn').length > 0"
+_MOBILE_NO_OVERFLOW = (
+    "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 "
+    "&& document.body.scrollWidth <= document.documentElement.clientWidth + 1"
+)
+_MOBILE_LABELS_VISIBLE = (
+    "() => { const items = Array.from(document.querySelectorAll('[data-result-heatmap] > span')); "
+    "return items.length > 0 && items.every((item) => { "
+    "const label = item.querySelector('b'); const status = item.querySelector('small'); "
+    "if (!label?.textContent.trim() || !status?.textContent.trim()) return false; "
+    "const labelRect = label.getBoundingClientRect(); const statusRect = status.getBoundingClientRect(); "
+    "return labelRect.width > 0 && labelRect.height > 0 "
+    "&& statusRect.width > 0 && statusRect.height > 0 "
+    "&& getComputedStyle(label).visibility !== 'hidden' "
+    "&& getComputedStyle(status).visibility !== 'hidden'; }); }"
+)
+_FRESH_DOCX_GATE = (
+    "() => document.querySelector('[data-screen=\"result\"]')?.classList.contains('active') === true "
+    "&& document.querySelector('[data-status-title]')?.textContent.trim() === '先上传修复稿'"
+)
+_REPAIRED_DOCX_READY = (
+    "() => document.querySelector('[data-docx-file]')?.textContent.trim() === 'downloaded-repaired.docx' "
+    "&& document.querySelector('[data-status-title]')?.textContent.trim() === '修复方案已生成'"
+)
+_PDF_REVIEW_READY = (
+    "() => document.querySelector('[data-render-state]')?.textContent.trim() === '已完成' "
+    "&& document.querySelector('[data-pdf-metric=\"issues\"]')?.textContent.trim() !== '--'"
+)
+_PDF_EVIDENCE_GEOMETRY_READY = (
+    "() => { const stage = document.querySelector('[data-pdf-stage]'); "
+    "const frame = stage?.querySelector('.pdf-page-frame'); "
+    "const image = frame?.querySelector('img'); "
+    "const highlight = frame?.querySelector('.evidence-highlight'); "
+    "if (!stage || !frame || !image || !highlight || !image.complete || image.naturalWidth <= 0) return false; "
+    "const stageRect = stage.getBoundingClientRect(); const frameRect = frame.getBoundingClientRect(); "
+    "const imageRect = image.getBoundingClientRect(); const highlightRect = highlight.getBoundingClientRect(); "
+    "return getComputedStyle(highlight).position === 'absolute' "
+    "&& frameRect.width > 0 && frameRect.height > 0 "
+    "&& frameRect.left >= stageRect.left - 1 && frameRect.right <= stageRect.right + 1 "
+    "&& frameRect.top >= stageRect.top - 1 && frameRect.bottom <= stageRect.bottom + 1 "
+    "&& Math.abs(frameRect.width - imageRect.width) <= 1 "
+    "&& Math.abs(frameRect.height - imageRect.height) <= 1 "
+    "&& highlightRect.left >= frameRect.left - 1 && highlightRect.right <= frameRect.right + 1 "
+    "&& highlightRect.top >= frameRect.top - 1 && highlightRect.bottom <= frameRect.bottom + 1; }"
+)
+_PDF_TRUST_READY = (
+    "async () => { const jobs = await fetch('/jobs?operation=render-verify&status=succeeded&limit=1')"
+    ".then((response) => response.json()); if (!jobs.length) return false; "
+    "const payload = await fetch(`/jobs/${encodeURIComponent(jobs[0].job_id)}/result`)"
+    ".then((response) => response.json()); const result = payload.result || {}; "
+    "return (result.summary?.evidence_trust ?? result.evidence_trust) === 'user-confirmed' "
+    "&& (result.summary?.pdf_matches_docx_confirmed ?? result.pdf_matches_docx_confirmed) === true; }"
+)
+_REMEMBER_RENDER_JOBS = (
+    "async () => { const jobs = await fetch('/jobs?operation=render-verify&status=succeeded')"
+    ".then((response) => response.json()); "
+    "window.__renderJobIdsBeforeHistoryRetry = jobs.map((job) => job.job_id).sort(); "
+    "return jobs.length > 0; }"
+)
+_OPEN_PDF_HISTORY = (
+    "() => { const button = Array.from(document.querySelectorAll('[data-history-job-id]'))"
+    ".find((item) => item.textContent.includes('PDF复核')); "
+    "if (!button) return false; button.click(); return true; }"
+)
+_HISTORY_RETRY_BLOCKED = (
+    "async () => { const jobs = await fetch('/jobs?operation=render-verify&status=succeeded')"
+    ".then((response) => response.json()); "
+    "const ids = jobs.map((job) => job.job_id).sort(); "
+    "return JSON.stringify(ids) === JSON.stringify(window.__renderJobIdsBeforeHistoryRetry) "
+    "&& document.querySelector('[data-screen=\"result\"]')?.classList.contains('active') === true "
+    "&& document.querySelector('[data-status-title]')?.textContent.trim() === '先上传修复稿'; }"
+)
+
+
+def _capture_screenshot(playwright_cli: Path, path: Path, *, cwd: Path, timeout: float) -> None:
+    _run_playwright(
+        playwright_cli,
+        "screenshot",
+        "--filename",
+        path,
+        "--full-page",
+        cwd=cwd,
+        timeout=timeout,
+    )
+
+
+def _run_upload_repair_flow(
+    playwright_cli: Path,
+    files: _SmokeFiles,
+    *,
+    base_url: str,
+    cwd: Path,
+    timeout: float,
+) -> None:
+    _run_playwright(playwright_cli, "open", base_url, cwd=cwd, timeout=timeout)
+    _capture_screenshot(playwright_cli, files.home_screenshot, cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", ".cover-actions [data-action='enter-workbench']", cwd=cwd, timeout=timeout)
+    _wait_for_snapshot_text(playwright_cli, "上传论文开始修正", cwd=cwd, timeout=timeout)
+    _run_playwright(
+        playwright_cli,
+        "click",
+        "[data-screen='workbench'] [data-action='choose-docx']",
+        cwd=cwd,
+        timeout=timeout,
+    )
+    _run_playwright(playwright_cli, "upload", files.source_docx, cwd=cwd, timeout=timeout)
+    for text in ("修复方案已生成", "发现 ", "项需要你确认"):
+        _wait_for_snapshot_text(playwright_cli, text, cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "[data-action='create-apply-job']", cwd=cwd, timeout=timeout)
+    result_snapshot = _wait_for_snapshot_text(playwright_cli, "browser_smoke", cwd=cwd, timeout=timeout)
+    if "等待修复结果" in result_snapshot:
+        raise RuntimeError("Result panel did not replace the placeholder file name")
+    _wait_for_eval_truthy(playwright_cli, _HEATMAP_READY, cwd=cwd, timeout=timeout)
+
+
+def _verify_mobile_result(playwright_cli: Path, files: _SmokeFiles, *, cwd: Path, timeout: float) -> None:
+    _run_playwright(playwright_cli, "resize", "390", "844", cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _MOBILE_NO_OVERFLOW, cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _MOBILE_LABELS_VISIBLE, cwd=cwd, timeout=timeout)
+    _capture_screenshot(playwright_cli, files.mobile_screenshot, cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "resize", "1440", "900", cwd=cwd, timeout=timeout)
+    _capture_screenshot(playwright_cli, files.repaired_screenshot, cwd=cwd, timeout=timeout)
+
+
+def _store_downloaded_docx(output: str, *, cwd: Path, target: Path) -> None:
+    browser_path = _download_path_from_output(output, cwd=cwd)
+    if browser_path and browser_path.exists():
+        shutil.copy2(browser_path, target)
+    if not target.exists():
+        raise RuntimeError("Browser smoke did not download a repaired docx")
+    if not zipfile.is_zipfile(target):
+        raise RuntimeError(f"Downloaded repaired docx is not a valid docx package: {target}")
+
+
+def _run_pdf_review(playwright_cli: Path, files: _SmokeFiles, *, cwd: Path, timeout: float) -> None:
+    _run_playwright(playwright_cli, "click", "[data-screen-target='pdf-review']", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "[data-action='choose-pdf']", cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _FRESH_DOCX_GATE, cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "[data-screen-target='history']", cwd=cwd, timeout=timeout)
+    _wait_for_snapshot_text(playwright_cli, "browser_smoke", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "[data-screen-target='result']", cwd=cwd, timeout=timeout)
+    download = _run_playwright(playwright_cli, "click", "[data-download-role='output']", cwd=cwd, timeout=timeout)
+    _store_downloaded_docx(download.stdout, cwd=cwd, target=files.downloaded_docx)
+    _run_playwright(
+        playwright_cli,
+        "click",
+        "[data-screen='result'] [data-action='choose-docx']",
+        cwd=cwd,
+        timeout=timeout,
+    )
+    _run_playwright(playwright_cli, "upload", files.downloaded_docx, cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _REPAIRED_DOCX_READY, cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "[data-screen-target='pdf-review']", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "#pdf-match-confirmation", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "[data-action='choose-pdf']", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "upload", files.pdf, cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _PDF_REVIEW_READY, cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _PDF_EVIDENCE_GEOMETRY_READY, cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _PDF_TRUST_READY, cwd=cwd, timeout=timeout)
+
+
+def _verify_history_restore(playwright_cli: Path, files: _SmokeFiles, *, cwd: Path, timeout: float) -> None:
+    _wait_for_eval_truthy(playwright_cli, _REMEMBER_RENDER_JOBS, cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "[data-screen-target='history']", cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _OPEN_PDF_HISTORY, cwd=cwd, timeout=timeout)
+    detail_ready = (
+        "() => document.querySelector('[data-screen=\"pdf-review\"]')?.classList.contains('active') === true "
+        f"&& document.querySelector('[data-pdf-docx-file]')?.textContent.trim() === {_js_string(files.downloaded_docx.name)} "
+        f"&& document.querySelector('[data-pdf-file]')?.textContent.trim() === {_js_string(files.pdf.name)} "
+        "&& document.querySelector('[data-render-state]')?.textContent.trim() === '已完成'"
+    )
+    _wait_for_eval_truthy(playwright_cli, detail_ready, cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "#pdf-match-confirmation", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", "[data-action='choose-pdf']", cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _HISTORY_RETRY_BLOCKED, cwd=cwd, timeout=timeout)
+
+
+def _verify_console_errors(playwright_cli: Path, *, cwd: Path, timeout: float) -> int:
+    result = _run_playwright(playwright_cli, "console", "error", cwd=cwd, timeout=timeout)
+    error_count = _console_error_count(result.stdout)
+    if error_count:
+        raise RuntimeError(f"Browser console reported {error_count} error(s).")
+    return error_count
+
+
+def _build_success_payload(
+    *,
+    base_url: str,
+    ready: dict[str, Any],
+    cwd: Path,
+    files: _SmokeFiles,
+    console_error_count: int,
+) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "base_url": base_url,
+        "ready": ready.get("status"),
+        "work_dir": str(cwd),
+        "source_docx": str(files.source_docx),
+        "downloaded_docx": str(files.downloaded_docx),
+        "download_bytes": files.downloaded_docx.stat().st_size,
+        "render_evidence_trust": "user-confirmed",
+        "browser_evidence": {
+            "history_pdf": {
+                "document_name": files.downloaded_docx.name,
+                "pdf_name": files.pdf.name,
+                "completed": True,
+                "old_docx_reuse_blocked": True,
+            },
+            "mobile": {
+                "width": 390,
+                "height": 844,
+                "no_horizontal_overflow": True,
+                "rule_spectrum_labels_visible": True,
+            },
+            "console_errors": {
+                "automated": True,
+                "command": "console error",
+                "error_count": console_error_count,
+                "passed": True,
+            },
+        },
+        "screenshots": {
+            "home": str(files.home_screenshot),
+            "repaired": str(files.repaired_screenshot),
+            "mobile": str(files.mobile_screenshot),
+        },
+    }
+
+
 def run_local_browser_smoke(
     *,
     work_dir: str | Path = DEFAULT_WORK_DIR,
@@ -145,8 +392,16 @@ def run_local_browser_smoke(
     state_root_path.mkdir(parents=True, exist_ok=True)
     runtime_root_path.mkdir(parents=True, exist_ok=True)
 
-    docx_path = smoke_dir / "browser_smoke.docx"
-    _build_smoke_docx(docx_path, python_executable=python_path)
+    files = _SmokeFiles(
+        source_docx=smoke_dir / "browser_smoke.docx",
+        pdf=smoke_dir / "browser_smoke.pdf",
+        downloaded_docx=smoke_dir / "downloaded-repaired.docx",
+        home_screenshot=smoke_dir / "local-console-home.png",
+        repaired_screenshot=smoke_dir / "local-console-repaired.png",
+        mobile_screenshot=smoke_dir / "local-console-mobile-result.png",
+    )
+    _build_smoke_docx(files.source_docx, python_executable=python_path)
+    _build_smoke_pdf(files.pdf, python_executable=python_path)
 
     port = _available_port()
     base_url = f"http://127.0.0.1:{port}"
@@ -172,84 +427,35 @@ def run_local_browser_smoke(
         text=True,
     )
 
-    home_screenshot = smoke_dir / "local-console-home.png"
-    repaired_screenshot = smoke_dir / "local-console-repaired.png"
-    download_path = smoke_dir / "downloaded-repaired.docx"
     payload: dict[str, Any] | None = None
     try:
         ready = _wait_for_ready(base_url)
-        _run_playwright(pwcli_path, "open", base_url, cwd=smoke_dir, timeout=timeout)
-        _run_playwright(
-            pwcli_path,
-            "screenshot",
-            "--filename",
-            home_screenshot,
-            "--full-page",
+        _run_upload_repair_flow(pwcli_path, files, base_url=base_url, cwd=smoke_dir, timeout=timeout)
+        _verify_mobile_result(pwcli_path, files, cwd=smoke_dir, timeout=timeout)
+        _run_pdf_review(pwcli_path, files, cwd=smoke_dir, timeout=timeout)
+        _verify_history_restore(pwcli_path, files, cwd=smoke_dir, timeout=timeout)
+        console_error_count = _verify_console_errors(pwcli_path, cwd=smoke_dir, timeout=timeout)
+        payload = _build_success_payload(
+            base_url=base_url,
+            ready=ready,
             cwd=smoke_dir,
-            timeout=timeout,
+            files=files,
+            console_error_count=console_error_count,
         )
-        _run_playwright(pwcli_path, "click", ".cover-actions [data-action='enter-workbench']", cwd=smoke_dir, timeout=timeout)
-        _wait_for_snapshot_text(pwcli_path, "上传论文开始修正", cwd=smoke_dir, timeout=timeout)
-        _run_playwright(pwcli_path, "click", "[data-action='choose-docx']", cwd=smoke_dir, timeout=timeout)
-        _run_playwright(pwcli_path, "upload", docx_path, cwd=smoke_dir, timeout=timeout)
-        _wait_for_snapshot_text(pwcli_path, "修复方案已生成", cwd=smoke_dir, timeout=timeout)
-        _wait_for_snapshot_text(pwcli_path, "发现 ", cwd=smoke_dir, timeout=timeout)
-        _wait_for_snapshot_text(pwcli_path, "项需要你确认", cwd=smoke_dir, timeout=timeout)
-        _run_playwright(pwcli_path, "click", "[data-action='create-apply-job']", cwd=smoke_dir, timeout=timeout)
-        _wait_for_snapshot_text(pwcli_path, "修复包已生成", cwd=smoke_dir, timeout=timeout)
-        result_snapshot = _wait_for_snapshot_text(pwcli_path, "browser_smoke", cwd=smoke_dir, timeout=timeout)
-        if "等待修复结果" in result_snapshot:
-            raise RuntimeError("Result panel did not replace the placeholder file name")
-        _wait_for_eval_truthy(
-            pwcli_path,
-            "() => document.querySelectorAll('[data-result-heatmap] .pass, [data-result-heatmap] .warn').length > 0",
-            cwd=smoke_dir,
-            timeout=timeout,
-        )
-        _run_playwright(
-            pwcli_path,
-            "screenshot",
-            "--filename",
-            repaired_screenshot,
-            "--full-page",
-            cwd=smoke_dir,
-            timeout=timeout,
-        )
-        _run_playwright(pwcli_path, "click", "[data-screen-target='history']", cwd=smoke_dir, timeout=timeout)
-        _wait_for_snapshot_text(pwcli_path, "browser_smoke", cwd=smoke_dir, timeout=timeout)
-        _run_playwright(pwcli_path, "click", "[data-screen-target='result']", cwd=smoke_dir, timeout=timeout)
-        download_result = _run_playwright(pwcli_path, "click", "[data-download-role='output']", cwd=smoke_dir, timeout=timeout)
-        downloaded_by_browser = _download_path_from_output(download_result.stdout, cwd=smoke_dir)
-        if downloaded_by_browser and downloaded_by_browser.exists():
-            shutil.copy2(downloaded_by_browser, download_path)
-        if not download_path.exists():
-            raise RuntimeError("Browser smoke did not download a repaired docx")
-        if not zipfile.is_zipfile(download_path):
-            raise RuntimeError(f"Downloaded repaired docx is not a valid docx package: {download_path}")
-        payload = {
-            "status": "ok",
-            "base_url": base_url,
-            "ready": ready.get("status"),
-            "work_dir": str(smoke_dir),
-            "source_docx": str(docx_path),
-            "downloaded_docx": str(download_path),
-            "download_bytes": download_path.stat().st_size,
-            "screenshots": {
-                "home": str(home_screenshot),
-                "repaired": str(repaired_screenshot),
-            },
-        }
     finally:
+        close_error: Exception | None = None
         try:
             _run_playwright(pwcli_path, "close", cwd=smoke_dir, timeout=30.0)
-        except Exception:
-            pass
+        except Exception as exc:
+            close_error = exc
         process.terminate()
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
+        if close_error is not None:
+            raise RuntimeError("Playwright browser close failed.") from close_error
     assert payload is not None
     return payload
 

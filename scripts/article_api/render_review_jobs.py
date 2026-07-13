@@ -27,6 +27,8 @@ def build_render_review_job_kwargs(
         "scopes": request.scopes,
         "workflow_mode": "default_user",
         "rendered_pdf": pdf_upload["stored_path"],
+        "pdf_matches_docx_confirmed": request.pdf_matches_docx_confirmed,
+        "generate_static_toc": request.generate_static_toc,
         "source_display_name": docx_upload.get("file_name"),
         "pdf_display_name": pdf_upload.get("file_name"),
         "runtime_root": docx_upload.get("runtime_root") or pdf_upload.get("runtime_root"),
@@ -37,5 +39,7 @@ def build_render_review_job_kwargs(
         "_public_request": {
             "docx_upload_id": docx_upload_id,
             "pdf_upload_id": request.pdf_upload_id,
+            "pdf_matches_docx_confirmed": request.pdf_matches_docx_confirmed,
+            "generate_static_toc": request.generate_static_toc,
         },
     }

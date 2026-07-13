@@ -57,6 +57,7 @@ py-modules = [
   "fetch_public_docx_samples",
   "release_smoke",
   "local_browser_smoke",
+  "ooxml_namespaces",
   "github_release_status",
   "release_evidence_gate",
   "release_evidence_bundle",
@@ -111,4 +112,10 @@ article_api = ["local_console.html", "assets/*"]
 [tool.setuptools.data-files]
 "share/thesis-format-tool/config" = ["config/capability_matrix.md", "config/sources.yaml"]
 "share/thesis-format-tool/config/profiles" = ["config/profiles/*.yaml"]
-"share/thesis-format-tool/config/templates/lnu" = ["config/templates/lnu/*"]
+"share/thesis-format-tool/config/templates/lnu" = [
+  "config/templates/lnu/*.md",
+  "config/templates/lnu/*.xml",
+]
+"share/thesis-format-tool/config/templates/lnu/cover-assets" = [
+  "config/templates/lnu/cover-assets/*",
+]

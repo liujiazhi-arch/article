@@ -19,6 +19,7 @@ from article_api.app import (
     RetentionSweepRequest,
     UploadApplyRequest,
     UploadNormalizeRequest,
+    UploadRenderReviewRequest,
     UploadVerifyRequest,
     VerifyRequest,
 )
@@ -175,6 +176,7 @@ def test_request_models_default_to_auto_strict_profile():
     normalize_request = NormalizeRequest(file_path="demo.docx")
     normalize_job_request = NormalizeJobRequest(file_path="demo.docx")
     render_verify_request = RenderVerifyRequest(file_path="demo.docx")
+    upload_render_review_request = UploadRenderReviewRequest(pdf_upload_id="pdf-1")
     verify_request = VerifyRequest(file_path="demo.docx")
 
     assert apply_request.strict_profile is None
@@ -185,6 +187,9 @@ def test_request_models_default_to_auto_strict_profile():
     assert render_verify_request.renderer == "auto"
     assert render_verify_request.rendered_pdf is None
     assert render_verify_request.page_images_dir is None
+    assert render_verify_request.pdf_matches_docx_confirmed is False
+    assert render_verify_request.generate_static_toc is False
+    assert upload_render_review_request.generate_static_toc is True
     assert verify_request.strict_profile is None
 
 
@@ -213,9 +218,49 @@ def test_render_workflow_modes_payload_describes_pdf_and_candidate_modes():
 
 
 def test_render_verify_request_supports_workflow_mode():
-    request = RenderVerifyRequest(file_path="demo.docx", workflow_mode="default_user", rendered_pdf="/tmp/demo.pdf")
+    request = RenderVerifyRequest(
+        file_path="demo.docx",
+        workflow_mode="default_user",
+        rendered_pdf="/tmp/demo.pdf",
+        pdf_matches_docx_confirmed=True,
+    )
 
     assert request.workflow_mode == "default_user"
+    assert request.pdf_matches_docx_confirmed is True
+
+
+def test_render_verify_endpoint_persists_pdf_docx_confirmation(monkeypatch):
+    app = _build_fake_app(monkeypatch)
+    routes = _routes_by_path(app)
+    captured = {}
+
+    def fake_render_verify_document(*args, **kwargs):
+        captured["confirmed"] = kwargs.get("pdf_matches_docx_confirmed")
+        captured["generate_static_toc"] = kwargs.get("generate_static_toc")
+        return {
+            "pdf_matches_docx_confirmed": bool(kwargs.get("pdf_matches_docx_confirmed")),
+            "render_findings": [],
+            "evidence_items": [],
+            "render_summary": {},
+            "layout_score": {},
+            "render_text_summary": {},
+        }
+
+    monkeypatch.setattr(app_module, "render_verify_document", fake_render_verify_document)
+
+    payload = routes["/render-verify"].endpoint(
+        RenderVerifyRequest(
+            file_path="/tmp/demo.docx",
+            rendered_pdf="/tmp/demo.pdf",
+            pdf_matches_docx_confirmed=True,
+            generate_static_toc=True,
+        )
+    )
+
+    assert captured["confirmed"] is True
+    assert captured["generate_static_toc"] is True
+    assert payload["pdf_matches_docx_confirmed"] is True
+    assert payload["summary"]["pdf_matches_docx_confirmed"] is True
 
 
 def test_verify_request_supports_staging_fields():
@@ -694,6 +739,7 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
             "evidence_authoritative": True,
             "layout_decision_eligible": True,
             "render_fallback_used": False,
+            "render_evidence_status": "render-review-required",
             "page_count": 2,
             "page_images": [str(output_dir / "page-1.png"), str(output_dir / "page-2.png")],
             "evidence_items": [
@@ -772,6 +818,7 @@ def test_build_render_verify_payload_wraps_engine_result(monkeypatch, tmp_path):
     assert payload["summary"]["render_fallback_used"] is False
     assert payload["summary"]["render_finding_count"] == 1
     assert payload["summary"]["render_highest_severity"] == "warning"
+    assert payload["summary"]["render_evidence_status"] == "render-review-required"
     assert payload["summary"]["layout_score"] == 100
     assert payload["summary"]["layout_penalty"] == 0
     assert payload["summary"]["actionable_finding_count"] == 1

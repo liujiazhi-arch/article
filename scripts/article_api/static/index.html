@@ -7,7 +7,7 @@
   <link rel="icon" href="/static/assets/lnu-emblem.jpg" type="image/jpeg">
   <link rel="stylesheet" href="/static/styles/tokens.css">
   <link rel="stylesheet" href="/static/styles/themes.css">
-  <link rel="stylesheet" href="/static/styles/layout.css?v=20260711-scope-controls">
+  <link rel="stylesheet" href="/static/styles/layout.css?v=20260712-contract-closeout">
 </head>
 <body data-app="lnu-thesis-workbench" data-theme="snow">
   <main class="app-shell">
@@ -74,7 +74,7 @@
             <div><b>论文台面</b><span>上传论文后先看修复方案 再选择要处理的范围</span></div>
             <div><b>修复流程</b><span>显示检查 生成方案 修正 复查 下载的当前进度</span></div>
             <div><b>PDF 复核</b><span>用截图和问题位置说明格式问题 只展示真实检测结果</span></div>
-            <div><b>历史任务</b><span>保存原稿 修复稿 审查报告 和 PDF 复核记录</span></div>
+            <div><b>历史任务</b><span>查看修复任务 PDF 复核结果和仍可下载的文件</span></div>
             <div><b>结果文件</b><span>集中下载修复包 报告 并提示下一步是否需要人工确认</span></div>
             <div><b>规则结果</b><span>把通过 提醒 需要人工复核的项目分清楚</span></div>
           </div>
@@ -86,22 +86,23 @@
       <div class="shell workbench-layout">
         <aside class="left-rail glass">
           <div class="rail-section structure-section">
-            <p class="rail-title">论文结构索引</p>
-            <div class="constellation" aria-label="论文结构索引">
+            <p class="rail-title">论文问题索引</p>
+            <div class="constellation" aria-label="论文问题索引">
               <svg viewBox="0 0 220 214" aria-hidden="true">
                 <path d="M108 106 L52 46 M108 106 L164 52 M108 106 L56 158 M108 106 L168 160 M108 106 L110 28" fill="none" stroke="rgba(255,255,255,.34)" stroke-width="1" />
               </svg>
-              <span class="node main" style="left:76px;top:72px">论文<small>7</small></span>
-              <span class="node" style="left:24px;top:24px">摘要<small>1</small></span>
-              <span class="node" style="right:22px;top:32px">目录<small>2</small></span>
-              <span class="node" style="left:26px;bottom:26px">正文<small>3</small></span>
-              <span class="node" style="right:20px;bottom:24px">文献<small>1</small></span>
-              <span class="node" style="left:82px;top:8px">图表<small>0</small></span>
+              <span class="node main" style="left:76px;top:72px" data-structure-scopes="abstract,toc,body_paragraphs,references,figures_tables">论文<small data-structure-count>--</small></span>
+              <span class="node" style="left:24px;top:24px" data-structure-scopes="abstract">摘要<small data-structure-count>--</small></span>
+              <span class="node" style="right:22px;top:32px" data-structure-scopes="toc">目录<small data-structure-count>--</small></span>
+              <span class="node" style="left:26px;bottom:26px" data-structure-scopes="body_paragraphs">正文<small data-structure-count>--</small></span>
+              <span class="node" style="right:20px;bottom:24px" data-structure-scopes="references">文献<small data-structure-count>--</small></span>
+              <span class="node" style="left:82px;top:8px" data-structure-scopes="figures_tables">图表<small data-structure-count>--</small></span>
             </div>
           </div>
           <div class="rail-section scope-section">
             <p class="rail-title">修复范围</p>
             <div class="scope-stack">
+              <label class="scope-chip" data-scope-option="cover"><input type="checkbox" name="repair-scope" value="cover"><span>固定封面</span><small data-scope-state>填写后可用</small></label>
               <label class="scope-chip" data-scope-option="page"><input type="checkbox" name="repair-scope" value="page" disabled><span>页面设置</span><small data-scope-state>等待方案</small></label>
               <label class="scope-chip" data-scope-option="abstract"><input type="checkbox" name="repair-scope" value="abstract" disabled><span>摘要关键词</span><small data-scope-state>等待方案</small></label>
               <label class="scope-chip" data-scope-option="toc"><input type="checkbox" name="repair-scope" value="toc" disabled><span>目录更新</span><small data-scope-state>等待方案</small></label>
@@ -119,7 +120,7 @@
           <div class="runway">
             <div class="token-row">
               <span class="token">辽大规范</span>
-              <span class="token">本地处理</span>
+              <span class="token">原稿保留</span>
               <span class="token">本地处理</span>
             </div>
             <div class="doc-aperture">
@@ -135,17 +136,29 @@
               </div>
             </div>
           </div>
+          <fieldset class="cover-fields" data-cover-fields hidden>
+            <legend>固定封面信息</legend>
+            <p>使用辽宁大学固定版式 生成后请核对信息</p>
+            <div class="cover-fields-grid">
+              <label class="cover-title-field"><span>题目</span><input type="text" data-cover-field="thesis_title" maxlength="200" required aria-required="true"></label>
+              <label><span>学院</span><input type="text" data-cover-field="college" maxlength="100" required aria-required="true"></label>
+              <label><span>专业</span><input type="text" data-cover-field="major" maxlength="100" required aria-required="true"></label>
+              <label><span>姓名</span><input type="text" data-cover-field="student_name" maxlength="50" autocomplete="name" required aria-required="true"></label>
+              <label><span>指导教师</span><input type="text" data-cover-field="advisor" maxlength="50" required aria-required="true"></label>
+              <label><span>完成日期</span><input type="text" data-cover-field="completion_date" maxlength="30" placeholder="2026年6月" required aria-required="true"></label>
+            </div>
+          </fieldset>
           <div class="repair-preview">
             <div class="repair-tile">可修复范围<strong data-workbench-metric="autofixable-scopes">等待</strong></div>
             <div class="repair-tile">需人工确认<strong data-workbench-metric="manual-confirmation">等待</strong></div>
             <div class="repair-tile">预计输出<strong data-workbench-metric="output-kind">修复副本</strong></div>
           </div>
           <div class="flow-steps">
-            <div class="flow-step active">上传<span>原稿保留</span></div>
-            <div class="flow-step">生成方案<span>先看范围</span></div>
-            <div class="flow-step">修正任务<span>本地处理</span></div>
-            <div class="flow-step">结构复查<span>检查目录编号</span></div>
-            <div class="flow-step">下载副本<span>不覆盖原文</span></div>
+            <div class="flow-step active" data-flow-stage="upload">上传<span>原稿保留</span></div>
+            <div class="flow-step" data-flow-stage="plan">生成方案<span>先看范围</span></div>
+            <div class="flow-step" data-flow-stage="apply">修正任务<span>本地处理</span></div>
+            <div class="flow-step" data-flow-stage="verify">结构复查<span>检查目录编号</span></div>
+            <div class="flow-step" data-flow-stage="download">下载副本<span>不覆盖原文</span></div>
           </div>
         </section>
 
@@ -178,7 +191,7 @@
         <div class="history-console glass">
           <span class="component-label">历史记录</span>
           <h2>每一次修正都有记录</h2>
-          <p>原稿 修复稿 审查报告 和 PDF 复核记录都保存在这里</p>
+          <p>查看修复任务 PDF 复核结果和仍可下载的文件</p>
           <div class="film-control" aria-label="历史任务胶片">
             <span class="film-line"></span>
             <span class="film-line"></span>
@@ -204,19 +217,19 @@
         <div class="pdf-console glass">
           <div class="pdf-console-head">
             <span class="component-label">PDF 复核</span>
-            <h2>PDF 渲染灯箱</h2>
-            <p>上传 Word/WPS 导出的 PDF，复核分页、图题距离、目录页码和下一版 修复副本 条件。</p>
+            <h2>PDF 问题复核</h2>
+            <p>上传 Word 或 WPS 导出的 PDF 查看检测到的页面问题</p>
           </div>
           <div class="pdf-action-stack">
             <div class="pdf-action">
               <i></i>
-              <div><b>上传 PDF</b><span data-pdf-file>读取页面截图 分页和图表位置</span></div>
+              <div><b>上传 PDF</b><span data-pdf-file>等待上传对应 PDF</span></div>
               <input id="pdf-input" class="visually-hidden" type="file" accept=".pdf" hidden>
               <button class="theme-action pdf-action-button" type="button" data-action="choose-pdf">选择 PDF</button>
             </div>
             <div class="pdf-action">
               <i></i>
-              <div><b>绑定论文</b><span>PDF 需要和论文原稿对应</span></div>
+              <div><b>当前论文</b><span data-pdf-docx-file>等待上传论文</span></div>
               <button class="theme-action pdf-action-button" type="button" data-action="enter-workbench">上传论文</button>
             </div>
             <div class="pdf-action">
@@ -224,6 +237,19 @@
               <div><b>查看页面问题</b><span>完成后在右侧显示问题位置</span></div>
               <button class="theme-action pdf-action-button" type="button" data-action="refresh-render-result">查看结果</button>
             </div>
+            <div class="pdf-action" data-toc-output-action hidden>
+              <i></i>
+              <div class="toc-output-copy">
+                <b data-toc-output-title>静态目录版</b>
+                <span data-toc-output-message>等待目录处理结果</span>
+                <small data-toc-output-next-action>重新导出 PDF 并再次复核</small>
+              </div>
+              <button class="theme-action pdf-action-button" type="button" data-download-role="toc-output" disabled>下载静态目录版</button>
+            </div>
+            <label class="pdf-match-confirmation" for="pdf-match-confirmation">
+              <input id="pdf-match-confirmation" type="checkbox">
+              <span>我确认这个 PDF 由当前论文导出</span>
+            </label>
           </div>
           <div class="pdf-status-strip">
             <span>状态<strong data-render-state>待上传</strong></span>
@@ -233,8 +259,8 @@
         </div>
         <div class="pdf-lens glass">
           <div class="lens-titlebar">
-            <span>PDF 证据槽 · 等待真实截图</span>
-            <strong>证据数据</strong>
+            <span>PDF 问题证据</span>
+            <strong>问题位置</strong>
           </div>
           <div class="ruler-stage" aria-label="PDF 页面截图与问题框" data-pdf-stage>
             <div class="ruler-page"></div>
@@ -252,9 +278,9 @@
             </div>
           </div>
           <div class="metrics">
-            <div class="metric"><b>版式</b><strong data-pdf-metric="score">--</strong><span>等待渲染评分</span></div>
-            <div class="metric"><b>页数</b><strong data-pdf-metric="pages">--</strong><span>等待 PDF 页数</span></div>
-            <div class="metric"><b>问题</b><strong data-pdf-metric="issues">--</strong><span>等待可行动项</span></div>
+            <div class="metric"><b>结论</b><strong data-pdf-metric="conclusion">待确认</strong><span>根据检测结果显示</span></div>
+            <div class="metric"><b>页数</b><strong data-pdf-metric="pages">--</strong><span>当前 PDF 页数</span></div>
+            <div class="metric"><b>问题</b><strong data-pdf-metric="issues">--</strong><span>检测到的位置</span></div>
           </div>
           <div class="finding-list" data-pdf-detail>
             <div class="finding"><b>等待 PDF 复核</b><p>上传 PDF 后 这里会显示页面截图和问题位置</p></div>
@@ -290,18 +316,14 @@
             <button class="theme-action result-download-button" type="button" data-download-role="output" disabled>下载 修复副本</button>
           </div>
           <div class="artifact-grid">
-            <button class="artifact-card" type="button" data-download-role="report" disabled><b>审查报告</b><span>下载报告文件 查看规则摘要和人工复核项</span></button>
-            <div class="artifact-card"><b>PDF 复核入口</b><span>用修复稿导出 PDF 后 检查分页和版面</span></div>
+            <button class="artifact-card" type="button" data-download-role="report" disabled><b>任务报告</b><span>下载报告文件 查看规则摘要和人工复核项</span></button>
+            <button class="artifact-card" type="button" data-action="choose-docx"><b>上传修复稿再复核</b><span>用修复稿导出 PDF 后 检查分页和版面</span></button>
           </div>
           <div class="matrix-head">
             <span>规则色谱</span>
             <span class="matrix-legend"><span><i></i>通过</span><span><i class="warn"></i>提醒</span></span>
           </div>
-          <div class="heatmap" aria-label="规则通过情况" data-result-heatmap>
-            <span class="pass"></span><span class="pass"></span><span class="pass"></span><span class="warn"></span><span></span><span class="pass"></span><span class="pass"></span><span></span><span class="pass"></span>
-            <span class="pass"></span><span></span><span class="pass"></span><span class="pass"></span><span class="pass"></span><span class="warn"></span><span class="pass"></span><span></span><span class="pass"></span>
-            <span class="pass"></span><span class="pass"></span><span></span><span class="pass"></span><span class="pass"></span><span class="pass"></span><span></span><span class="pass"></span><span class="pass"></span>
-          </div>
+          <div class="heatmap" aria-label="规则通过情况" data-result-heatmap></div>
           <div class="packet-card"><b>下一步</b><span>用 Word 或 WPS 打开修复稿 更新目录后导出 PDF</span></div>
         </div>
       </div>
@@ -315,6 +337,6 @@
     </div>
   </main>
 
-  <script type="module" src="/static/js/app.js?v=20260711-scope-controls"></script>
+  <script type="module" src="/static/js/app.js?v=20260712-contract-closeout"></script>
 </body>
 </html>

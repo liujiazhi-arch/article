@@ -127,6 +127,33 @@ def _checker_runtime_or_xfail():
     pytest.xfail("latest LNU profile alias/config is not wired into audit runtime yet.")
 
 
+def _page_numbering_document(*, split_sections: bool):
+    cover = _make_paragraph("封面信息")
+    abstract_title = _make_paragraph("摘  要")
+    abstract_body = _make_paragraph("摘要正文")
+    body_heading = _make_paragraph("第1章 绪论")
+    body_text = _make_paragraph("正文内容")
+    field_run = ET.SubElement(body_text, _w("r"))
+    ET.SubElement(field_run, _w("instrText")).text = " PAGE "
+    document = _make_doc_root(cover, abstract_title, abstract_body, body_heading, body_text)
+
+    if split_sections:
+        for paragraph, fmt in ((cover, None), (abstract_body, "upperRoman")):
+            p_pr = ET.SubElement(paragraph, _w("pPr"))
+            sect_pr = ET.SubElement(p_pr, _w("sectPr"))
+            if fmt:
+                pg_num_type = ET.SubElement(sect_pr, _w("pgNumType"))
+                pg_num_type.set(_w("fmt"), fmt)
+                pg_num_type.set(_w("start"), "1")
+
+    body = document.find("w:body", NSMAP)
+    final_sect_pr = ET.SubElement(body, _w("sectPr"))
+    final_pg_num_type = ET.SubElement(final_sect_pr, _w("pgNumType"))
+    final_pg_num_type.set(_w("fmt"), "decimal")
+    final_pg_num_type.set(_w("start"), "1")
+    return document, audit_thesis.build_paragraph_contexts(document, {})
+
+
 def _fake_abstract_en_sections(paragraph: ET.Element):
     original = audit_thesis.build_document_sections
 
@@ -156,6 +183,25 @@ def test_checker_2026_runtime_uses_separate_caption_and_note_line_spacing():
 
     assert int(runtime.cfg["figure_caption_line"]) == 360
     assert int(runtime.cfg["figure_note_line"]) == 240
+
+
+def test_checker_2026_pg01_rejects_single_decimal_section_for_recognized_thesis_regions():
+    runtime = _checker_runtime_or_xfail()
+    document, contexts = _page_numbering_document(split_sections=False)
+
+    passed, issues, _affected = audit_thesis.check_pg01(document, contexts, {}, runtime.cfg)
+
+    assert not passed
+    assert any("页码分节" in issue for issue in issues)
+
+
+def test_checker_2026_pg01_accepts_cover_frontmatter_body_sections():
+    runtime = _checker_runtime_or_xfail()
+    document, contexts = _page_numbering_document(split_sections=True)
+
+    passed, issues, _affected = audit_thesis.check_pg01(document, contexts, {}, runtime.cfg)
+
+    assert passed, issues
 
 
 def test_checker_2026_classifies_explanatory_lines_after_figure_caption_as_notes():

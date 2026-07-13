@@ -10,14 +10,34 @@ import {
   uploadPdf,
 } from "./api.js";
 import { getState, setState } from "./state.js";
-import { bindPdfReview, renderPdfReview } from "./pdfReview.js";
-
+import {
+  bindPdfReview,
+  clearPdfReview,
+  isPdfReviewReady,
+  renderPdfReview,
+} from "./pdfReview.js";
+import { renderEvidenceStatusLabels } from "./copy.js";
+import { bindGlobalActions } from "./globalActions.js";
+import { bindCoverForm, collectCoverFields, coverSelectionIsValid, prepareCoverScope, resetCoverForm } from "./coverForm.js";
+import { renderStructureCounts, setFlowStage } from "./workflowView.js";
 const finishedStates = new Set(["succeeded", "failed"]);
+const blockingRenderEvidenceStatuses = new Set([
+  "structure-not-ready",
+  "blocked-by-wild-doc",
+  "unsupported-evidence",
+]);
+const reviewRequiredResultStatuses = new Set([
+  "manual-review-required",
+  "manual_review",
+  "unsupported",
+  "mixed",
+]);
 const scopeLabels = {
   abstract: "摘要",
   acknowledgement: "致谢",
   appendix: "附录",
   body_paragraphs: "正文",
+  cover: "封面",
   figures_tables: "图表",
   headings: "标题",
   page: "页面",
@@ -30,24 +50,14 @@ const jobStatusLabels = {
   succeeded: "已完成",
   failed: "需要重试",
 };
-
-const scopeShortLabels = {
-  abstract: "摘要",
-  acknowledgement: "致谢",
-  appendix: "附录",
-  body_paragraphs: "正文",
-  figures_tables: "图表",
-  headings: "标题",
-  page: "页面",
-  references: "文献",
-  toc: "目录",
-};
+let historyRequestEpoch = 0;
 
 function showScreen(name) {
   const screenButtons = document.querySelectorAll("[data-screen-target]");
   const screens = document.querySelectorAll("[data-screen]");
   const validScreens = new Set(Array.from(screens, (screen) => screen.dataset.screen));
   if (!validScreens.has(name)) return;
+  historyRequestEpoch += 1;
   screens.forEach((screen) => screen.classList.toggle("active", screen.dataset.screen === name));
   screenButtons.forEach((button) => button.classList.toggle("active", button.dataset.screenTarget === name));
   if (name === "history") refreshHistory();
@@ -67,11 +77,77 @@ function setWorkbenchMetric(name, value) {
   const node = document.querySelector(`[data-workbench-metric="${name}"]`);
   if (node) node.textContent = String(value);
 }
+function setPdfMetric(name, value) {
+  const node = document.querySelector(`[data-pdf-metric="${name}"]`);
+  if (node) node.textContent = String(value);
+}
+function resetPdfMatchConfirmation(root) {
+  const input = root.querySelector("#pdf-match-confirmation");
+  if (input) input.checked = false;
+}
+function setPdfDocxFile(root, fileName = "等待上传论文") {
+  const node = root.querySelector("[data-pdf-docx-file]");
+  if (node) node.textContent = fileName;
+}
+
+function blockPdfUntilFreshDocx(root) {
+  if (getState().pdfReviewRequiresFreshDocx !== true) return false;
+  resetPdfMatchConfirmation(root);
+  setStatus("先上传修复稿", "上传刚下载的修复稿后再复核 PDF");
+  showScreen("result");
+  return true;
+}
+
+function resetPdfReviewState(root, {
+  renderState = "待上传",
+  conclusion = "待确认",
+  title = "等待 PDF 复核",
+  message = "上传对应 PDF 后查看页面问题",
+} = {}) {
+  const nextEpoch = Number(getState().pdfReviewEpoch || 0) + 1;
+  setState({
+    pdfUpload: null,
+    renderResult: null,
+    renderResultPayload: null,
+    activeEvidenceIndex: 0,
+    pdfReviewEpoch: nextEpoch,
+  });
+  resetPdfMatchConfirmation(root);
+  setPdfMetric("conclusion", conclusion);
+  setPdfMetric("pages", "--");
+  setPdfMetric("issues", "--");
+  const stateNode = root.querySelector("[data-render-state]");
+  const fileNode = root.querySelector("[data-pdf-file]");
+  if (stateNode) stateNode.textContent = renderState;
+  if (fileNode) fileNode.textContent = "等待上传对应 PDF";
+  clearPdfReview(root, { title, message });
+  return nextEpoch;
+}
+
+function resetDocumentState(root) {
+  const nextEpoch = Number(getState().documentEpoch || 0) + 1;
+  setState({
+    documentEpoch: nextEpoch,
+    docxUpload: null,
+    workbenchPlan: null,
+    applyResultPayload: null,
+    activeJob: null,
+    applyRunning: false,
+  });
+  renderScopeOptions(null, root);
+  renderResultPanel(null);
+  resetPdfReviewState(root);
+  const fileNode = root.querySelector("[data-docx-file]");
+  if (fileNode) fileNode.textContent = "等待上传论文";
+  setPdfDocxFile(root);
+  return nextEpoch;
+}
 
 function planSummary(plan) {
   const summary = plan && plan.summary ? plan.summary : {};
   const scopes = Array.isArray(plan?.scopes) ? plan.scopes : [];
   return {
+    score: plan?.score,
     autofixableScopes: summary.autofixable_scopes ?? scopes.filter((scope) => Number(scope.autofixable_count || 0) > 0).length,
     manualConfirmation: summary.manual_confirmation_items ?? scopes.reduce((total, scope) => total + Number(scope.manual_review_count || 0) + Number(scope.unsupported_count || 0), 0),
     failedCount: summary.total_failed_count ?? plan?.total_failed_count ?? plan?.failed_count ?? scopes.reduce((total, scope) => total + Number(scope.failed_count || 0), 0),
@@ -90,12 +166,11 @@ function renderFormatRadar(summary) {
   const radar = document.querySelector("[data-format-radar]");
   const label = document.querySelector("[data-format-radar-label]");
   if (!radar || !label) return;
-  const failedCount = Number(summary.failedCount || 0);
-  const manualCount = Number(summary.manualConfirmation || 0);
-  const totalAttention = failedCount + manualCount;
-  const progress = Math.max(8, Math.min(100, 100 - totalAttention * 6));
+  const score = Number(summary?.score);
+  const hasScore = summary?.score != null && Number.isFinite(score);
+  const progress = hasScore ? Math.max(0, Math.min(100, score)) : 0;
   radar.style.setProperty("--radar-progress", `${progress}%`);
-  label.textContent = totalAttention > 0 ? `${totalAttention}项需确认` : "格式较稳";
+  label.textContent = hasScore ? `${Math.round(progress)}分` : summary?.emptyLabel || "等待检查";
 }
 
 function selectedScopeIds(root = document) {
@@ -104,7 +179,7 @@ function selectedScopeIds(root = document) {
 
 function updateApplyButtons(root = document) {
   const current = getState();
-  const canRun = Boolean(current.docxUpload) && selectedScopeIds(root).length > 0 && !current.applyRunning;
+  const canRun = Boolean(current.docxUpload && current.workbenchPlan) && selectedScopeIds(root).length > 0 && coverSelectionIsValid(root) && !current.applyRunning;
   root.querySelectorAll("[data-action='create-apply-job']").forEach((button) => {
     button.disabled = !canRun;
     const label = button.querySelector("b");
@@ -115,6 +190,10 @@ function updateApplyButtons(root = document) {
 function renderScopeOptions(plan, root = document) {
   const scopes = new Map((Array.isArray(plan?.scopes) ? plan.scopes : []).map((scope) => [scope.id, scope]));
   root.querySelectorAll("[data-scope-option]").forEach((option) => {
+    if (option.dataset.scopeOption === "cover") {
+      prepareCoverScope(root);
+      return;
+    }
     const scope = scopes.get(option.dataset.scopeOption);
     const available = Number(scope?.autofixable_count || 0) > 0;
     const requiresReview = Number(scope?.manual_review_count || 0) > 0 || Number(scope?.unsupported_count || 0) > 0;
@@ -123,9 +202,12 @@ function renderScopeOptions(plan, root = document) {
     if (input) {
       input.disabled = !available;
       input.checked = available;
+      input.dataset.requiresReview = String(requiresReview);
     }
     if (stateNode) {
-      stateNode.textContent = available ? "已选择" : requiresReview ? "需人工确认" : plan ? "无需处理" : "等待方案";
+      stateNode.textContent = available
+        ? requiresReview ? "已选 仍需确认" : "已选择"
+        : requiresReview ? "需人工确认" : plan ? "无需处理" : "等待方案";
     }
   });
   updateApplyButtons(root);
@@ -136,6 +218,7 @@ function bindScopeControls(root) {
     input.addEventListener("change", () => {
       const stateNode = input.closest("[data-scope-option]").querySelector("[data-scope-state]");
       stateNode.textContent = input.checked ? "已选择" : "未选择";
+      if (input.checked && input.dataset.requiresReview === "true") stateNode.textContent = "已选 仍需确认";
       updateApplyButtons(root);
     });
   });
@@ -144,26 +227,24 @@ function bindScopeControls(root) {
 function renderWorkbenchPlan(plan) {
   const summary = planSummary(plan);
   renderFormatRadar(summary);
+  renderStructureCounts(plan);
+  setFlowStage("plan");
   setWorkbenchMetric("autofixable-scopes", summary.autofixableScopes);
   setWorkbenchMetric("manual-confirmation", summary.manualConfirmation);
   setWorkbenchMetric("output-kind", "修复副本");
-  const scopes = Array.isArray(plan?.scopes) ? plan.scopes : [];
   renderScopeOptions(plan);
-  const focusScopes = scopes
-    .filter((scope) => Number(scope.failed_count || 0) > 0)
-    .slice(0, 3)
-    .map((scope) => scopeShortLabels[scope.id] || scope.title || "论文范围")
-    .join(" ");
   renderWorkbenchLedger([
     { time: "刚刚", message: "论文已上传并完成初步检查", status: "完成" },
     { time: "刚刚", message: `发现 ${summary.autofixableScopes} 个可修复范围`, status: "完成" },
-    { time: "刚刚", message: summary.manualConfirmation > 0 ? `${summary.manualConfirmation} 项需要你确认 ${focusScopes}`.trim() : "暂未发现需要人工确认的项目", status: summary.manualConfirmation > 0 ? "需确认" : "完成" },
+    { time: "刚刚", message: summary.manualConfirmation > 0 ? `${summary.manualConfirmation} 项需要你确认` : "暂未发现需要人工确认的项目", status: summary.manualConfirmation > 0 ? "需确认" : "完成" },
   ]);
 }
 
-function renderWorkbenchPlanPending(fileName) {
+function renderWorkbenchPlanPending(fileName, stage = "upload") {
   renderScopeOptions(null);
-  renderFormatRadar({ failedCount: 0, manualConfirmation: 0 });
+  renderFormatRadar({ emptyLabel: "检查中" });
+  renderStructureCounts(null);
+  setFlowStage(stage);
   setWorkbenchMetric("autofixable-scopes", "生成中");
   setWorkbenchMetric("manual-confirmation", "生成中");
   setWorkbenchMetric("output-kind", "修复副本");
@@ -176,7 +257,9 @@ function renderWorkbenchPlanPending(fileName) {
 
 function renderWorkbenchPlanUnavailable(message) {
   renderScopeOptions(null);
-  renderFormatRadar({ failedCount: 0, manualConfirmation: 1 });
+  renderFormatRadar({ emptyLabel: "待重试" });
+  renderStructureCounts(null);
+  setFlowStage("plan");
   setWorkbenchMetric("autofixable-scopes", "待重试");
   setWorkbenchMetric("manual-confirmation", "待重试");
   renderWorkbenchLedger([
@@ -190,16 +273,18 @@ function showError(error) {
   setStatus(error.message || "操作没有完成", error.nextAction || "请检查文件后重试");
 }
 
-async function createWorkbenchPlanFromUpload(upload) {
-  renderWorkbenchPlanPending(upload.file_name);
+async function createWorkbenchPlanFromUpload(upload, documentEpoch = null) {
+  renderWorkbenchPlanPending(upload.file_name, "plan");
   setStatus("论文已上传", "正在生成修复方案");
   try {
     const plan = await createPlan(upload.stored_path);
+    if (documentEpoch && getState().documentEpoch !== documentEpoch) return null;
     setState({ workbenchPlan: plan });
     renderWorkbenchPlan(plan);
     setStatus("修复方案已生成", "可以生成修正结果");
     return plan;
   } catch (planError) {
+    if (documentEpoch && getState().documentEpoch !== documentEpoch) return null;
     renderWorkbenchPlanUnavailable(planError.nextAction || "请稍后重试生成方案");
     setStatus("论文已上传", "修复方案暂时不可用");
     throw planError;
@@ -254,18 +339,54 @@ function setDownloadButton(button, payload, role, unavailableText) {
 function renderHeatmap(payload) {
   const heatmap = document.querySelector("[data-result-heatmap]");
   if (!heatmap) return;
-  const result = payload && payload.result ? payload.result : {};
-  const verification = result.verification || {};
-  const summary = verification.summary || {};
-  const failed = Number(summary.failed_rules || 0);
-  const notices = Array.isArray(result.post_verify_notices)
-    ? result.post_verify_notices.length
-    : Number(payload?.summary?.post_verify_notice_count || 0);
-  const passCount = Math.max(1, Math.min(27, 27 - failed - notices));
-  heatmap.innerHTML = Array.from({ length: 27 }, (_item, index) => {
-    const className = index < passCount ? "pass" : index < passCount + notices + failed ? "warn" : "";
-    return `<span class="${className}"></span>`;
+  if (!payload) {
+    heatmap.replaceChildren();
+    return;
+  }
+  const scopes = payload?.result?.verification?.scopes;
+  if (!Array.isArray(scopes)) {
+    heatmap.replaceChildren();
+    return;
+  }
+  const coverStatus = {
+    inserted: "已添加",
+    replaced: "已替换",
+  }[payload?.result?.cover_replacement?.status];
+  heatmap.innerHTML = scopes.map((scope) => {
+    const failedCount = Number(scope.failed_count || 0);
+    const label = scope.title || scopeLabels[scope.id] || "论文范围";
+    const status = scope.id === "cover" && coverStatus ? coverStatus : failedCount > 0 ? `${failedCount}项` : "通过";
+    const description = escapeHtml(`${label} ${status}`);
+    return `<span class="${failedCount > 0 ? "warn" : "pass"}" title="${description}" aria-label="${description}"><b>${escapeHtml(label)}</b><small>${escapeHtml(status)}</small></span>`;
   }).join("");
+}
+
+function resultPanelStatus(payload) {
+  const summary = payload?.summary || {};
+  const result = payload?.result || {};
+  const businessStatus = summary.business_status ?? result.overall_status ?? result.verification?.overall_status;
+  const readiness = summary.readiness ?? result.readiness ?? result.verification?.readiness;
+  if (reviewRequiredResultStatuses.has(readiness) || reviewRequiredResultStatuses.has(businessStatus)) {
+    return { badge: "待确认", title: "需要人工确认", message: "先查看报告中的人工复核项" };
+  }
+  if (businessStatus === "needs_fix" || readiness === "needs-fix") {
+    return { badge: "待修复", title: "仍有格式问题", message: "先查看审查报告 再继续处理" };
+  }
+  if (readiness === "render-check-required") {
+    return { badge: "待复核", title: "修复包已生成", message: "下载副本后导出 PDF 复核" };
+  }
+  if (!payload) return { badge: "待生成", title: "等待修复结果", message: "上传论文后生成修复副本" };
+  return { badge: "已生成", title: "修复包已生成", message: "原文件未覆盖 下载后再复核" };
+}
+
+function renderResultStatus(payload) {
+  const status = resultPanelStatus(payload);
+  const badgeNode = document.querySelector(".completion-orb strong");
+  const titleNode = document.querySelector(".result-hero h2");
+  const messageNode = document.querySelector(".result-hero > p");
+  if (badgeNode) badgeNode.textContent = status.badge;
+  if (titleNode) titleNode.textContent = status.title;
+  if (messageNode) messageNode.textContent = status.message;
 }
 
 function renderResultPanel(payload) {
@@ -276,8 +397,10 @@ function renderResultPanel(payload) {
     || summary.output_name
     || (summary.output_path ? summary.output_path.split("/").pop() : null)
     || "等待修复结果";
-  const scopeText = formatScopes(summary.selected_scopes);
-  const timeText = `${formatDateTime(payload?.finished_at || payload?.updated_at)} 本地生成`;
+  const scopeText = payload ? formatScopes(summary.selected_scopes) : "等待选择范围";
+  const timeText = payload
+    ? `${formatDateTime(payload.finished_at || payload.updated_at)} 本地生成`
+    : "等待本地生成";
   const resultFileNode = document.querySelector("[data-result-file-name]");
   const resultScopeNode = document.querySelector("[data-result-scope]");
   const resultTimeNode = document.querySelector("[data-result-time]");
@@ -290,6 +413,7 @@ function renderResultPanel(payload) {
   if (downloadNoteNode) {
     downloadNoteNode.textContent = output?.available ? "原文件未覆盖" : "下载文件已不可用 请重新运行修复";
   }
+  renderResultStatus(payload);
   setDownloadButton(document.querySelector("[data-download-role='output']"), payload, "output", "下载文件已不可用 请重新运行修复");
   setDownloadButton(document.querySelector("[data-download-role='report']"), payload, "report", "报告文件已不可用 请重新运行修复");
   if (report && report.available) {
@@ -300,30 +424,56 @@ function renderResultPanel(payload) {
   renderHeatmap(payload);
 }
 
-function renderPdfMetrics(result) {
+function pdfConclusion(result, issues) {
   const summary = result && result.summary ? result.summary : {};
-  const score = summary.layout_score ?? "--";
-  const pages = summary.page_count ?? result?.page_count ?? "--";
-  const issues = summary.evidence_item_count ?? (Array.isArray(result?.evidence_items) ? result.evidence_items.length : "--");
-  const scoreNode = document.querySelector("[data-pdf-metric='score']");
-  const pagesNode = document.querySelector("[data-pdf-metric='pages']");
-  const issuesNode = document.querySelector("[data-pdf-metric='issues']");
-  if (scoreNode) scoreNode.textContent = String(score);
-  if (pagesNode) pagesNode.textContent = String(pages);
-  if (issuesNode) issuesNode.textContent = String(issues);
+  const evidenceStatus = summary.render_evidence_status ?? result?.render_evidence_status;
+  if (blockingRenderEvidenceStatuses.has(evidenceStatus)) {
+    return renderEvidenceStatusLabels[evidenceStatus] || "待确认";
+  }
+  if (Number(issues) > 0) return "需复核";
+  if (evidenceStatus === "render-evidence-ready") return isPdfReviewReady(result) ? "无异常" : "待确认";
+  return renderEvidenceStatusLabels[evidenceStatus] || "待确认";
 }
 
-async function pollJob(jobId, { renderResult = false } = {}) {
+function renderPdfMetrics(result) {
+  const summary = result && result.summary ? result.summary : {};
+  const pages = summary.page_count ?? result?.page_count ?? "--";
+  const issues = summary.evidence_item_count
+    ?? (Array.isArray(result?.evidence_items) ? result.evidence_items.length : null)
+    ?? summary.actionable_finding_count
+    ?? result?.render_summary?.actionable_finding_count
+    ?? (Array.isArray(result?.evidence_items) ? result.evidence_items.length : "--");
+  setPdfMetric("conclusion", pdfConclusion(result, issues));
+  setPdfMetric("pages", pages);
+  setPdfMetric("issues", issues);
+}
+
+async function pollJob(jobId, {
+  renderResult = false,
+  docxUploadId = null,
+  pdfReviewEpoch = null,
+  documentEpoch = null,
+} = {}) {
   while (true) {
+    if (documentEpoch && getState().documentEpoch !== documentEpoch) return null;
+    if (pdfReviewEpoch && getState().pdfReviewEpoch !== pdfReviewEpoch) return null;
     const job = await getJob(jobId);
+    if (documentEpoch && getState().documentEpoch !== documentEpoch) return null;
+    if (pdfReviewEpoch && getState().pdfReviewEpoch !== pdfReviewEpoch) return null;
     setState({ activeJob: job });
     if (finishedStates.has(job.status)) {
       if (job.status === "failed") {
         throw new Error("处理没有完成");
       }
       if (renderResult) {
+        if (pdfReviewEpoch && getState().pdfReviewEpoch !== pdfReviewEpoch) return null;
+        if (documentEpoch && getState().documentEpoch !== documentEpoch) return null;
+        if (docxUploadId && getState().docxUpload?.upload_id !== docxUploadId) return null;
         const resultPayload = await getJobResult(jobId);
-        setState({ renderResult: resultPayload.result, activeEvidenceIndex: 0 });
+        if (pdfReviewEpoch && getState().pdfReviewEpoch !== pdfReviewEpoch) return null;
+        if (documentEpoch && getState().documentEpoch !== documentEpoch) return null;
+        if (docxUploadId && getState().docxUpload?.upload_id !== docxUploadId) return null;
+        setState({ renderResult: resultPayload.result, renderResultPayload: resultPayload, activeEvidenceIndex: 0 });
         renderCurrentPdfReview();
       }
       return job;
@@ -334,20 +484,23 @@ async function pollJob(jobId, { renderResult = false } = {}) {
 
 function renderCurrentPdfReview() {
   const root = document.querySelector("[data-screen='pdf-review']");
-  const result = getState().renderResult;
+  const current = getState();
+  const result = current.renderResult;
   if (!root || !result) return;
-  renderPdfReview(root, result);
+  renderPdfReview(root, result, current.renderResultPayload);
   renderPdfMetrics(result);
 }
-
 async function refreshHistory() {
   const list = document.querySelector("[data-history-list]");
   if (!list) return;
+  const requestEpoch = historyRequestEpoch;
   try {
     const jobs = await listJobs({ limit: 10 });
+    if (requestEpoch !== historyRequestEpoch) return;
     setState({ jobHistory: jobs });
     renderHistory(jobs);
   } catch (error) {
+    if (requestEpoch !== historyRequestEpoch) return;
     list.innerHTML = `<div class="task-card"><div class="task-date">稍后<br>重试</div><div><b>历史记录暂时不可用</b><span>${escapeHtml(error.nextAction || "请稍后刷新")}</span></div><span class="status">提示</span></div>`;
   }
 }
@@ -386,134 +539,220 @@ function renderHistory(jobs) {
 }
 
 async function openHistoryJob(jobId) {
+  const requestEpoch = ++historyRequestEpoch;
+  const { documentEpoch, pdfReviewEpoch } = getState();
   const resultPayload = await getJobResult(jobId);
+  const current = getState();
+  if (
+    requestEpoch !== historyRequestEpoch
+    || current.documentEpoch !== documentEpoch
+    || current.pdfReviewEpoch !== pdfReviewEpoch
+  ) return;
   setState({ selectedHistoryJob: resultPayload });
   if (resultPayload.operation === "render-verify") {
-    setState({ renderResult: resultPayload.result, activeEvidenceIndex: 0 });
+    const summary = resultPayload.summary || {};
+    setState({
+      renderResult: resultPayload.result,
+      renderResultPayload: resultPayload,
+      activeEvidenceIndex: 0,
+      pdfReviewEpoch: Number(current.pdfReviewEpoch || 0) + 1,
+      pdfReviewRequiresFreshDocx: true,
+    });
+    resetPdfMatchConfirmation(document);
+    setPdfDocxFile(document, summary.document_name || "历史论文");
+    const pdfFileNode = document.querySelector("[data-pdf-file]");
+    const renderStateNode = document.querySelector("[data-render-state]");
+    if (pdfFileNode) pdfFileNode.textContent = summary.pdf_name || "历史 PDF";
+    if (renderStateNode) renderStateNode.textContent = "已完成";
     renderCurrentPdfReview();
     showScreen("pdf-review");
     return;
   }
   if (resultPayload.operation === "apply") {
+    resetPdfReviewState(document);
     setState({ applyResultPayload: resultPayload });
     renderResultPanel(resultPayload);
     showScreen("result");
   }
 }
 
+async function handleCreatePlan() {
+  try {
+    const current = getState();
+    if (!current.docxUpload) {
+      setStatus("请先上传论文", "选择 docx 文件后再生成修复方案");
+      return;
+    }
+    await createWorkbenchPlanFromUpload(current.docxUpload, current.documentEpoch);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function handleCreateApplyJob(root) {
+  const current = getState();
+  if (!current.docxUpload) {
+    setStatus("请先上传论文", "选择 docx 文件后再生成修正结果");
+    return;
+  }
+  if (!current.workbenchPlan) {
+    setStatus("请先生成修复方案", "方案完成后再生成修正结果");
+    return;
+  }
+  const scopes = selectedScopeIds(root);
+  if (!scopes.length) {
+    setStatus("请选择修复范围", "先生成方案 再勾选需要处理的范围");
+    return;
+  }
+  const coverFields = scopes.includes("cover") ? collectCoverFields(root) : null;
+  if (scopes.includes("cover") && !coverFields) {
+    setStatus("请填完整封面信息", "填写六项信息后再生成修正结果");
+    return;
+  }
+  setState({ applyRunning: true });
+  const documentEpoch = current.documentEpoch;
+  const requestEpoch = historyRequestEpoch;
+  setFlowStage("apply");
+  updateApplyButtons(root);
+  try {
+    setStatus("正在生成修正结果", "请稍候");
+    const job = await createApplyJob(current.docxUpload.upload_id, { scopes, ...(coverFields ? { cover_fields: coverFields } : {}) });
+    if (getState().documentEpoch !== documentEpoch || historyRequestEpoch !== requestEpoch) return;
+    setState({ activeJob: job });
+    await pollJob(job.job_id, { documentEpoch });
+    if (getState().documentEpoch !== documentEpoch || historyRequestEpoch !== requestEpoch) return;
+    setFlowStage("verify");
+    const resultPayload = await getJobResult(job.job_id);
+    if (getState().documentEpoch !== documentEpoch || historyRequestEpoch !== requestEpoch) return;
+    resetPdfReviewState(root, {
+      title: "先上传修复稿",
+      message: "上传刚下载的修复稿后再复核 PDF",
+    });
+    setState({ applyResultPayload: resultPayload, pdfReviewRequiresFreshDocx: true });
+    renderResultPanel(resultPayload);
+    setFlowStage("download");
+    setStatus("修正结果已生成", "可以到结果页下载副本");
+    showScreen("result");
+  } catch (error) {
+    if (getState().documentEpoch !== documentEpoch || historyRequestEpoch !== requestEpoch) return;
+    showError(error);
+  } finally {
+    if (getState().documentEpoch === documentEpoch) {
+      setState({ applyRunning: false });
+      updateApplyButtons(root);
+    }
+  }
+}
+
+async function handleDocxUpload(root, docxInput) {
+  const file = docxInput.files && docxInput.files[0];
+  if (!file) return;
+  const hadCurrentDocument = Boolean(getState().docxUpload);
+  const documentEpoch = resetDocumentState(root);
+  renderWorkbenchPlanPending(file.name);
+  try {
+    setStatus("正在上传论文", "请稍候");
+    const upload = await uploadDocx(file);
+    if (getState().documentEpoch !== documentEpoch) return;
+    setState({ docxUpload: upload, pdfReviewRequiresFreshDocx: false });
+    if (hadCurrentDocument) resetCoverForm(root);
+    const fileNode = root.querySelector("[data-docx-file]");
+    if (fileNode) fileNode.textContent = upload.file_name;
+    setPdfDocxFile(root, upload.file_name);
+    await createWorkbenchPlanFromUpload(upload, documentEpoch);
+  } catch (error) {
+    if (getState().documentEpoch !== documentEpoch) return;
+    showError(error);
+  } finally {
+    docxInput.value = "";
+  }
+}
+
+async function handlePdfUpload(root, pdfInput) {
+  const file = pdfInput.files && pdfInput.files[0];
+  if (!file) return;
+  const current = getState();
+  if (blockPdfUntilFreshDocx(root)) {
+    pdfInput.value = "";
+    return;
+  }
+  if (!current.docxUpload) {
+    setStatus("请先上传论文", "PDF 需要和当前论文对应");
+    showScreen("workbench");
+    pdfInput.value = "";
+    return;
+  }
+  const confirmation = root.querySelector("#pdf-match-confirmation");
+  if (!confirmation || confirmation.checked !== true) {
+    resetPdfReviewState(root);
+    setStatus("请确认 PDF 来源", "勾选确认后再选择 PDF");
+    pdfInput.value = "";
+    return;
+  }
+  const docxUploadId = current.docxUpload.upload_id;
+  const documentEpoch = current.documentEpoch;
+  const pdfReviewEpoch = resetPdfReviewState(root, {
+    renderState: "复核中",
+    title: "正在复核 PDF",
+    message: "完成后显示页面问题",
+  });
+  try {
+    setStatus("正在上传 PDF", "请稍候");
+    const pdfUpload = await uploadPdf(file);
+    if (getState().pdfReviewEpoch !== pdfReviewEpoch) return;
+    const fileNode = root.querySelector("[data-pdf-file]");
+    if (fileNode) fileNode.textContent = pdfUpload.file_name;
+    setStatus("正在复核 PDF", "请稍候");
+    const job = await createRenderReviewJob(docxUploadId, pdfUpload.upload_id, true);
+    if (getState().pdfReviewEpoch !== pdfReviewEpoch) return;
+    setState({ pdfUpload, activeJob: job });
+    const renderState = root.querySelector("[data-render-state]");
+    await pollJob(job.job_id, { renderResult: true, docxUploadId, pdfReviewEpoch, documentEpoch });
+    if (getState().pdfReviewEpoch !== pdfReviewEpoch) return;
+    if (getState().docxUpload?.upload_id !== docxUploadId) return;
+    renderCurrentPdfReview();
+    if (renderState) renderState.textContent = "已完成";
+    setStatus("PDF 复核完成", "可以查看页面问题");
+    showScreen("pdf-review");
+  } catch (error) {
+    if (getState().pdfReviewEpoch !== pdfReviewEpoch) return;
+    if (getState().docxUpload?.upload_id !== docxUploadId) return;
+    resetPdfReviewState(root, {
+      renderState: "未完成",
+      conclusion: "待确认",
+      title: "本次复核未完成",
+      message: "请重新上传对应 PDF",
+    });
+    showError(error);
+  } finally {
+    pdfInput.value = "";
+  }
+}
+
 function bindUploads(root) {
   const docxInput = root.querySelector("#docx-input");
   const pdfInput = root.querySelector("#pdf-input");
-  const chooseDocxButtons = root.querySelectorAll("[data-action='choose-docx']");
-
-  chooseDocxButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      if (docxInput) {
-        docxInput.click();
-      }
-    });
+  root.querySelectorAll("[data-action='choose-docx']").forEach((button) => {
+    button.addEventListener("click", () => docxInput && docxInput.click());
   });
   root.querySelectorAll("[data-action='choose-pdf']").forEach((button) => {
-    button.addEventListener("click", () => pdfInput && pdfInput.click());
+    button.addEventListener("click", () => {
+      if (!blockPdfUntilFreshDocx(root) && pdfInput) pdfInput.click();
+    });
   });
   root.querySelectorAll("[data-action='create-plan']").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        const current = getState();
-        if (!current.docxUpload) {
-          setStatus("请先上传论文", "选择 docx 文件后再生成修复方案");
-          return;
-        }
-        await createWorkbenchPlanFromUpload(current.docxUpload);
-      } catch (error) {
-        showError(error);
-      }
-    });
+    button.addEventListener("click", handleCreatePlan);
   });
   root.querySelectorAll("[data-action='create-apply-job']").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const current = getState();
-      if (!current.docxUpload) {
-        setStatus("请先上传论文", "选择 docx 文件后再生成修正结果");
-        return;
-      }
-      const scopes = selectedScopeIds(root);
-      if (!scopes.length) {
-        setStatus("请选择修复范围", "先生成方案 再勾选需要处理的范围");
-        return;
-      }
-      setState({ applyRunning: true });
-      updateApplyButtons(root);
-      try {
-        setStatus("正在生成修正结果", "请稍候");
-        const job = await createApplyJob(current.docxUpload.upload_id, { scopes });
-        setState({ activeJob: job });
-        await pollJob(job.job_id);
-        const resultPayload = await getJobResult(job.job_id);
-        setState({ applyResultPayload: resultPayload });
-        renderResultPanel(resultPayload);
-        setStatus("修正结果已生成", "可以到结果页下载副本");
-        showScreen("result");
-      } catch (error) {
-        showError(error);
-      } finally {
-        setState({ applyRunning: false });
-        updateApplyButtons(root);
-      }
-    });
+    button.addEventListener("click", () => handleCreateApplyJob(root));
   });
   bindScopeControls(root);
+  bindCoverForm(root, () => updateApplyButtons(root));
   root.querySelectorAll("[data-action='refresh-render-result']").forEach((button) => {
-    button.addEventListener("click", () => renderCurrentPdfReview());
+    button.addEventListener("click", renderCurrentPdfReview);
   });
-
-  if (docxInput) {
-    docxInput.addEventListener("change", async () => {
-      const file = docxInput.files && docxInput.files[0];
-      if (!file) return;
-      try {
-        setStatus("正在上传论文", "请稍候");
-        const upload = await uploadDocx(file);
-        setState({ docxUpload: upload });
-        const fileNode = root.querySelector("[data-docx-file]");
-        if (fileNode) fileNode.textContent = upload.file_name;
-        await createWorkbenchPlanFromUpload(upload);
-      } catch (error) {
-        showError(error);
-      }
-    });
-  }
-
-  if (pdfInput) {
-    pdfInput.addEventListener("change", async () => {
-      const file = pdfInput.files && pdfInput.files[0];
-      if (!file) return;
-      try {
-        const current = getState();
-        if (!current.docxUpload) {
-          setStatus("请先上传论文", "PDF 需要和论文原稿对应");
-          showScreen("workbench");
-          return;
-        }
-        setStatus("正在上传 PDF", "请稍候");
-        const pdfUpload = await uploadPdf(file);
-        const fileNode = root.querySelector("[data-pdf-file]");
-        if (fileNode) fileNode.textContent = pdfUpload.file_name;
-        setStatus("正在复核 PDF", "请稍候");
-        const job = await createRenderReviewJob(current.docxUpload.upload_id, pdfUpload.upload_id);
-        setState({ pdfUpload, activeJob: job });
-        const renderState = root.querySelector("[data-render-state]");
-        if (renderState) renderState.textContent = "复核中";
-        await pollJob(job.job_id, { renderResult: true });
-        renderCurrentPdfReview();
-        if (renderState) renderState.textContent = "已完成";
-        setStatus("PDF 复核完成", "可以查看页面问题");
-        showScreen("pdf-review");
-      } catch (error) {
-        showError(error);
-      }
-    });
-  }
+  if (docxInput) docxInput.addEventListener("change", () => handleDocxUpload(root, docxInput));
+  if (pdfInput) pdfInput.addEventListener("change", () => handlePdfUpload(root, pdfInput));
 }
 
 export function initWorkbench() {
@@ -525,24 +764,13 @@ export function initWorkbench() {
     button.addEventListener("click", () => showScreen(button.dataset.screenTarget));
   });
 
-  document.addEventListener("click", (event) => {
-    const downloadButton = event.target.closest("[data-download-role]");
-    if (downloadButton) {
-      const url = downloadButton.dataset.downloadUrl;
-      if (url && !downloadButton.disabled) window.location.href = url;
-      return;
-    }
-    const historyButton = event.target.closest("[data-history-job-id]");
-    if (historyButton) {
-      openHistoryJob(historyButton.dataset.historyJobId).catch(showError);
-      return;
-    }
-    const jumpButton = event.target.closest("[data-action]");
-    if (!jumpButton) return;
-    const action = jumpButton.dataset.action;
-    if (action === "enter-workbench") showScreen("workbench");
-    if (action === "show-history") showScreen("history");
-    if (action === "show-pdf-review") showScreen("pdf-review");
+  bindGlobalActions(document, {
+    openHistoryJob,
+    scopeLabel: (scopeId) => scopeLabels[scopeId] || "对应",
+    setStatus,
+    showError,
+    showScreen,
+    updateApplyButtons,
   });
 
   themeButtons.forEach((button) => {
@@ -552,6 +780,8 @@ export function initWorkbench() {
     });
   });
 
+  renderResultPanel(null);
+  resetPdfReviewState(document);
   bindUploads(document);
   bindPdfReview(document, renderCurrentPdfReview);
 }

@@ -67,6 +67,8 @@ def test_user_docs_route_pdf_evidence_through_render_verify():
     assert "audit --rendered-pdf" not in readme
     assert "audit --rendered-pdf" not in user_guide
     assert "render-verify 修复后_正文段落.docx --profile lnu --rendered-pdf" in readme
+    assert "--pdf-matches-docx-confirmed" in readme
+    assert "--pdf-matches-docx-confirmed" in user_guide
 
 
 def test_repo_root_does_not_track_boundary_external_output_indexes():

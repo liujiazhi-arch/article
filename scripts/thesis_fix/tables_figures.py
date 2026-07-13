@@ -223,32 +223,39 @@ def rebalance_table_blocks_for_layout(document_root, style_map=None, cfg=None, r
 
     return changed
 
-def normalize_object_wrapping(document_root, cfg=None, runtime=None):
-    NAMESPACES, NSMAP = require("NAMESPACES", "NSMAP")
-    """统一对象定位：图片改为嵌入型，表格移除浮动环绕。"""
+def normalize_object_wrapping(document_root, cfg=None, runtime=None, style_map=None):
+    NAMESPACES, NSMAP, build_document_model = require("NAMESPACES", "NSMAP", "build_document_model")
+    """统一对象定位：正文图片改为嵌入型，表格移除浮动环绕。"""
     wp_ns = NAMESPACES["wp"]
     changed = 0
 
-    for drawing in document_root.findall(".//w:drawing", NSMAP):
-        anchor = drawing.find(f"{{{wp_ns}}}anchor")
-        if anchor is None:
-            continue
-        inline = ET.Element(f"{{{wp_ns}}}inline")
-        for attr_name in ("distT", "distB", "distL", "distR"):
-            inline.set(attr_name, anchor.get(attr_name, "0"))
-        for child_name in ("extent", "effectExtent", "docPr", "cNvGraphicFramePr"):
-            child = anchor.find(f"{{{wp_ns}}}{child_name}")
-            if child is not None:
-                inline.append(copy.deepcopy(child))
-        graphic = anchor.find(f"{{{NAMESPACES['a']}}}graphic")
-        if graphic is not None:
-            inline.append(copy.deepcopy(graphic))
-        anchor_idx = list(drawing).index(anchor)
-        drawing.remove(anchor)
-        drawing.insert(anchor_idx, inline)
-        changed += 1
+    model = build_document_model(document_root, style_map or {})
+    editable_nodes = [node for node in model.paragraphs if node.container_section != "cover"]
+    editable_paragraph_ids = {id(node.elem) for node in editable_nodes}
+    for node in editable_nodes:
+        for drawing in node.elem.findall(".//w:drawing", NSMAP):
+            anchor = drawing.find(f"{{{wp_ns}}}anchor")
+            if anchor is None:
+                continue
+            inline = ET.Element(f"{{{wp_ns}}}inline")
+            for attr_name in ("distT", "distB", "distL", "distR"):
+                inline.set(attr_name, anchor.get(attr_name, "0"))
+            for child_name in ("extent", "effectExtent", "docPr", "cNvGraphicFramePr"):
+                child = anchor.find(f"{{{wp_ns}}}{child_name}")
+                if child is not None:
+                    inline.append(copy.deepcopy(child))
+            graphic = anchor.find(f"{{{NAMESPACES['a']}}}graphic")
+            if graphic is not None:
+                inline.append(copy.deepcopy(graphic))
+            anchor_idx = list(drawing).index(anchor)
+            drawing.remove(anchor)
+            drawing.insert(anchor_idx, inline)
+            changed += 1
 
     for table in document_root.findall(".//w:tbl", NSMAP):
+        table_paragraphs = table.findall(".//w:p", NSMAP)
+        if table_paragraphs and not any(id(paragraph) in editable_paragraph_ids for paragraph in table_paragraphs):
+            continue
         tbl_pr = table.find("w:tblPr", NSMAP)
         if tbl_pr is None:
             continue
@@ -481,6 +488,12 @@ def normalize_lnu_table_block_layout(document_root, style_map=None, cfg=None, ru
                 continue
 
             while caption_idx > 0 and _is_blank_paragraph(body_children[caption_idx - 1]):
+                if (
+                    blank_line_mode == "blank_paragraph"
+                    and caption_idx > 1
+                    and body_children[caption_idx - 2].tag == f"{{{W_NS}}}tbl"
+                ):
+                    break
                 body.remove(body_children[caption_idx - 1])
                 del body_children[caption_idx - 1]
                 caption_idx -= 1

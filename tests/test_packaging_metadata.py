@@ -149,6 +149,7 @@ def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
         "fetch_public_docx_samples.py",
         "release_smoke.py",
         "local_browser_smoke.py",
+        "ooxml_namespaces.py",
         "github_release_status.py",
         "release_evidence_gate.py",
         "release_evidence_bundle.py",
@@ -197,6 +198,8 @@ def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
         "config/profiles/CN-Common.yaml",
         "config/capability_matrix.md",
         "config/templates/lnu/styles.xml",
+        "config/templates/lnu/cover-assets/emblem.png",
+        "config/templates/lnu/cover-assets/wordmark.jpeg",
     }
     for suffix in required_resource_suffixes:
         assert any(name.endswith(suffix) for name in names), suffix
@@ -236,6 +239,7 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
         "scripts/fetch_public_docx_samples.py",
         "scripts/release_smoke.py",
         "scripts/local_browser_smoke.py",
+        "scripts/ooxml_namespaces.py",
         "scripts/github_release_status.py",
         "scripts/release_evidence_gate.py",
         "scripts/release_evidence_bundle.py",
@@ -264,6 +268,8 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
         "config/profiles/lnu-checker-2026.yaml",
         "config/capability_matrix.md",
         "config/templates/lnu/styles.xml",
+        "config/templates/lnu/cover-assets/emblem.png",
+        "config/templates/lnu/cover-assets/wordmark.jpeg",
     }
     for suffix in required_suffixes:
         assert any(name.endswith(suffix) for name in names), suffix
@@ -308,7 +314,9 @@ def test_wheel_install_imports_entry_modules_from_outside_repo(tmp_path):
 
     import_script = """
 import importlib
+from pathlib import Path
 from _profile_utils import DEFAULT_PROFILE_ID, list_public_profile_catalog
+from thesis_resources import config_path
 from thesis_tool.capabilities import load_rule_capabilities
 
 for name in (
@@ -334,6 +342,7 @@ for name in (
     "fetch_public_docx_samples",
     "release_smoke",
     "local_browser_smoke",
+    "ooxml_namespaces",
     "github_release_status",
     "release_evidence_gate",
     "release_evidence_bundle",
@@ -349,6 +358,8 @@ profiles = list_public_profile_catalog()
 assert DEFAULT_PROFILE_ID == "lnu-checker-2026"
 assert [profile["id"] for profile in profiles] == ["lnu-checker-2026"]
 assert len(load_rule_capabilities()) == 77
+assert Path(config_path("templates", "lnu", "cover-assets", "emblem.png")).is_file()
+assert Path(config_path("templates", "lnu", "cover-assets", "wordmark.jpeg")).is_file()
 """
     subprocess.run(
         [sys.executable, "-c", import_script],

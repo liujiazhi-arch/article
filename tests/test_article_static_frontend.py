@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -36,11 +37,14 @@ def test_static_frontend_serves_css_and_js_assets():
 
     css_response = client.get("/static/styles/tokens.css")
     js_response = client.get("/static/js/app.js")
+    actions_response = client.get("/static/js/globalActions.js")
 
     assert css_response.status_code == 200
     assert "--text-base: 16px" in css_response.text
     assert js_response.status_code == 200
     assert "initWorkbench" in js_response.text
+    assert actions_response.status_code == 200
+    assert "bindGlobalActions" in actions_response.text
 
 
 def test_static_frontend_contains_four_theme_controls():
@@ -88,7 +92,15 @@ def test_static_frontend_exposes_real_result_history_and_metric_hooks():
     assert 'data-result-time' in html
     assert 'data-download-role="output"' in html
     assert 'data-download-role="report"' in html
-    assert 'data-pdf-metric="score"' in html
+    assert 'data-download-role="toc-output"' in html
+    assert 'data-toc-output-action' in html
+    assert 'data-toc-output-title' in html
+    assert 'data-toc-output-message' in html
+    assert 'data-toc-output-next-action' in html
+    assert "下载静态目录版" in html
+    assert "重新导出 PDF 并再次复核" in html
+    assert '<div class="metric"><b>结论</b><strong data-pdf-metric="conclusion">' in html
+    assert 'data-pdf-metric="score"' not in html
     assert 'data-pdf-metric="pages"' in html
     assert 'data-pdf-metric="issues"' in html
 
@@ -146,7 +158,7 @@ def test_workbench_upload_actions_are_embedded_in_glass_rail():
     assert 'data-action="create-apply-job" disabled><b>生成结果</b></button>' in html
     assert 'data-action="create-plan"><b>修复方案</b></button>' in html
     assert "<input id=\"docx-input\" class=\"visually-hidden\" type=\"file\" accept=\".docx\" hidden>" in html
-    assert "20260711-scope-controls" in html
+    assert html.count("20260712-contract-closeout") == 2
     upload_start = html.index('<div class="doc-aperture">')
     upload_end = html.index('<div class="repair-preview">')
     upload_html = html[upload_start:upload_end]
@@ -220,6 +232,66 @@ def test_format_radar_exposes_real_state_hooks():
     assert 'data-format-radar' in html
     assert 'data-format-radar-label' in html
     assert "--radar-progress" in css
+    radar_start = css.index(".radar {")
+    radar_rule = css[radar_start : css.index("}", radar_start)]
+    assert "width: 168px" in radar_rule
+    assert "aspect-ratio: 1" in radar_rule
+    assert "border-radius: 50%" in radar_rule
+    assert "overflow: hidden" in radar_rule
+
+
+def test_frontend_structure_and_copy_do_not_promise_static_or_unsupported_results():
+    client = TestClient(create_app())
+
+    html = client.get("/").text
+
+    assert "论文问题索引" in html
+    assert 'aria-label="论文问题索引"' in html
+    assert html.count("data-structure-count") == 6
+    assert "PDF 问题复核" in html
+    assert "任务报告" in html
+    assert "图题距离" not in html
+    assert "原稿 修复稿 审查报告 和 PDF 复核记录都保存在这里" not in html
+    assert "PDF 问题证据 等待检测结果" not in html
+    assert "等待复核结果" not in html
+    assert "等待 PDF 页数" not in html
+    assert "等待可行动项" not in html
+    assert html.count('<span class="token">本地处理</span>') == 1
+    for fake_count in ("<small>7</small>", "<small>3</small>", "<small>2</small>", "<small>1</small>", "<small>0</small>"):
+        assert fake_count not in html
+
+
+def test_cover_fields_expose_native_required_semantics():
+    client = TestClient(create_app())
+
+    html = client.get("/").text
+    cover_inputs = re.findall(r'<input[^>]+data-cover-field="[^"]+"[^>]*>', html)
+
+    assert len(cover_inputs) == 6
+    assert all(" required" in input_tag for input_tag in cover_inputs)
+    assert all('aria-required="true"' in input_tag for input_tag in cover_inputs)
+
+
+def test_pdf_review_evidence_image_and_highlight_have_layout_styles():
+    client = TestClient(create_app())
+
+    css = client.get("/static/styles/layout.css").text
+
+    def rule(selector):
+        start = css.index(f"{selector} {{")
+        return css[start : css.index("}", start)]
+
+    frame = rule(".pdf-page-frame")
+    image = rule(".pdf-page-frame img")
+    highlight = rule(".evidence-highlight")
+    notice = rule(".page-notice")
+
+    assert "position: relative" in frame
+    assert "max-width" in frame
+    assert "max-height" in frame
+    assert "object-fit: contain" in image
+    assert "position: absolute" in highlight
+    assert "position: absolute" in notice
 
 
 def test_mobile_theme_switch_uses_the_screen_bottom_spacing_instead_of_covering_controls():
@@ -230,6 +302,29 @@ def test_mobile_theme_switch_uses_the_screen_bottom_spacing_instead_of_covering_
 
     assert "position: relative" in mobile_css
     assert "margin: -78px auto 16px" in mobile_css
+
+
+def test_desktop_theme_switch_stays_in_document_flow_instead_of_covering_pdf_details():
+    client = TestClient(create_app())
+
+    css = client.get("/static/styles/layout.css").text
+    start = css.index(".theme-strip {")
+    rule = css[start : css.index("}", start)]
+
+    assert "position: relative" in rule
+    assert "position: fixed" not in rule
+    assert "margin: -78px auto 16px" in rule
+
+
+def test_result_download_file_name_and_note_use_separate_lines():
+    client = TestClient(create_app())
+
+    css = client.get("/static/styles/layout.css").text
+    selector = ".download-ribbon b,\n    .download-ribbon span {"
+    start = css.index(selector)
+    rule = css[start : css.index("}", start)]
+
+    assert "display: block" in rule
 
 
 def test_scope_status_text_remains_readable_when_a_scope_is_unavailable():

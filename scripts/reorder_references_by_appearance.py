@@ -139,15 +139,24 @@ def _update_reference_entry_number(elem, new_number: int, *, trailing_space: boo
     first = text_elems[0]
     original = first.text or ""
     separator = " " if trailing_space else ""
-    updated = REFERENCE_RE.sub(f"[{new_number}]{separator}", original, count=1)
-    if updated == original:
-        full_text = "".join(t.text or "" for t in text_elems)
-        updated_full = REFERENCE_RE.sub(f"[{new_number}]{separator}", full_text, count=1)
-        first.text = updated_full
-        for text_elem in text_elems[1:]:
-            text_elem.text = ""
+    if REFERENCE_RE.match(original):
+        first.text = REFERENCE_RE.sub(f"[{new_number}]{separator}", original, count=1)
         return
-    first.text = updated
+
+    full_text = "".join(t.text or "" for t in text_elems)
+    match = REFERENCE_RE.match(full_text)
+    if match is None:
+        return
+
+    remaining_prefix = match.end()
+    for index, text_elem in enumerate(text_elems):
+        text = text_elem.text or ""
+        consumed = min(len(text), remaining_prefix)
+        suffix = text[consumed:]
+        text_elem.text = f"[{new_number}]{separator}{suffix}" if index == 0 else suffix
+        remaining_prefix -= consumed
+        if remaining_prefix <= 0:
+            break
 
 
 def _reorder_reference_entries(doc: Document, order_map: dict[int, int], *, trailing_space: bool = True) -> None:

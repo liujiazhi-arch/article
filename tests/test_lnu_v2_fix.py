@@ -202,6 +202,28 @@ def test_fix_equation_number_alignment_right_aligns_following_number_paragraph()
     assert number.find("w:pPr/w:ind", NSMAP).get(_w("firstLine")) == "0"
 
 
+def test_fix_equation_number_alignment_right_aligns_every_grouped_table_row():
+    table = ET.Element(_w("tbl"))
+    number_paragraphs = []
+    for number_text in ("（1.3）", "（1.4）"):
+        row = ET.SubElement(table, _w("tr"))
+        ET.SubElement(ET.SubElement(row, _w("tc")), _w("p"))
+        math_cell = ET.SubElement(row, _w("tc"))
+        _append_math(ET.SubElement(math_cell, _w("p")))
+        number_cell = ET.SubElement(row, _w("tc"))
+        number = ET.SubElement(number_cell, _w("p"))
+        number.append(_make_run(number_text))
+        number_pr = ET.SubElement(number, _w("pPr"))
+        number_jc = ET.SubElement(number_pr, _w("jc"))
+        number_jc.set(_w("val"), "center")
+        number_paragraphs.append(number)
+
+    changed = fix_equation_number_alignment(_make_doc_root(table), {"eq_number_sep": "."})
+
+    assert changed == 1
+    assert [_paragraph_alignment(number) for number in number_paragraphs] == ["right", "right"]
+
+
 def test_fix_equation_number_alignment_does_not_change_inline_math_body_text():
     paragraph = _make_paragraph("计算中 ")
     _append_math(paragraph)
@@ -471,6 +493,27 @@ def test_remove_existing_toc_artifacts_removes_visible_toc_block():
     assert body is not None
     texts = [get_paragraph_text(p).strip() for p in body.findall(_w("p"))]
     assert texts == ["1 序言"]
+
+
+def test_remove_existing_toc_artifacts_preserves_unrelated_orphan_bookmark():
+    title = _make_paragraph("目  录")
+    entry = _make_paragraph("摘  要\t2")
+    bookmark_start = ET.Element(_w("bookmarkStart"))
+    bookmark_start.set(_w("id"), "10")
+    bookmark_start.set(_w("name"), "_Toc123")
+    entry.insert(0, bookmark_start)
+    body_heading = _make_paragraph("1 序言")
+    bookmark_end = ET.SubElement(body_heading, _w("bookmarkEnd"))
+    bookmark_end.set(_w("id"), "10")
+    orphan_end = ET.SubElement(body_heading, _w("bookmarkEnd"))
+    orphan_end.set(_w("id"), "11")
+    doc = _make_doc_root(title, entry, body_heading)
+
+    remove_existing_toc_artifacts(doc)
+
+    assert doc.find(".//w:bookmarkStart", NSMAP) is None
+    remaining_ends = doc.findall(".//w:bookmarkEnd", NSMAP)
+    assert [marker.get(_w("id")) for marker in remaining_ends] == ["11"]
 
 
 def test_remove_existing_toc_artifacts_removes_field_based_toc_block():
@@ -1129,7 +1172,11 @@ def test_fix_insert_toc_removes_raw_toc_block_and_inserts_before_body(lnu_runtim
         body_para,
     )
 
-    fix_insert_toc(doc, {"toc_auto": True, "toc_title": "目录", "toc_max_level": 3}, runtime=lnu_runtime)
+    toc_parts = fix_insert_toc(
+        doc,
+        {"toc_auto": True, "toc_title": "目录", "toc_max_level": 3},
+        runtime=lnu_runtime,
+    )
 
     body = doc.find("w:body", NSMAP)
     texts = [get_paragraph_text(p).strip() for p in body.findall("w:p", NSMAP)]
@@ -1150,6 +1197,7 @@ def test_fix_insert_toc_removes_raw_toc_block_and_inserts_before_body(lnu_runtim
     assert "第1章 绪论" in toc_texts
     assert "1.1 研究背景" in toc_texts
     assert not any("Abstract" in text for text in toc_texts)
+    assert "word/settings.xml" in toc_parts
     assert body_texts[0] == "第1章 绪论"
     toc_title = next(p for p in body.findall("w:p", NSMAP) if get_paragraph_text(p).strip() == "目  录")
     page_break_before = toc_title.find("w:pPr/w:pageBreakBefore", NSMAP)
@@ -1403,7 +1451,7 @@ def test_toc_prepass_preserves_existing_visible_toc_page_numbers(lnu_runtime):
     runtime = fix_thesis.build_fix_runtime(profile_path="lnu", scopes=["toc"], toc=True)
     ctx = fix_thesis._rebuild_fix_context(doc, {}, runtime)
 
-    updated_ctx, _toc_parts = fix_thesis._apply_document_level_prepasses(ctx)
+    updated_ctx, _toc_parts, _cover_parts = fix_thesis._apply_document_level_prepasses(ctx)
 
     body = updated_ctx.document_root.find("w:body", NSMAP)
     toc_texts = [
@@ -1440,10 +1488,11 @@ def test_apply_paragraph_fix_skips_short_body_other_paragraph(monkeypatch, lnu_r
         sections={},
         paragraph_sections={},
         protected_ids=set(),
-        editable_text_ids={id(paragraph)},
-        scope_flags=ScopeFlags(
-            page=False,
-            abstract=False,
+            editable_text_ids={id(paragraph)},
+            scope_flags=ScopeFlags(
+                cover=False,
+                page=False,
+                abstract=False,
             toc=False,
             headings=False,
             body=True,
@@ -1486,10 +1535,11 @@ def test_apply_paragraph_fix_formats_body_other_with_clear_text_signal(monkeypat
         sections={},
         paragraph_sections={},
         protected_ids=set(),
-        editable_text_ids={id(paragraph)},
-        scope_flags=ScopeFlags(
-            page=False,
-            abstract=False,
+            editable_text_ids={id(paragraph)},
+            scope_flags=ScopeFlags(
+                cover=False,
+                page=False,
+                abstract=False,
             toc=False,
             headings=False,
             body=True,
@@ -1523,7 +1573,7 @@ def test_toc_prepass_does_not_duplicate_inherited_page_numbers(lnu_runtime):
     runtime = fix_thesis.build_fix_runtime(profile_path="lnu", scopes=["toc"], toc=True)
     ctx = fix_thesis._rebuild_fix_context(doc, {}, runtime)
 
-    updated_ctx, _toc_parts = fix_thesis._apply_document_level_prepasses(ctx)
+    updated_ctx, _toc_parts, _cover_parts = fix_thesis._apply_document_level_prepasses(ctx)
     fix_thesis._apply_text_cleanup_passes(updated_ctx)
 
     body = updated_ctx.document_root.find("w:body", NSMAP)
@@ -1613,6 +1663,27 @@ def test_fix_insert_toc_does_not_insert_body_scoped_field_without_body_start(lnu
     instr_text = "".join((instr.text or "") for instr in doc.findall(".//w:instrText", NSMAP))
     assert "TOC" not in instr_text
     assert doc.findall(".//w:bookmarkStart", NSMAP) == []
+
+
+def test_fix_insert_toc_preserves_manual_toc_when_body_start_is_untrusted(lnu_runtime):
+    manual_toc = [
+        _make_paragraph("Table of contents"),
+        _make_paragraph("Authors: 1-2"),
+        _make_paragraph("i. Box 1: FAIR Concepts........11"),
+        _make_paragraph("II. AOP Development Addresses Biological Mechanism........12"),
+    ]
+    body_text = _make_paragraph("AOP roadmap body text without a trusted heading style.")
+    doc = _make_doc_root(*manual_toc, body_text)
+    before = ET.tostring(doc, encoding="utf-8")
+
+    toc_parts = fix_insert_toc(
+        doc,
+        {"toc_auto": True, "toc_title": "目录", "toc_max_level": 3},
+        runtime=lnu_runtime,
+    )
+
+    assert toc_parts == {}
+    assert ET.tostring(doc, encoding="utf-8") == before
 
 
 def test_fix_insert_toc_ignores_numeric_body_style_ids(lnu_runtime):
@@ -1744,6 +1815,37 @@ def test_normalize_toc_entry_paragraphs_applies_latest_lnu_line_spacing():
     assert updated_spacing.get(_w("after")) == "100"
     assert updated_spacing.get(_w("line")) == "276"
     assert updated_spacing.get(_w("lineRule")) == "auto"
+
+
+def test_normalize_toc_entry_paragraphs_adds_missing_level_styles():
+    toc_title = _make_paragraph("目  录")
+    entries = [
+        _make_paragraph("序  言\t1"),
+        _make_paragraph("0.1 研究背景\t2"),
+        _make_paragraph("0.1.1 研究现状\t3"),
+    ]
+    document = _make_doc_root(toc_title, *entries)
+
+    changed = normalize_toc_entry_paragraphs(document, {}, {})
+
+    styles = [entry.find("w:pPr/w:pStyle", NSMAP) for entry in entries]
+    assert changed > 0
+    assert [style.get(_w("val")) for style in styles] == ["TOC1", "TOC2", "TOC3"]
+
+
+def test_normalize_toc_entry_paragraphs_replaces_existing_non_toc_style():
+    toc_title = _make_paragraph("目  录")
+    toc_entry = _make_paragraph("0.1 研究背景\t2")
+    toc_entry_pr = ET.SubElement(toc_entry, _w("pPr"))
+    toc_entry_style = ET.SubElement(toc_entry_pr, _w("pStyle"))
+    toc_entry_style.set(_w("val"), "Normal")
+    document = _make_doc_root(toc_title, toc_entry)
+
+    changed = normalize_toc_entry_paragraphs(document, {}, {})
+
+    styles = toc_entry.findall("w:pPr/w:pStyle", NSMAP)
+    assert changed > 0
+    assert [style.get(_w("val")) for style in styles] == ["TOC2"]
 
 
 def test_normalize_toc_entry_paragraphs_adds_right_aligned_page_tab():
@@ -1886,7 +1988,7 @@ def test_document_level_prepasses_toc_scope_does_not_repair_abstract_keywords():
     runtime = fix_thesis.build_fix_runtime(profile_path="lnu", scopes=["toc"], toc=True)
     ctx = fix_thesis._rebuild_fix_context(doc, {}, runtime)
 
-    updated_ctx, _toc_parts = fix_thesis._apply_document_level_prepasses(ctx)
+    updated_ctx, _toc_parts, _cover_parts = fix_thesis._apply_document_level_prepasses(ctx)
 
     body = updated_ctx.document_root.find("w:body", NSMAP)
     texts = [get_paragraph_text(p).strip() for p in body.findall("w:p", NSMAP)]
@@ -2010,7 +2112,7 @@ def test_document_level_prepasses_abstract_scope_skips_frontmatter_pagination_no
     runtime = fix_thesis.build_fix_runtime(profile_path="lnu", scopes=["abstract"])
     ctx = fix_thesis._rebuild_fix_context(doc, {}, runtime)
 
-    updated_ctx, toc_parts = fix_thesis._apply_document_level_prepasses(ctx)
+    updated_ctx, toc_parts, _cover_parts = fix_thesis._apply_document_level_prepasses(ctx)
 
     updated_body = updated_ctx.document_root.find("w:body", NSMAP)
     assert toc_parts == {}
@@ -2039,6 +2141,45 @@ def test_cleanup_frontmatter_redundant_page_breaks_removes_stray_break_before_fr
     assert changed == 1
     assert paragraphs[0] is toc_title
     assert toc_title.find("w:pPr/w:pageBreakBefore", NSMAP) is not None
+
+
+def test_cleanup_frontmatter_redundant_page_breaks_skips_empty_spacer_before_toc_title():
+    abstract_break = _make_paragraph("")
+    abstract_run = ET.SubElement(abstract_break, _w("r"))
+    ET.SubElement(abstract_run, _w("br")).set(_w("type"), "page")
+    spacer = _make_paragraph("")
+    toc_title = _make_paragraph("目  录")
+    toc_p_pr = ET.SubElement(toc_title, _w("pPr"))
+    ET.SubElement(toc_p_pr, _w("pageBreakBefore")).set(_w("val"), "1")
+    body_h1 = _make_paragraph("序  言")
+    doc = _make_doc_root(abstract_break, spacer, toc_title, body_h1)
+
+    changed = cleanup_frontmatter_redundant_page_breaks(doc, {})
+
+    paragraphs = doc.find("w:body", NSMAP).findall("w:p", NSMAP)
+    assert changed == 1
+    assert abstract_break not in paragraphs
+    assert spacer in paragraphs
+    assert toc_title.find("w:pPr/w:pageBreakBefore", NSMAP) is not None
+
+
+@pytest.mark.parametrize("barrier_kind", ["table", "simple-field"])
+def test_cleanup_frontmatter_redundant_page_breaks_stops_at_structural_boundary(barrier_kind):
+    abstract_break = _make_paragraph("")
+    abstract_run = ET.SubElement(abstract_break, _w("r"))
+    ET.SubElement(abstract_run, _w("br")).set(_w("type"), "page")
+    barrier = ET.Element(_w("tbl")) if barrier_kind == "table" else _make_paragraph("")
+    if barrier_kind == "simple-field":
+        ET.SubElement(barrier, _w("fldSimple")).set(_w("instr"), " PAGE ")
+    toc_title = _make_paragraph("目  录")
+    toc_p_pr = ET.SubElement(toc_title, _w("pPr"))
+    ET.SubElement(toc_p_pr, _w("pageBreakBefore")).set(_w("val"), "1")
+    doc = _make_doc_root(abstract_break, barrier, toc_title)
+
+    changed = cleanup_frontmatter_redundant_page_breaks(doc, {})
+
+    assert changed == 0
+    assert abstract_break in doc.find("w:body", NSMAP).findall("w:p", NSMAP)
 
 
 def test_cleanup_frontmatter_redundant_page_breaks_clears_body_heading_page_break_when_break_para_carries_section():

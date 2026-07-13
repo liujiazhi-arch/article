@@ -82,9 +82,13 @@ def _merge_styles_xml(template_styles_path, doc_styles_path):
                 if tmpl_block is None:
                     continue
                 if doc_block is not None:
+                    block_idx = list(doc_style).index(doc_block)
                     doc_style.remove(doc_block)
-                name_idx = list(doc_style).index(doc_style.find(f"{w}name"))
-                doc_style.insert(name_idx + 1, copy.deepcopy(tmpl_block))
+                elif tag == f"{w}pPr" and doc_style.find(f"{w}rPr") is not None:
+                    block_idx = list(doc_style).index(doc_style.find(f"{w}rPr"))
+                else:
+                    block_idx = len(doc_style)
+                doc_style.insert(block_idx, copy.deepcopy(tmpl_block))
         else:
             tmpl_sid = tmpl_style.get(f"{w}styleId", "")
             if tmpl_sid and tmpl_sid in {style.get(f"{w}styleId", "") for style in doc_root.findall(f"{w}style")}:

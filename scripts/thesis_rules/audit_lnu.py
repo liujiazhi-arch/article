@@ -10,7 +10,9 @@ from citation_text_utils import (
     citation_numbers_from_group as _expand_citation_numbers,
 )
 from _thesis_utils import (
+    M_NS,
     NSMAP,
+    W_NS,
     _looks_like_toc_entry,
     build_document_sections,
     collect_figure_blocks,
@@ -40,8 +42,10 @@ from frontmatter_utils import (
 from reference_numbering_utils import (
     has_valid_reference_tab_stop,
     is_plain_reference_number_prefix,
+    paragraph_has_reference_number_tab,
     paragraph_has_reference_tab,
     parse_reference_number_prefix,
+    reference_paragraph_text_with_tabs,
     reference_number_has_compact_separator,
     reference_number_has_space_separator,
     reference_number_has_tab_separator,
@@ -69,18 +73,109 @@ _CAPTION_SOFT_BREAK_ALLOWED_MODULES = {
     "appendix_caption_note",
 }
 _UNIT_RE = re.compile(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)([A-Za-z]{1,4})(?![0-9A-Za-z])")
-_CELSIUS_RE = re.compile(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)(℃)")
-_KNOWN_UNITS = {
+_CELSIUS_RE = re.compile(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)(℃|°C)")
+_PERCENT_RE = re.compile(r"(?<![0-9A-Za-z])(\d+(?:\.\d+)?)([%％])")
+KNOWN_UNITS = frozenset({
     "g", "mg", "kg",
     "L", "mL",
     "m", "cm", "mm", "nm",
+    "s", "min", "h",
+    "V",
     "mol", "mmol",
     "Pa", "kPa", "MPa",
     "Hz", "kHz", "MHz",
     "kJ", "kDa", "Da",
     "rpm",
-    "℃",
-}
+    "℃", "°C",
+})
+_ENGLISH_DECADE_RE = re.compile(r"(?:18|19|20)\d{2}")
+_PANEL_LABEL_PREFIX_RE = re.compile(r"(?:图|表)\s*$|(?:fig(?:ure)?|table)\.?\s*$", re.IGNORECASE)
+
+
+def is_lnu_unit_suffix(number: str, unit: str, *, prefix: str = "") -> bool:
+    return (
+        unit in KNOWN_UNITS
+        and not (unit == "s" and _ENGLISH_DECADE_RE.fullmatch(number))
+        and not (len(unit) == 1 and _PANEL_LABEL_PREFIX_RE.search(prefix))
+    )
+
+
+def is_lnu_identifier_position(text: str, index: int) -> bool:
+    prefix = re.split(r"\s", text[:index])[-1].lower()
+    return (
+        "://" in prefix
+        or "doi.org/" in prefix
+        or prefix.startswith("doi:")
+        or re.match(r"10\.\d{4,9}/", prefix) is not None
+    )
+
+
+def iter_lnu_unit_text_runs(paragraph):
+    simple_field_runs = {
+        id(run)
+        for field in paragraph.findall(".//w:fldSimple", NSMAP)
+        for run in field.findall(".//w:r", NSMAP)
+    }
+    field_depth = 0
+    for run in paragraph.findall(".//w:r", NSMAP):
+        field_kinds = [get_w_attr(field, "fldCharType") for field in run.findall("w:fldChar", NSMAP)]
+        field_depth += field_kinds.count("begin")
+        vert_align = run.find("w:rPr/w:vertAlign", NSMAP)
+        protected = (
+            id(run) in simple_field_runs
+            or field_depth > 0
+            or get_w_attr(vert_align, "val") == "superscript"
+        )
+        if not protected:
+            yield run
+        field_depth = max(0, field_depth - field_kinds.count("end"))
+
+
+def _iter_lnu_unit_flow(element, safe_run_ids):
+    for child in list(element):
+        if child.tag in {
+            f"{{{M_NS}}}oMath",
+            f"{{{M_NS}}}oMathPara",
+            f"{{{W_NS}}}fldSimple",
+        }:
+            yield None
+        elif child.tag == f"{{{W_NS}}}r":
+            yield child if id(child) in safe_run_ids and child.find("w:t", NSMAP) is not None else None
+        else:
+            yield from _iter_lnu_unit_flow(child, safe_run_ids)
+
+
+def lnu_unit_run_groups(paragraph):
+    safe_run_ids = {id(run) for run in iter_lnu_unit_text_runs(paragraph)}
+    groups = {}
+    group_index = 0
+    for run in _iter_lnu_unit_flow(paragraph, safe_run_ids):
+        if run is None:
+            group_index += 1
+        else:
+            groups[id(run)] = group_index
+    return groups
+
+
+def _lnu_unit_check_text(paragraph, fallback_text):
+    if paragraph is None:
+        return fallback_text
+    run_groups = lnu_unit_run_groups(paragraph)
+    parts = []
+    previous_group = None
+    for run in paragraph.findall(".//w:r", NSMAP):
+        group = run_groups.get(id(run))
+        if group is None:
+            continue
+        run_text = "".join(text.text or "" for text in run.findall("w:t", NSMAP))
+        if run_text:
+            if previous_group is not None and group != previous_group:
+                parts.append(" ")
+            parts.append(run_text)
+            previous_group = group
+    return "".join(parts)
+
+
 _EQ_EXPLANATION_PREFIXES = ("其中", "式中")
 _EQ_EXPLANATION_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9/])([A-Za-zΑ-Ωα-ωφΦ](?:\d+|[tr]))(?![A-Za-z0-9])")
 _TITLE_CASE_SMALL_WORDS = {
@@ -486,7 +581,8 @@ def check_lnu_ref02(document_root, contexts, style_map, cfg):
         elif use_tab:
             tab_min = cfg.get("ref_tab_min", cfg.get("ref_hanging", 420))
             has_valid_tab_stop = has_valid_reference_tab_stop(ctx["elem"], tab_min)
-            has_number_tab = reference_number_has_tab_separator(text) or paragraph_has_reference_tab(ctx["elem"])
+            has_number_tab = reference_number_has_tab_separator(text) or paragraph_has_reference_number_tab(ctx["elem"])
+            inline_tab_count = reference_paragraph_text_with_tabs(ctx["elem"]).count("\t")
             if not has_number_tab:
                 issues.append(f"编号后应使用制表符: {text[:40]}")
                 number_text = f"[{number_prefix.number_text}]"
@@ -497,6 +593,17 @@ def check_lnu_ref02(document_root, contexts, style_map, cfg):
                     "expected": "tab_after_reference_number",
                     "start": len(number_prefix.leading),
                     "end": len(number_prefix.leading) + len(number_text) + len(number_prefix.separator),
+                }
+            elif inline_tab_count != 1:
+                issues.append(f"存在多余制表符: {text[:40]}")
+                number_text = f"[{number_prefix.number_text}]"
+                token = {
+                    "text": number_text,
+                    "bad_part": str(inline_tab_count),
+                    "actual": "extra_reference_tabs",
+                    "expected": "single_tab_after_reference_number",
+                    "start": len(number_prefix.leading),
+                    "end": len(number_prefix.leading) + len(number_text),
                 }
             elif not has_valid_tab_stop:
                 issues.append(f"缺少有效制表位: {text[:40]}")
@@ -691,12 +798,15 @@ def check_lnu_s03(document_root, contexts, style_map, cfg):
     """LNU_S03: 参考文献/附录/致谢段落前必须有分页符。"""
     issues = []
     for i, ctx in enumerate(contexts):
+        cur_elem = ctx.get("elem")
+        p_style = cur_elem.find("w:pPr/w:pStyle", NSMAP) if cur_elem is not None else None
+        if p_style is not None and is_toc_generated_style_id(get_w_attr(p_style, "val")):
+            continue
         text = ctx.get("text", "").strip()
         if not is_backmatter_pagebreak_title(text):
             continue
         has_break = False
         # 方式1：本段设置了 pageBreakBefore
-        cur_elem = ctx.get("elem")
         if cur_elem is not None:
             ppr = cur_elem.find("w:pPr", NSMAP)
             if ppr is not None:
@@ -751,7 +861,7 @@ def check_lnu_tb03(document_root, contexts, style_map, cfg):
     """LNU_TB03: 表格内容应为单倍行距"""
     issues = []
     expected_line = parse_int((cfg or {}).get("table_cell_line")) or 240
-    for tbl in document_root.findall(".//w:tbl", NSMAP):
+    for tbl in get_non_equation_layout_tables(document_root):
         for cell in tbl.findall(".//w:tc", NSMAP):
             for p in cell.findall(".//w:p", NSMAP):
                 line_val = get_paragraph_line_spacing(p, style_map)
@@ -966,17 +1076,23 @@ def check_lnu_fmt02(document_root, contexts, style_map, cfg):
     return True, [], "图片均为嵌入型且表格无环绕"
 
 def check_lnu_unit01(document_root, contexts, style_map, cfg):
-    """LNU_UNIT01: 正文数字与单位、℃之间应有半角空格。"""
+    """LNU_UNIT01: 正文数字与单位、摄氏度、百分号之间应有半角空格。"""
     issues = []
     for ctx in contexts:
         if ctx.get("kind") != "body":
             continue
-        text = ctx.get("text", "")
+        text = _lnu_unit_check_text(ctx.get("elem"), ctx.get("text", ""))
         for m in list(_UNIT_RE.finditer(text)) + list(_CELSIUS_RE.finditer(text)):
             unit = m.group(2)
-            if unit in _KNOWN_UNITS:
+            valid_unit = is_lnu_unit_suffix(m.group(1), unit, prefix=text[:m.start()])
+            if valid_unit and not is_lnu_identifier_position(text, m.start()):
                 snippet = text[max(0, m.start() - 5):m.end() + 5]
                 issues.append(f"数字后紧跟单位「{unit}」应加空格，上下文：{snippet}")
+        for m in _PERCENT_RE.finditer(text):
+            if is_lnu_identifier_position(text, m.start()):
+                continue
+            snippet = text[max(0, m.start() - 5):m.end() + 5]
+            issues.append(f"数字后紧跟百分号「{m.group(2)}」应加空格，上下文：{snippet}")
     return (len(issues) == 0), issues, f"发现{len(issues)}处"
 
 def check_lnu_ref03(document_root, contexts, style_map, cfg):
@@ -1566,7 +1682,7 @@ def _mask_lnu_allowed_heading_gap(text):
 def _mask_lnu_allowed_unit_spaces(text):
     def _replace(match):
         unit = match.group(2)
-        if unit in _KNOWN_UNITS:
+        if unit in KNOWN_UNITS:
             return f"{match.group(1)}{unit}"
         return match.group(0)
 

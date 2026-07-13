@@ -289,6 +289,37 @@ def test_fix_reference_paragraph_checker_2026_number_tab_contract():
     assert paragraph.find(".//w:tab", NSMAP) is not None
 
 
+def test_fix_reference_paragraph_moves_trailing_tab_after_number_idempotently():
+    paragraph = _make_paragraph("[1]Some reference text.", sz=21)
+    trailing_tab_run = ET.SubElement(paragraph, _w("r"))
+    ET.SubElement(trailing_tab_run, _w("tab"))
+    cfg = _checker_2026_cfg()
+
+    fix_reference_paragraph(paragraph, cfg=cfg)
+
+    assert get_paragraph_text(paragraph) == "[1]\tSome reference text."
+    assert len(paragraph.findall(".//w:r/w:tab", NSMAP)) == 1
+    first_pass = ET.tostring(paragraph, encoding="unicode")
+
+    fix_reference_paragraph(paragraph, cfg=cfg)
+
+    assert ET.tostring(paragraph, encoding="unicode") == first_pass
+
+
+def test_fix_reference_paragraph_removes_extra_tab_after_valid_separator():
+    paragraph = _make_paragraph("[1]", sz=21)
+    separator_run = ET.SubElement(paragraph, _w("r"))
+    ET.SubElement(separator_run, _w("tab"))
+    paragraph.append(_make_run("Some reference text.", sz=21))
+    trailing_tab_run = ET.SubElement(paragraph, _w("r"))
+    ET.SubElement(trailing_tab_run, _w("tab"))
+
+    fix_reference_paragraph(paragraph, cfg=_checker_2026_cfg())
+
+    assert get_paragraph_text(paragraph) == "[1]\tSome reference text."
+    assert len(paragraph.findall(".//w:r/w:tab", NSMAP)) == 1
+
+
 def test_split_inline_citations_normalizes_groups_and_keeps_them_superscript():
     paragraph = _make_paragraph("综述显示。[1][2]连续研究[1,2,3]表明。", sz=24)
 
@@ -419,6 +450,231 @@ def test_fix_lnu_compact_text_preserves_existing_unit_spacing():
 
     assert changed is False
     assert get_paragraph_text(paragraph) == "处理100 mL溶液并检测5 mg样本"
+
+
+def test_fix_lnu_unit_spacing_handles_common_time_voltage_and_existing_si_units():
+    paragraph = _make_paragraph(
+        "反应30s后孵育5min和2h，电压220V，另取5kg样品、10mL溶液并施加3MPa压力。",
+        sz=24,
+    )
+    contexts = [{"kind": "body", "text": get_paragraph_text(paragraph), "elem": paragraph}]
+
+    passed_before, issues_before, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+    passed_after, issues_after, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+
+    assert not passed_before
+    assert all(any(f"「{unit}」" in issue for issue in issues_before) for unit in ("s", "min", "h", "V"))
+    assert changed is True
+    assert passed_after, issues_after
+    assert get_paragraph_text(paragraph) == (
+        "反应30 s后孵育5 min和2 h，电压220 V，另取5 kg样品、10 mL溶液并施加3 MPa压力。"
+    )
+
+
+def test_fix_lnu_unit_spacing_preserves_english_words_and_decade_suffixes():
+    original = "The 1990s dataset uses version2, Model220V2, and 3D imaging."
+    paragraph = _make_paragraph(original, sz=24)
+    contexts = [{"kind": "body", "text": get_paragraph_text(paragraph)}]
+
+    passed, issues, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+
+    assert passed, issues
+    assert changed is False
+    assert get_paragraph_text(paragraph) == original
+
+
+def test_lnu_unit_spacing_preserves_citations_fields_and_formula_text():
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("正文单位5 s，引用", sz=24))
+
+    citation_run = _make_run("[20s]", sz=24)
+    citation_vert = ET.SubElement(citation_run.find("w:rPr", NSMAP), _w("vertAlign"))
+    citation_vert.set(_w("val"), "superscript")
+    paragraph.append(citation_run)
+
+    field = ET.SubElement(paragraph, _w("fldSimple"))
+    field.set(_w("instr"), "REF Unit30s")
+    field.append(_make_run("30s", sz=24))
+
+    math = ET.SubElement(paragraph, f"{{{fix_thesis.M_NS}}}oMath")
+    math_run = ET.SubElement(math, f"{{{fix_thesis.M_NS}}}r")
+    math_text = ET.SubElement(math_run, f"{{{fix_thesis.M_NS}}}t")
+    math_text.text = "t=30s"
+    original_text = get_paragraph_text(paragraph)
+    contexts = [{"kind": "body", "text": original_text, "elem": paragraph}]
+
+    passed, issues, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+
+    assert passed, issues
+    assert changed is False
+    assert get_paragraph_text(paragraph) == original_text
+    assert math_text.text == "t=30s"
+    assert field.get(_w("instr")) == "REF Unit30s"
+
+
+def test_lnu_unit_spacing_only_joins_runs_within_the_same_formula_boundary():
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("数值40", sz=24))
+    math = ET.SubElement(paragraph, f"{{{fix_thesis.M_NS}}}oMath")
+    math_run = ET.SubElement(math, f"{{{fix_thesis.M_NS}}}r")
+    math_text = ET.SubElement(math_run, f"{{{fix_thesis.M_NS}}}t")
+    math_text.text = "x"
+    paragraph.append(_make_run("%不应跨公式关联，反应持续30", sz=24))
+    paragraph.append(_make_run("s后结束。", sz=24))
+    contexts = [{"kind": "body", "text": get_paragraph_text(paragraph), "elem": paragraph}]
+
+    passed_before, _, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+    passed_after, issues_after, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+
+    assert not passed_before
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "数值40%不应跨公式关联，反应持续30 s后结束。"
+    assert math_text.text == "x"
+    assert passed_after, issues_after
+
+
+def test_fix_lnu_unit_spacing_preserves_english_ordinals():
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("The 3rd edition was published on 29", sz=24))
+    ordinal_suffix = _make_run("th", sz=24)
+    vert_align = ET.SubElement(ordinal_suffix.find("w:rPr", NSMAP), _w("vertAlign"))
+    vert_align.set(_w("val"), "superscript")
+    paragraph.append(ordinal_suffix)
+    paragraph.append(_make_run(" May at 20nm.", sz=24))
+
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "The 3rd edition was published on 29th May at 20 nm."
+
+
+def test_fix_lnu_unit_spacing_handles_runs_inside_hyperlinks():
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("Study 2013", sz=24))
+    year_link = ET.SubElement(paragraph, _w("hyperlink"))
+    year_link.append(_make_run("a", sz=24))
+    paragraph.append(_make_run(" measured 20", sz=24))
+    unit_link = ET.SubElement(paragraph, _w("hyperlink"))
+    unit_link.append(_make_run("nm", sz=24))
+
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "Study 2013a measured 20 nm"
+
+
+def test_fix_lnu_unit_spacing_only_changes_known_units():
+    paragraph = _make_paragraph(
+        "Figure 2a uses 3D imaging; DOI https://doi.org/10.1000xyz; samples 1000g and 2000m.",
+        sz=24,
+    )
+
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+
+    assert changed is True
+    assert get_paragraph_text(paragraph) == (
+        "Figure 2a uses 3D imaging; DOI https://doi.org/10.1000xyz; samples 1000 g and 2000 m."
+    )
+
+
+def test_fix_lnu_unit_spacing_preserves_non_unit_hyperlink_suffix():
+    paragraph = ET.Element(_w("p"))
+    paragraph.append(_make_run("DOI https://doi.org/10.1000", sz=24))
+    doi_link = ET.SubElement(paragraph, _w("hyperlink"))
+    doi_link.append(_make_run("xyz", sz=24))
+
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+
+    assert changed is False
+    assert get_paragraph_text(paragraph) == "DOI https://doi.org/10.1000xyz"
+
+
+def test_lnu_unit_spacing_preserves_doi_split_across_hyperlink_runs():
+    paragraph = ET.Element(_w("p"))
+    hyperlink = ET.SubElement(paragraph, _w("hyperlink"))
+    hyperlink.append(_make_run("https://doi.org/10.1000/", sz=24))
+    hyperlink.append(_make_run("123", sz=24))
+    hyperlink.append(_make_run("m", sz=24))
+    original = get_paragraph_text(paragraph)
+    contexts = [{"kind": "body", "text": original, "elem": paragraph}]
+
+    passed, issues, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+
+    assert passed, issues
+    assert changed is False
+    assert get_paragraph_text(paragraph) == original
+
+
+def test_lnu_unit_spacing_preserves_panel_labels_but_repairs_real_time_units():
+    original = "图2h所示，Fig. 3m and Table 4g；反应2h。"
+    paragraph = _make_paragraph(original, sz=24)
+    contexts = [{"kind": "body", "text": original, "elem": paragraph}]
+
+    passed_before, issues_before, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+    passed_after, issues_after, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+
+    assert not passed_before
+    assert len(issues_before) == 1
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "图2h所示，Fig. 3m and Table 4g；反应2 h。"
+    assert passed_after, issues_after
+
+
+def test_lnu_unit_spacing_audits_and_repairs_half_and_fullwidth_percent_signs():
+    paragraph = _make_paragraph("样品浓度为25%，另一组为6.67％。", sz=24)
+    contexts = [{"kind": "body", "text": get_paragraph_text(paragraph), "elem": paragraph}]
+
+    passed_before, issues_before, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+    passed_after, issues_after, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+
+    assert not passed_before
+    assert any("「%」" in issue for issue in issues_before)
+    assert any("「％」" in issue for issue in issues_before)
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "样品浓度为25 %，另一组为6.67 ％。"
+    assert passed_after, issues_after
+
+
+def test_lnu_unit_spacing_audits_and_repairs_both_celsius_spellings():
+    paragraph = _make_paragraph("培养温度为37°C，另一组为100℃。", sz=24)
+    contexts = [{"kind": "body", "text": get_paragraph_text(paragraph), "elem": paragraph}]
+
+    passed_before, issues_before, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+    passed_after, issues_after, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+
+    assert not passed_before
+    assert any("「°C」" in issue for issue in issues_before)
+    assert any("「℃」" in issue for issue in issues_before)
+    assert changed is True
+    assert get_paragraph_text(paragraph) == "培养温度为37 °C，另一组为100 ℃。"
+    assert passed_after, issues_after
+
+
+def test_lnu_unit_spacing_preserves_split_url_percent_encoding():
+    paragraph = ET.Element(_w("p"))
+    hyperlink = ET.SubElement(paragraph, _w("hyperlink"))
+    hyperlink.append(_make_run("https://x.test/", sz=24))
+    hyperlink.append(_make_run("100", sz=24))
+    hyperlink.append(_make_run("%25", sz=24))
+    original = get_paragraph_text(paragraph)
+    contexts = [{"kind": "body", "text": original, "elem": paragraph}]
+
+    passed, issues, _ = audit_thesis.check_lnu_unit01(_make_doc_root(paragraph), contexts, {}, {})
+    changed = fix_thesis.fix_lnu_unit_spacing(paragraph)
+
+    assert passed, issues
+    assert changed is False
+    assert get_paragraph_text(paragraph) == original
 
 
 def test_fix_lnu_compact_text_preserves_percent_space_and_celsius_spacing():
@@ -939,6 +1195,14 @@ def test_fix_soft_line_breaks_preserves_lnu_figure_caption_line_breaks_when_conf
 
 
 def test_normalize_object_wrapping_converts_anchor_and_removes_tblppr():
+    cover_table = ET.Element(_w("tbl"))
+    cover_tbl_pr = ET.SubElement(cover_table, _w("tblPr"))
+    cover_tblp_pr = ET.SubElement(cover_tbl_pr, _w("tblpPr"))
+    cover_tr = ET.SubElement(cover_table, _w("tr"))
+    cover_tc = ET.SubElement(cover_tr, _w("tc"))
+    cover_p = ET.SubElement(cover_tc, _w("p"))
+    cover_p.append(_make_run("封面字段"))
+    heading = _make_paragraph("第1章 绪论")
     paragraph = _make_paragraph("")
     drawing_run = ET.SubElement(paragraph, _w("r"))
     drawing = ET.SubElement(drawing_run, _w("drawing"))
@@ -956,11 +1220,12 @@ def test_normalize_object_wrapping_converts_anchor_and_removes_tblppr():
     tr = ET.SubElement(table, _w("tr"))
     tc = ET.SubElement(tr, _w("tc"))
     ET.SubElement(tc, _w("p"))
-    document = _make_doc_root(paragraph, table)
+    document = _make_doc_root(cover_table, heading, paragraph, table)
 
     changed = normalize_object_wrapping(document)
 
     assert changed == 2
     assert drawing.find(f"{{{fix_thesis.NAMESPACES['wp']}}}anchor") is None
     assert drawing.find(f"{{{fix_thesis.NAMESPACES['wp']}}}inline") is not None
+    assert cover_tbl_pr.find("w:tblpPr", NSMAP) is cover_tblp_pr
     assert tbl_pr.find("w:tblpPr", NSMAP) is None

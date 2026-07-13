@@ -8,7 +8,9 @@ from PIL import Image
 import pytest
 
 from article_api.app import create_app
+from article_api.job_artifacts import build_artifacts, refresh_artifact_availability
 from article_api.job_execution import handler_request
+from article_api.jobs import _render_retry_options
 from article_api.render_review_jobs import build_render_review_job_kwargs
 
 
@@ -78,7 +80,10 @@ def test_render_review_job_creates_background_render_verify_job(tmp_path, monkey
 
     response = client.post(
         f"/uploads/{docx_response.json()['upload_id']}/render-review-jobs",
-        json={"pdf_upload_id": pdf_response.json()["upload_id"]},
+        json={
+            "pdf_upload_id": pdf_response.json()["upload_id"],
+            "pdf_matches_docx_confirmed": True,
+        },
     )
 
     assert response.status_code == 201
@@ -86,6 +91,10 @@ def test_render_review_job_creates_background_render_verify_job(tmp_path, monkey
     assert payload["operation"] == "render-verify"
     assert payload["status"] == "queued"
     assert payload["resolved_request"]["workflow_mode"] == "default_user"
+    assert payload["request"]["pdf_matches_docx_confirmed"] is True
+    assert payload["request"]["generate_static_toc"] is True
+    assert payload["resolved_request"]["pdf_matches_docx_confirmed"] is True
+    assert payload["resolved_request"]["generate_static_toc"] is True
     assert payload["resolved_request"]["rendered_pdf"].endswith(".pdf")
     assert payload["workspace"] is not None
     assert f"jobs/{payload['job_id']}/inputs" in payload["resolved_request"]["file_path"]
@@ -106,12 +115,14 @@ def test_build_render_review_job_kwargs_links_docx_and_pdf_uploads():
     }
     request = SimpleNamespace(
         pdf_upload_id="pdf-1",
+        pdf_matches_docx_confirmed=True,
         profile="lnu",
         strict_profile=None,
         scopes=None,
         max_attempts=1,
         retry_delay_seconds=0.0,
         timeout_seconds=None,
+        generate_static_toc=True,
     )
 
     payload = build_render_review_job_kwargs(
@@ -122,6 +133,8 @@ def test_build_render_review_job_kwargs_links_docx_and_pdf_uploads():
 
     assert payload["file_path"] == "/tmp/runtime/uploads/paper.docx"
     assert payload["rendered_pdf"] == "/tmp/runtime/uploads/paper.pdf"
+    assert payload["pdf_matches_docx_confirmed"] is True
+    assert payload["generate_static_toc"] is True
     assert payload["workflow_mode"] == "default_user"
     assert payload["source_display_name"] == "论文.docx"
     assert payload["pdf_display_name"] == "论文.pdf"
@@ -130,6 +143,8 @@ def test_build_render_review_job_kwargs_links_docx_and_pdf_uploads():
     assert payload["_public_request"] == {
         "docx_upload_id": "docx-1",
         "pdf_upload_id": "pdf-1",
+        "pdf_matches_docx_confirmed": True,
+        "generate_static_toc": True,
     }
 
 
@@ -142,13 +157,57 @@ def test_render_review_worker_request_omits_display_metadata():
             "pdf_upload_id": "pdf-1",
             "workflow_mode": "default_user",
             "pdf_display_name": "论文.pdf",
+            "pdf_matches_docx_confirmed": True,
+            "generate_static_toc": True,
         }
     )
 
     assert request == {
         "file_path": "/tmp/paper.docx",
         "rendered_pdf": "/tmp/paper.pdf",
+        "pdf_matches_docx_confirmed": True,
+        "generate_static_toc": True,
     }
+
+
+def test_render_retry_options_preserve_pdf_docx_confirmation_and_static_toc_request():
+    options = _render_retry_options(
+        "render-verify",
+        {"pdf_matches_docx_confirmed": True, "generate_static_toc": True},
+    )
+
+    assert options == {"pdf_matches_docx_confirmed": True, "generate_static_toc": True}
+
+
+def test_render_review_artifacts_register_generated_static_toc(tmp_path):
+    output_path = tmp_path / "static_toc.docx"
+    output_path.write_bytes(b"docx")
+    report_path = tmp_path / "render_verify_report.md"
+    report_path.write_text("# PDF 复核报告\n", encoding="utf-8")
+
+    artifacts = build_artifacts(
+        "render-verify",
+        {},
+        None,
+        result={
+            "report_path": str(report_path),
+            "toc_finalization": {
+                "available": True,
+                "output_path": str(output_path),
+            }
+        },
+        status="succeeded",
+    )
+    refreshed = refresh_artifact_availability(artifacts)
+    by_role = {artifact["role"]: artifact for artifact in refreshed}
+
+    assert set(by_role) == {"report", "toc-output"}
+    assert by_role["report"]["kind"] == "markdown"
+    assert by_role["report"]["path"] == str(report_path)
+    assert by_role["report"]["available"] is True
+    assert by_role["toc-output"]["kind"] == "docx"
+    assert by_role["toc-output"]["path"] == str(output_path)
+    assert by_role["toc-output"]["available"] is True
 
 
 def test_build_render_review_job_kwargs_rejects_non_pdf_upload():
@@ -158,6 +217,7 @@ def test_build_render_review_job_kwargs_rejects_non_pdf_upload():
     }
     request = SimpleNamespace(
         pdf_upload_id="pdf-1",
+        pdf_matches_docx_confirmed=False,
         profile="lnu",
         strict_profile=None,
         scopes=None,
@@ -227,10 +287,25 @@ def test_render_review_job_retry_restores_both_uploads(tmp_path, monkeypatch):
         ).json()
         first = client.post(
             f"/uploads/{docx_upload['upload_id']}/render-review-jobs",
-            json={"pdf_upload_id": pdf_upload["upload_id"], "scopes": ["toc"]},
+            json={
+                "pdf_upload_id": pdf_upload["upload_id"],
+                "pdf_matches_docx_confirmed": True,
+                "scopes": ["toc"],
+            },
         ).json()
-        assert _wait_for_job(client, first["job_id"])["status"] == "succeeded"
+        first_status = _wait_for_job(client, first["job_id"])
+        assert first_status["status"] == "succeeded"
+        assert first_status["summary"]["pdf_matches_docx_confirmed"] is True
+        assert first_status["summary"]["pdf_name"] == "paper.pdf"
+        assert first_status["summary"]["business_status"] == "render-review-required"
+        assert first_status["summary"]["render_evidence_status"] == "render-review-required"
         first_result = client.get(f"/jobs/{first['job_id']}/result").json()["result"]
+        assert first_result["pdf_matches_docx_confirmed"] is True
+        assert first_result["summary"]["pdf_matches_docx_confirmed"] is True
+        assert first_result["evidence_trust"] == "user-confirmed"
+        assert first_result["evidence_authoritative"] is False
+        assert first_result["layout_decision_eligible"] is True
+        assert first_result["render_evidence_status"] == "render-review-required"
 
         retry_response = client.post(f"/jobs/{first['job_id']}/retry")
 
@@ -242,8 +317,16 @@ def test_render_review_job_retry_restores_both_uploads(tmp_path, monkeypatch):
         ).json()
         assert retried["request"]["docx_upload_id"] == docx_upload["upload_id"]
         assert retried["request"]["pdf_upload_id"] == pdf_upload["upload_id"]
+        assert retried["request"]["pdf_matches_docx_confirmed"] is True
+        assert retried["request"]["generate_static_toc"] is True
         assert retried["workspace"] is not None
         assert retried["resolved_request"]["stage_input"] is True
         assert retried["resolved_request"]["scopes"] == ["toc"]
+        assert retried["resolved_request"]["pdf_matches_docx_confirmed"] is True
+        assert retried["resolved_request"]["generate_static_toc"] is True
+        assert retried_status["summary"]["pdf_matches_docx_confirmed"] is True
+        assert retried_status["summary"]["pdf_name"] == "paper.pdf"
         retried_result = client.get(f"/jobs/{retried['job_id']}/result").json()["result"]
+        assert retried_result["pdf_matches_docx_confirmed"] is True
+        assert retried_result["summary"]["pdf_matches_docx_confirmed"] is True
         assert retried_result["output_dir"] != first_result["output_dir"]

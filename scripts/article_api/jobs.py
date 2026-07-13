@@ -928,6 +928,8 @@ def _render_retry_options(
         "scopes",
         "renderer",
         "workflow_mode",
+        "pdf_matches_docx_confirmed",
+        "generate_static_toc",
         "stage_input",
         "runtime_root",
         "max_attempts",

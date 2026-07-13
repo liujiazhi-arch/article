@@ -16,6 +16,13 @@ class ScopeDefinition:
 
 SCOPE_DEFINITIONS = (
     ScopeDefinition(
+        id="cover",
+        title="固定封面",
+        description="使用辽宁大学官方校名和校徽生成固定封面。",
+        rule_ids=(),
+        aliases=("title_page",),
+    ),
+    ScopeDefinition(
         id="page",
         title="页面与页码",
         description="页边距、页码、页脚等页面层设置。",

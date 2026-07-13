@@ -1000,6 +1000,50 @@ def check_fn01(document_root, contexts, style_map, footnotes_root):
         return False, issues, "脚注 " + "、".join(sorted(set(affected_ids))[:5])
     return True, [], "全部脚注字号正常"
 
+def _page_numbering_spec(sect_pr):
+    pg_num_type = sect_pr.find("w:pgNumType", NSMAP) if sect_pr is not None else None
+    if pg_num_type is None:
+        return None
+    return get_w_attr(pg_num_type, "fmt"), get_w_attr(pg_num_type, "start")
+
+
+def _thesis_page_section_issues(document_root, contexts, cfg):
+    if (cfg or {}).get("cover_page_number", True) is not False:
+        return []
+    body = document_root.find("w:body", NSMAP)
+    if body is None:
+        return []
+    paragraphs = body.findall("w:p", NSMAP)
+    section_by_id = {id(ctx["elem"]): ctx.get("effective_section") for ctx in contexts}
+    front_sections = {"abstract_cn", "abstract_en", "toc"}
+    labels = [section_by_id.get(id(paragraph), "cover") for paragraph in paragraphs]
+    front_start = next((idx for idx, label in enumerate(labels) if label in front_sections), None)
+    body_start = next((idx for idx, label in enumerate(labels) if label == "body"), None)
+    has_cover = any(label == "cover" and get_paragraph_text(paragraph).strip() for label, paragraph in zip(labels, paragraphs))
+    if not has_cover or front_start is None or body_start is None or front_start >= body_start:
+        return []
+
+    inline_sections = [
+        (idx, sect_pr)
+        for idx, paragraph in enumerate(paragraphs)
+        if (sect_pr := paragraph.find("w:pPr/w:sectPr", NSMAP)) is not None
+    ]
+    cover_section = next((sect_pr for idx, sect_pr in inline_sections if idx < front_start), None)
+    front_section = next((sect_pr for idx, sect_pr in inline_sections if front_start <= idx < body_start), None)
+    body_section = next((sect_pr for idx, sect_pr in inline_sections if idx >= body_start), body.find("w:sectPr", NSMAP))
+    if cover_section is None or front_section is None or body_section is None:
+        return ["已识别封面、前置部分和正文，但未形成独立页码分节。"]
+
+    expected_front = (str(cfg.get("frontmatter_page_number_format")), str(cfg.get("frontmatter_page_number_start")))
+    expected_body = (str(cfg.get("body_page_number_format")), str(cfg.get("body_page_number_start")))
+    issues = []
+    if _page_numbering_spec(front_section) != expected_front:
+        issues.append(f"前置部分页码分节应为 {expected_front[0]} 且从 {expected_front[1]} 开始。")
+    if _page_numbering_spec(body_section) != expected_body:
+        issues.append(f"正文页码分节应为 {expected_body[0]} 且从 {expected_body[1]} 开始。")
+    return issues
+
+
 def check_pg01(document_root, contexts, style_map, cfg=None):
     issues = []
     zip_path = getattr(document_root, "_zip_path", None)
@@ -1036,6 +1080,11 @@ def check_pg01(document_root, contexts, style_map, cfg=None):
             break
     if not passed:
         return False, ["文档中未发现 PAGE 页码域。"], "全文"
+
+    section_issues = _thesis_page_section_issues(document_root, contexts, cfg or {})
+    if section_issues:
+        issues.extend(section_issues)
+        passed = False
 
     page_style = (cfg or {}).get("pg01_format")
     if page_style in {"em_dash", "hyphen_wrap"}:
@@ -1353,6 +1402,41 @@ def _equation_record(position, number_text, major, minor, number_p, source):
     }
 
 
+def _first_equation_row_context(row_elem, ctx_by_elem):
+    for p_elem in row_elem.findall(".//w:p", NSMAP):
+        ctx = _ctx_for_paragraph(p_elem, ctx_by_elem)
+        if ctx is not None:
+            return ctx
+    return None
+
+
+def _equation_table_row_result(row_elem, ctx_by_elem, strict_num_re, loose_num_re):
+    cells = row_elem.findall("w:tc", NSMAP)
+    if not cells:
+        return None, None
+    number_p = cells[-1].find("w:p", NSMAP)
+    number_text = _compact_table_cell_text(cells[-1])
+    ctx = _first_equation_row_context(row_elem, ctx_by_elem)
+    position = ctx.get("index") if ctx else None
+    loose_match = loose_num_re.fullmatch(number_text)
+    strict_match = strict_num_re.fullmatch(number_text)
+    if loose_match and not strict_match:
+        return None, (position, number_text)
+    if not strict_match:
+        return None, None
+    return (
+        _equation_record(
+            position,
+            number_text,
+            int(strict_match.group(1)),
+            int(strict_match.group(2)),
+            number_p,
+            "table",
+        ),
+        None,
+    )
+
+
 def _collect_equation_table_records(document_root, contexts, strict_num_re, loose_num_re):
     ctx_by_elem = {id(ctx.get("elem")): ctx for ctx in contexts if ctx.get("elem") is not None}
     records = []
@@ -1361,35 +1445,19 @@ def _collect_equation_table_records(document_root, contexts, strict_num_re, loos
     for tbl in document_root.findall(".//w:tbl", NSMAP):
         if not is_equation_layout_table(tbl):
             continue
-        cells = tbl.findall("w:tr/w:tc", NSMAP)
-        number_p = cells[-1].find("w:p", NSMAP) if cells else None
-        number_text = _compact_table_cell_text(cells[-1]) if cells else ""
         for p_elem in tbl.findall(".//w:p", NSMAP):
             table_paragraph_ids.add(id(p_elem))
-        ctx = None
-        for p_elem in tbl.findall(".//w:p", NSMAP):
-            candidate = _ctx_for_paragraph(p_elem, ctx_by_elem)
-            if candidate is not None:
-                ctx = candidate
-                break
-        loose_match = loose_num_re.fullmatch(number_text)
-        strict_match = strict_num_re.fullmatch(number_text)
-        if loose_match and not strict_match:
-            position = ctx.get("index") if ctx else None
-            format_issues.append((position, number_text))
-            continue
-        if strict_match:
-            position = ctx.get("index") if ctx else None
-            records.append(
-                _equation_record(
-                    position,
-                    number_text,
-                    int(strict_match.group(1)),
-                    int(strict_match.group(2)),
-                    number_p,
-                    "table",
-                )
+        for row_elem in tbl.findall("w:tr", NSMAP):
+            record, format_issue = _equation_table_row_result(
+                row_elem,
+                ctx_by_elem,
+                strict_num_re,
+                loose_num_re,
             )
+            if record is not None:
+                records.append(record)
+            if format_issue is not None:
+                format_issues.append(format_issue)
     return records, table_paragraph_ids, format_issues
 
 

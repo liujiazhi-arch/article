@@ -36,11 +36,15 @@ export async function createApplyJob(uploadId, body = {}) {
   });
 }
 
-export async function createRenderReviewJob(docxUploadId, pdfUploadId) {
+export async function createRenderReviewJob(docxUploadId, pdfUploadId, pdfMatchesDocxConfirmed) {
   return requestJson(`/uploads/${encodeURIComponent(docxUploadId)}/render-review-jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pdf_upload_id: pdfUploadId }),
+    body: JSON.stringify({
+      pdf_upload_id: pdfUploadId,
+      pdf_matches_docx_confirmed: pdfMatchesDocxConfirmed === true,
+      generate_static_toc: true,
+    }),
   });
 }
 

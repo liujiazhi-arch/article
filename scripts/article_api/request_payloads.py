@@ -65,6 +65,8 @@ def render_verify_kwargs(request: RenderVerifyRequest) -> dict[str, Any]:
         "renderer": request.renderer,
         "rendered_pdf": request.rendered_pdf,
         "page_images_dir": request.page_images_dir,
+        "pdf_matches_docx_confirmed": request.pdf_matches_docx_confirmed,
+        "generate_static_toc": request.generate_static_toc,
         "workflow_mode": request.workflow_mode,
     }
 
@@ -92,7 +94,7 @@ def apply_kwargs(request: ApplyRequest) -> dict[str, Any]:
             scopes=request.scopes,
             source_display_name=request.source_display_name,
         )
-    return {
+    payload = {
         "file_path": request.file_path,
         "output_path": output_path,
         "profile_path": request.profile,
@@ -105,6 +107,9 @@ def apply_kwargs(request: ApplyRequest) -> dict[str, Any]:
         "dry_run": request.dry_run,
         "force": request.force,
     }
+    if request.cover_fields:
+        payload["cover_fields"] = request.cover_fields.model_dump()
+    return payload
 
 
 def apply_job_kwargs(request: ApplyRequest) -> dict[str, Any]:
@@ -122,6 +127,8 @@ def apply_job_kwargs(request: ApplyRequest) -> dict[str, Any]:
         "dry_run": request.dry_run,
         "force": request.force,
     }
+    if request.cover_fields:
+        payload["cover_fields"] = request.cover_fields.model_dump()
     payload.update(worker_kwargs(request))
     return payload
 

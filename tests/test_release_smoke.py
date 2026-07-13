@@ -206,10 +206,10 @@ def test_release_smoke_rejects_prebuilt_wheelhouse_inside_cleaned_work_dir(monke
     assert wheel_path.exists()
 
 
-def test_release_smoke_http_flow_uses_python_module_serve(monkeypatch, tmp_path):
+def test_release_smoke_http_flow_reuploads_repaired_docx_before_confirmed_pdf_review(monkeypatch, tmp_path):
     release_smoke = _load_release_smoke()
     popen_calls: list[list[str]] = []
-    upload_urls: list[str] = []
+    events: list[tuple[object, ...]] = []
 
     class FakeProcess:
         def __init__(self, command, **kwargs):
@@ -227,27 +227,43 @@ def test_release_smoke_http_flow_uses_python_module_serve(monkeypatch, tmp_path)
             return None
 
     monkeypatch.setattr(release_smoke.subprocess, "Popen", FakeProcess)
-    monkeypatch.setattr(release_smoke, "_build_smoke_docx", lambda *args, **kwargs: None)
-    monkeypatch.setattr(release_smoke, "_build_smoke_pdf", lambda *args, **kwargs: None, raising=False)
+    monkeypatch.setattr(release_smoke, "_build_smoke_docx", lambda path, **_kwargs: path.write_bytes(b"source-docx"))
+    monkeypatch.setattr(release_smoke, "_build_smoke_pdf", lambda path, **_kwargs: path.write_bytes(b"pdf"))
     monkeypatch.setattr(release_smoke, "_available_port", lambda: 49231)
     monkeypatch.setattr(release_smoke, "_wait_for_ready", lambda base_url: {"status": "ready"})
-    def fake_upload(url, **_kwargs):
-        upload_urls.append(url)
-        return {"upload_id": "pdf-1" if url.endswith("/uploads/pdf") else "docx-1"}
 
-    def fake_request(url, **_kwargs):
+    def fake_upload(url, **kwargs):
+        content = kwargs["file_path"].read_bytes()
+        events.append(("upload", url, content))
+        if url.endswith("/uploads/pdf"):
+            return {"upload_id": "pdf-1"}
+        return {"upload_id": "fixed-docx-2" if content == b"fixed-docx" else "source-docx-1"}
+
+    def fake_request(url, **kwargs):
+        events.append(("json", url, kwargs.get("method", "GET"), kwargs.get("payload")))
         if url.endswith("/render-review-jobs"):
             return {"job_id": "render-job"}
         if url.endswith("/jobs/render-job/result"):
-            return {"result": {"page_count": 1}}
+            return {
+                "result": {
+                    "page_count": 1,
+                    "evidence_trust": "user-confirmed",
+                    "pdf_matches_docx_confirmed": True,
+                    "summary": {"pdf_matches_docx_confirmed": True},
+                }
+            }
         if url.endswith("/jobs/apply-job/result"):
             return {"summary": {}}
         return {"job_id": "apply-job"}
 
+    def fake_download(url, **_kwargs):
+        events.append(("download", url))
+        return b"fixed-docx"
+
     monkeypatch.setattr(release_smoke, "_post_multipart_file", fake_upload)
     monkeypatch.setattr(release_smoke, "_request_json", fake_request)
     monkeypatch.setattr(release_smoke, "_wait_for_job", lambda *args, **kwargs: {"status": "succeeded"})
-    monkeypatch.setattr(release_smoke, "_request_bytes", lambda *args, **kwargs: b"docx")
+    monkeypatch.setattr(release_smoke, "_request_bytes", fake_download)
 
     payload = release_smoke._run_http_smoke(
         venv_python=Path(sys.executable),
@@ -257,11 +273,30 @@ def test_release_smoke_http_flow_uses_python_module_serve(monkeypatch, tmp_path)
     )
 
     assert payload["status"] == "ok"
+    assert payload["output_upload_id"] == "fixed-docx-2"
     assert payload["render_job_status"] == "succeeded"
     assert payload["render_page_count"] == 1
-    assert upload_urls == [
-        "http://127.0.0.1:49231/uploads/docx",
-        "http://127.0.0.1:49231/uploads/pdf",
+    assert payload["render_evidence_trust"] == "user-confirmed"
+    assert payload["render_pdf_matches_docx_confirmed"] is True
+    assert events == [
+        ("upload", "http://127.0.0.1:49231/uploads/docx", b"source-docx"),
+        (
+            "json",
+            "http://127.0.0.1:49231/uploads/source-docx-1/jobs/apply",
+            "POST",
+            {"scopes": ["headings"], "runtime_root": str(tmp_path / "runtime"), "stage_input": True},
+        ),
+        ("json", "http://127.0.0.1:49231/jobs/apply-job/result", "GET", None),
+        ("download", "http://127.0.0.1:49231/jobs/apply-job/artifacts/output/download"),
+        ("upload", "http://127.0.0.1:49231/uploads/docx", b"fixed-docx"),
+        ("upload", "http://127.0.0.1:49231/uploads/pdf", b"pdf"),
+        (
+            "json",
+            "http://127.0.0.1:49231/uploads/fixed-docx-2/render-review-jobs",
+            "POST",
+            {"pdf_upload_id": "pdf-1", "pdf_matches_docx_confirmed": True},
+        ),
+        ("json", "http://127.0.0.1:49231/jobs/render-job/result", "GET", None),
     ]
     assert popen_calls == [
         [
