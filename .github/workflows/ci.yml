@@ -134,8 +134,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true"
-          target_commitish="$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq .target_commitish)"
+          release="$(gh release view "$RELEASE_TAG" --json isDraft,targetCommitish)"
+          test "$(jq -r .isDraft <<<"$release")" = "true"
+          target_commitish="$(jq -r .targetCommitish <<<"$release")"
           target_ref="$(jq -nr --arg value "$target_commitish" '$value|@uri')"
           target_sha="$(gh api "repos/$GH_REPO/commits/$target_ref" --jq .sha)"
           test "$target_sha" = "$GITHUB_SHA"

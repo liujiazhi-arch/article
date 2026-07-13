@@ -358,8 +358,8 @@ def test_ci_uploads_validated_windows_bundle_to_an_existing_draft_release():
         "contents: write",
         "actions/download-artifact@v4",
         "Verify target release is still a draft",
-        "--json isDraft",
-        ".target_commitish",
+        "--json isDraft,targetCommitish",
+        ".targetCommitish",
         'test "$target_sha" = "$GITHUB_SHA"',
         "Upload validated Windows bundle to draft GitHub Release",
         "gh release upload",
@@ -370,3 +370,4 @@ def test_ci_uploads_validated_windows_bundle_to_an_existing_draft_release():
     ):
         assert fragment in workflow
     assert "types: [published]" not in workflow
+    assert 'releases/tags/$RELEASE_TAG' not in workflow
