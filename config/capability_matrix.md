@@ -16,7 +16,8 @@
 
 - 本矩阵只记录公开 LNU runtime 当前启用的 75 条规则。
 - `CN-Common.yaml` 中被 LNU profile 禁用的内部基线规则不进入此表。
-- 对 `config/profiles/lnu-checker-2026.yaml` 中已接入 runtime 的 `additions` 规则，若此表“自动修复”为 `✓`，对应条目应提供非空 `fix` 元数据说明；若为 `✗`，则保持 `fix: null` 或省略。
+- LNU 有效规则元数据按 `CN-Common.yaml rules -> LNU overrides -> LNU additions -> disabled_rules` 组装；`severity`、`check_level`、`method` 和处理方式必须与 runtime 及本矩阵保持一致。
+- 若本表“自动修复”为 `✓`，有效规则元数据应提供非空 `fix` 说明；若为 `✗`，则保持 `fix: null` 或省略。
 - PDF 复核项不进入 `audit_thesis.py` 结构 runtime；只有用户提供 Word/WPS 导出的 PDF 时，`thesis_workbench.py audit --rendered-pdf` 或 `render-verify --rendered-pdf` 才会报告。
 
 ---
@@ -102,7 +103,7 @@
 | LNU_TB02 | 表格内容宋体五号 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB03 | 表格内容单倍行距 | Auto | docx-structure | ✓ | ✓ |
 | LNU_TB04 | 表块留白与表题贴表 | Auto | docx-structure | ✓ | ✓ |
-| LNU_REF01 | 参考文献英文半角标点 | Semi | docx-structure | ✓ | ✓ |
+| LNU_REF01 | 参考文献英文半角标点 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF02 | 参考文献编号制表位对齐格式 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF03 | 参考文献字号、行距、两端对齐与禁用断字 | Auto | docx-structure | ✓ | ✓ |
 | LNU_REF04 | 参考文献文献类型标识 | Auto | docx-structure | ✓ | ✓ |

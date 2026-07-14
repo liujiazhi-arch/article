@@ -23,6 +23,8 @@ meta:
     若本 profile 与 2026-04-17 checker 批注或旧版官方样本冲突，以本次截图为准。
 
 disabled_rules:
+  - P02
+  - EQ04
   - F03
   - F04
   - REF01
@@ -31,6 +33,61 @@ disabled_rules:
   - SP02
   - SP_CJK_LATIN
   - SP_NUM_CJK
+
+overrides:
+  - id: P01
+    severity: critical
+  - id: T03
+    severity: important
+  - id: T04
+    severity: critical
+  - id: T06
+    severity: critical
+  - id: H02
+    severity: critical
+  - id: H03
+    severity: critical
+  - id: C01
+    severity: minor
+  - id: C03
+    severity: minor
+  - id: C04
+    severity: critical
+  - id: R01
+    severity: critical
+  - id: R03
+    severity: critical
+  - id: R04
+    severity: important
+  - id: R05
+    severity: critical
+  - id: H04
+    severity: important
+  - id: P03
+    fix: "fix_footer_page_number()"
+  - id: PG01
+    fix: "fix_footer_page_number()"
+  - id: S01
+    fix: "fix_heading_spacing()"
+  - id: S02
+    fix: "fix_heading_page_break()"
+  - id: KW01
+    severity: important
+    fix: "fix_kw01_keyword_count()"
+  - id: F05
+    severity: important
+  - id: TB02
+    severity: important
+    fix: "fix_table_borders()"
+  - id: TB03
+    check_level: Auto
+    fix: "fix_tb03_repeat_header()"
+  - id: EQ03
+    check_level: Semi
+  - id: PU01
+    fix: "fix_half_width_punct_in_cjk()"
+  - id: PU02
+    fix: "fix_ellipsis()"
 
 additions:
   - id: LNU_F01

@@ -58,17 +58,34 @@ def test_static_toc_finalization_requires_confirmed_pdf(tmp_path):
 
 
 def test_static_toc_finalization_skips_when_current_pdf_has_no_toc_issue(tmp_path):
+    input_docx, page_texts = _matching_docx_and_pdf(tmp_path)
     result = build_static_toc_finalization(
-        "paper.docx",
+        input_docx,
         tmp_path,
-        {1: "目录"},
+        page_texts,
         requested=True,
         pdf_matches_docx_confirmed=True,
         toc_findings=[],
+        content_match={"status": "matched", "matched": True},
     )
 
     assert result["status"] == "not-needed"
     assert result["available"] is False
+
+
+def test_static_toc_finalization_blocks_untrusted_pdf_before_no_issue_result(tmp_path):
+    result = build_static_toc_finalization(
+        "paper.docx",
+        tmp_path,
+        {1: "另一篇论文"},
+        requested=True,
+        pdf_matches_docx_confirmed=True,
+        toc_findings=[],
+        content_match={"status": "mismatch", "matched": False},
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "content-mismatch"
 
 
 def test_static_toc_finalization_exposes_generated_output(tmp_path):

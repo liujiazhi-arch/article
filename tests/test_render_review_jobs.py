@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import sys
 import time
 from pathlib import Path
 
@@ -6,8 +7,10 @@ from fastapi.testclient import TestClient
 from docx import Document
 from PIL import Image
 import pytest
+import release_smoke
 
 from article_api.app import create_app
+from article_api import storage
 from article_api.job_artifacts import build_artifacts, refresh_artifact_availability
 from article_api.job_execution import handler_request
 from article_api.jobs import _render_retry_options
@@ -19,11 +22,16 @@ DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingm
 
 def _write_docx(path):
     doc = Document()
-    doc.add_paragraph("demo")
+    doc.add_heading("1 绪论", level=1)
+    for paragraph in release_smoke.SMOKE_BODY_ANCHORS:
+        doc.add_paragraph(paragraph)
     doc.save(path)
 
 
 def _write_pdf(path, page_count):
+    if page_count == 1:
+        release_smoke._build_smoke_pdf(path, python_executable=Path(sys.executable))
+        return
     pages = [Image.new("RGB", (120, 160), "white") for _ in range(page_count)]
     pages[0].save(path, "PDF", save_all=True, append_images=pages[1:], resolution=72)
     for page in pages:
@@ -38,6 +46,120 @@ def _wait_for_job(client, job_id):
             return payload
         time.sleep(0.05)
     raise AssertionError(f"job did not finish: {job_id}")
+
+
+def _stored_render_job(job_id, *, evidence_source, evidence_trust, content_match=None):
+    summary = {
+        "render_evidence_status": "render-evidence-ready",
+        "evidence_source": evidence_source,
+        "evidence_trust": evidence_trust,
+        "evidence_authoritative": evidence_trust == "authoritative",
+        "layout_decision_eligible": True,
+    }
+    if content_match is not None:
+        summary.update(content_match)
+    return {
+        "job_id": job_id,
+        "operation": "render-verify",
+        "status": "succeeded",
+        "mode": "background",
+        "created_at": "2026-06-16T00:00:00Z",
+        "updated_at": "2026-06-16T00:00:01Z",
+        "request": {},
+        "resolved_request": {"workflow_mode": "default_user"},
+        "workspace": None,
+        "runtime": None,
+        "summary": dict(summary),
+        "artifacts": [],
+        "result": {
+            **summary,
+            "summary": dict(summary),
+            "evidence_items": [{"page": 1, "rule_id": "render.object_flow"}],
+        },
+        "error": None,
+    }
+
+
+def test_legacy_manual_pdf_job_history_fails_closed_without_rewriting_storage(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARTICLE_API_STATE_ROOT", str(tmp_path / "state"))
+    toc_output = tmp_path / "legacy-static-toc.docx"
+    toc_output.write_bytes(b"unsafe legacy toc")
+    stored = _stored_render_job(
+        "legacy-manual-pdf",
+        evidence_source="manual-pdf",
+        evidence_trust="user-confirmed",
+    )
+    stored["summary"]["toc_output_available"] = True
+    stored["artifacts"] = [{"role": "toc-output", "path": str(toc_output)}]
+    stored["result"]["summary"]["toc_output_available"] = True
+    stored["result"]["toc_finalization"] = {
+        "status": "generated",
+        "available": True,
+        "output_path": str(toc_output),
+    }
+    storage.upsert_job(stored)
+
+    with TestClient(create_app()) as client:
+        status_payload = client.get("/jobs/legacy-manual-pdf").json()
+        list_payload = client.get("/jobs").json()
+        result_payload = client.get("/jobs/legacy-manual-pdf/result").json()
+        download_response = client.get("/jobs/legacy-manual-pdf/artifacts/toc-output/download")
+
+    listed = next(item for item in list_payload if item["job_id"] == "legacy-manual-pdf")
+    for summary in (status_payload["summary"], listed["summary"], result_payload["result"]["summary"]):
+        assert summary["render_evidence_status"] == "unsupported-evidence"
+        assert summary["layout_decision_eligible"] is False
+        assert summary["evidence_trust"] == "unverified"
+        assert summary["pdf_content_match_status"] == "not-verified"
+        assert summary["pdf_content_matched"] is False
+        assert summary["toc_output_available"] is False
+
+    assert all(artifact["role"] != "toc-output" for artifact in status_payload["artifacts"])
+    assert result_payload["result"]["toc_finalization"]["available"] is False
+    assert download_response.status_code == 404
+
+    persisted = storage.get_job("legacy-manual-pdf", include_result=True)
+    assert persisted["summary"]["layout_decision_eligible"] is True
+    assert persisted["result"]["summary"]["render_evidence_status"] == "render-evidence-ready"
+    assert persisted["result"]["toc_finalization"]["available"] is True
+
+
+@pytest.mark.parametrize(
+    ("job_id", "evidence_source", "evidence_trust", "content_match"),
+    [
+        ("authoritative-word", "word-pdf", "authoritative", None),
+        (
+            "matched-manual",
+            "manual-pdf",
+            "user-confirmed",
+            {"pdf_content_match_status": "matched", "pdf_content_matched": True},
+        ),
+    ],
+)
+def test_trusted_historical_render_evidence_remains_eligible(
+    tmp_path,
+    monkeypatch,
+    job_id,
+    evidence_source,
+    evidence_trust,
+    content_match,
+):
+    monkeypatch.setenv("ARTICLE_API_STATE_ROOT", str(tmp_path / "state"))
+    storage.upsert_job(
+        _stored_render_job(
+            job_id,
+            evidence_source=evidence_source,
+            evidence_trust=evidence_trust,
+            content_match=content_match,
+        )
+    )
+
+    with TestClient(create_app()) as client:
+        payload = client.get(f"/jobs/{job_id}/result").json()["result"]
+
+    assert payload["summary"]["render_evidence_status"] == "render-evidence-ready"
+    assert payload["summary"]["layout_decision_eligible"] is True
+    assert payload["summary"]["evidence_trust"] == evidence_trust
 
 
 def test_render_review_job_requires_pdf_upload(tmp_path, monkeypatch):
@@ -299,6 +421,10 @@ def test_render_review_job_retry_restores_both_uploads(tmp_path, monkeypatch):
         assert first_status["summary"]["pdf_name"] == "paper.pdf"
         assert first_status["summary"]["business_status"] == "render-review-required"
         assert first_status["summary"]["render_evidence_status"] == "render-review-required"
+        assert first_status["summary"]["evidence_trust"] == "user-confirmed"
+        assert first_status["summary"]["layout_decision_eligible"] is True
+        assert first_status["summary"]["pdf_content_match_status"] == "matched"
+        assert first_status["summary"]["pdf_content_matched"] is True
         first_result = client.get(f"/jobs/{first['job_id']}/result").json()["result"]
         assert first_result["pdf_matches_docx_confirmed"] is True
         assert first_result["summary"]["pdf_matches_docx_confirmed"] is True

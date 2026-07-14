@@ -26,6 +26,7 @@ from thesis_tool import render_sources
 from thesis_tool.render_toc_evidence import (
     build_toc_page_number_findings as _build_toc_page_number_findings,
     render_summary_with_findings as _render_summary_with_findings,
+    verify_docx_pdf_content_match,
 )
 from thesis_tool.render_toc_finalize import build_static_toc_finalization
 from thesis_tool.workflow import (
@@ -73,10 +74,15 @@ def _classify_evidence_trust(
     evidence_source: str,
     *,
     pdf_matches_docx_confirmed: bool = False,
+    content_match: dict | None = None,
 ) -> dict:
     authoritative = evidence_source in AUTHORITATIVE_EVIDENCE_SOURCES
     unverified = evidence_source in UNVERIFIED_EVIDENCE_SOURCES
-    user_confirmed = evidence_source == RENDERER_MANUAL_PDF and pdf_matches_docx_confirmed
+    user_confirmed = (
+        evidence_source == RENDERER_MANUAL_PDF
+        and pdf_matches_docx_confirmed
+        and bool((content_match or {}).get("matched"))
+    )
     trust = (
         "authoritative"
         if authoritative
@@ -88,9 +94,15 @@ def _classify_evidence_trust(
     )
     warnings = []
     if unverified and not user_confirmed:
-        warnings.append(
-            "手动提供的 PDF 或页图无法自动确认与当前 DOCX 为同一版本，请确认文件对应关系后再用于版式结论。"
-        )
+        match_status = (content_match or {}).get("status")
+        if pdf_matches_docx_confirmed and match_status == "mismatch":
+            warnings.append("手动提供的 PDF 与当前 DOCX 正文证据不一致，不能用于版式结论。")
+        elif pdf_matches_docx_confirmed and match_status:
+            warnings.append("当前 PDF 与 DOCX 的正文对应证据不足，不能用于版式结论。")
+        else:
+            warnings.append(
+                "手动提供的 PDF 或页图无法自动确认与当前 DOCX 为同一版本，请确认文件对应关系后再用于版式结论。"
+            )
     return {
         "trust": trust,
         "is_authoritative": authoritative,
@@ -345,6 +357,32 @@ def _analyze_render_evidence(render_context: dict) -> dict:
     }
 
 
+def _attach_manual_pdf_content_match(
+    input_docx: str,
+    render_context: dict,
+    evidence_context: dict,
+) -> dict:
+    if render_context["evidence_source"] != RENDERER_MANUAL_PDF:
+        return {**render_context, "pdf_content_match": None}
+    if not render_context["pdf_matches_docx_confirmed"]:
+        return {**render_context, "pdf_content_match": None}
+    try:
+        content_match = verify_docx_pdf_content_match(input_docx, evidence_context["page_texts"])
+    except Exception as exc:
+        LOGGER.warning("无法核对 PDF 与 DOCX 正文证据", exc_info=True)
+        content_match = {"status": "verification-error", "matched": False, "detail": str(exc)}
+    evidence_trust = _classify_evidence_trust(
+        render_context["evidence_source"],
+        pdf_matches_docx_confirmed=True,
+        content_match=content_match,
+    )
+    return {
+        **render_context,
+        "evidence_trust": evidence_trust,
+        "pdf_content_match": content_match,
+    }
+
+
 def _complete_render_evidence_context(render_context: dict, evidence_context: dict) -> dict:
     findings = evidence_context["render_findings"]
     analysis = evidence_context["render_analysis"]
@@ -404,6 +442,7 @@ def _build_canonical_summary(
     layout_score = evidence_context["layout_score"]
     verification = structure_context["verification"]
     preflight = structure_context["preflight"]
+    content_match = render_context.get("pdf_content_match")
     return {
         "page_count": len(render_context["page_images"]),
         "render_engine": render_metadata["engine"],
@@ -412,6 +451,8 @@ def _build_canonical_summary(
         "evidence_authoritative": bool(evidence_trust["is_authoritative"]),
         "layout_decision_eligible": bool(evidence_trust["layout_decision_eligible"]),
         "pdf_matches_docx_confirmed": render_context["pdf_matches_docx_confirmed"],
+        "pdf_content_match_status": (content_match or {}).get("status"),
+        "pdf_content_matched": (content_match or {}).get("matched"),
         "render_fallback_used": bool(render_metadata.get("fallback_used")),
         "preflight_status": preflight.get("preflight_status"),
         "wild_doc_detected": wild_doc["detected"],
@@ -511,6 +552,7 @@ def _build_render_report_payload(
         "evidence_authoritative": bool(evidence_trust["is_authoritative"]),
         "layout_decision_eligible": bool(evidence_trust["layout_decision_eligible"]),
         "pdf_matches_docx_confirmed": render_context["pdf_matches_docx_confirmed"],
+        "pdf_content_match": render_context.get("pdf_content_match"),
         "requested_render_engine": renderer,
         "render_fallback_used": bool(render_metadata.get("fallback_used")),
         "render_warnings": report_context["render_warnings"],
@@ -582,6 +624,11 @@ def build_render_verify_report(
         pdf_matches_docx_confirmed=pdf_matches_docx_confirmed,
     )
     evidence_context = _analyze_render_evidence(render_context)
+    render_context = _attach_manual_pdf_content_match(
+        validated_input,
+        render_context,
+        evidence_context,
+    )
     toc_finalization = build_static_toc_finalization(
         validated_input,
         resolved_output_dir,
@@ -589,6 +636,7 @@ def build_render_verify_report(
         requested=bool(generate_static_toc),
         pdf_matches_docx_confirmed=render_context["pdf_matches_docx_confirmed"],
         toc_findings=evidence_context["render_findings"],
+        content_match=render_context.get("pdf_content_match"),
     )
     evidence_context = _complete_render_evidence_context(render_context, evidence_context)
     structure_context = _build_structure_context(

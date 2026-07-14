@@ -78,7 +78,7 @@ root.querySelector = (selector) => ({{
   "[data-pdf-stage]": stage,
   "[data-pdf-detail]": detail,
 }}[selector] || null);
-const result = {{
+const result = {{ summary: {{ evidence_source: "word-pdf", layout_decision_eligible: true }},
   evidence_items: [
     {{ page: 2, rule_id: "render.line_overflow" }},
     {{ page: 5, rule_id: "render.heading_orphan_at_page_bottom" }},
@@ -126,14 +126,118 @@ const root = {{
   }},
 }};
 
-renderPdfReview(root, {{ render_summary: {{ actionable_finding_count: 3 }} }});
+renderPdfReview(root, {{ summary: {{ evidence_source: "word-pdf", layout_decision_eligible: true }}, render_summary: {{ actionable_finding_count: 3 }} }});
 assert.equal(issues.textContent, "3");
 
-renderPdfReview(root, {{
+renderPdfReview(root, {{ summary: {{ evidence_source: "word-pdf", layout_decision_eligible: true }},
   evidence_items: [],
   render_summary: {{ actionable_finding_count: 3 }},
 }});
 assert.equal(issues.textContent, "0");
+"""
+    )
+
+
+def test_pdf_evidence_use_requires_canonical_backend_eligibility():
+    _run_node(
+        f"""
+const {{ isPdfEvidenceUsable }} = await import({json.dumps(PDF_REVIEW_URL)});
+
+const manual = {{
+  summary: {{
+    evidence_source: "manual-pdf",
+    layout_decision_eligible: true,
+  }},
+}};
+
+assert.equal(isPdfEvidenceUsable({{
+  summary: {{ ...manual.summary, layout_decision_eligible: false, pdf_content_match_status: "matched" }},
+}}), false);
+assert.equal(isPdfEvidenceUsable(manual), true);
+assert.equal(isPdfEvidenceUsable({{
+  summary: {{ ...manual.summary, pdf_content_match_status: "mismatch" }},
+}}), true);
+assert.equal(isPdfEvidenceUsable({{
+  summary: {{ ...manual.summary, pdf_content_match_status: "matched" }},
+}}), true);
+assert.equal(isPdfEvidenceUsable({{
+  summary: {{ evidence_source: "word-pdf", layout_decision_eligible: true }},
+}}), true);
+assert.equal(isPdfEvidenceUsable({{
+  summary: {{ evidence_source: "word-pdf", layout_decision_eligible: false }},
+}}), false);
+assert.equal(isPdfEvidenceUsable({{
+  render_engine: "word-pdf",
+  layout_decision_eligible: true,
+}}), true);
+"""
+    )
+
+
+def test_ineligible_pdf_never_renders_or_keeps_evidence_items():
+    _run_node(
+        f"""
+const {{ renderPdfReview }} = await import({json.dumps(PDF_REVIEW_URL)});
+const conclusion = new FakeElement();
+const pages = new FakeElement();
+const issues = new FakeElement();
+const list = new FakeElement();
+const stage = new FakeElement();
+const detail = new FakeElement();
+const root = {{
+  querySelector(selector) {{
+    return {{
+      '[data-pdf-metric="conclusion"]': conclusion,
+      '[data-pdf-metric="pages"]': pages,
+      '[data-pdf-metric="issues"]': issues,
+      "[data-pdf-issues]": list,
+      "[data-pdf-stage]": stage,
+      "[data-pdf-detail]": detail,
+    }}[selector] || null;
+  }},
+}};
+const item = {{
+  page: 9,
+  screenshot_url: "/render-evidence/screenshot/page-9",
+  rule_id: "render.formula_number_split_page",
+  suggested_scope: "body_paragraphs",
+  fix_mode: "manual",
+}};
+
+renderPdfReview(root, {{
+  summary: {{
+    evidence_source: "word-pdf",
+    layout_decision_eligible: true,
+    render_evidence_status: "render-review-required",
+    page_count: 9,
+  }},
+  evidence_items: [item],
+}});
+assert.equal(stage.firstElementChild.className, "pdf-evidence-view single");
+assert.equal(detail.children[2].children[2].textContent, "去修复");
+
+renderPdfReview(root, {{
+  summary: {{
+    evidence_source: "manual-pdf",
+    layout_decision_eligible: false,
+    pdf_content_match_status: "mismatch",
+    render_evidence_status: "unsupported-evidence",
+    page_count: 9,
+  }},
+  evidence_items: [item],
+}});
+
+assert.equal(list.children.length, 1);
+assert.equal(list.firstElementChild.className, "empty-state");
+assert.equal(list.firstElementChild.children[0].textContent, "版本对应关系待确认");
+assert.equal(stage.children.length, 1);
+assert.equal(stage.firstElementChild.className, "empty-state");
+assert.equal(detail.children.length, 1);
+assert.equal(detail.firstElementChild.className, "finding");
+assert.equal(detail.firstElementChild.children.length, 2);
+assert.equal(conclusion.textContent, "待确认");
+assert.equal(pages.textContent, "--");
+assert.equal(issues.textContent, "--");
 """
     )
 
@@ -158,25 +262,16 @@ const root = {{
 const base = {{
   render_evidence_status: "render-evidence-ready",
   evidence_source: "manual-pdf",
-  evidence_trust: "user-confirmed",
-  evidence_authoritative: false,
-  layout_decision_eligible: true,
+  layout_decision_eligible: false,
+  pdf_content_match_status: "mismatch",
 }};
 renderPdfReview(root, {{ summary: base, evidence_items: [] }});
-assert.match(list.innerHTML, /版本对应关系待确认/);
-
-renderPdfReview(root, {{
-  summary: {{ ...base, pdf_matches_docx_confirmed: true }},
-  evidence_items: [],
-}});
-assert.match(list.innerHTML, /没有发现需要确认的位置/);
+assert.equal(list.firstElementChild.children[0].textContent, "版本对应关系待确认");
 
 renderPdfReview(root, {{
   summary: {{
     render_evidence_status: "render-evidence-ready",
     evidence_source: "word-pdf",
-    evidence_trust: "authoritative",
-    evidence_authoritative: true,
     layout_decision_eligible: true,
   }},
   evidence_items: [],
@@ -184,10 +279,19 @@ renderPdfReview(root, {{
 assert.match(list.innerHTML, /没有发现需要确认的位置/);
 
 renderPdfReview(root, {{
-  summary: {{ ...base, pdf_matches_docx_confirmed: true, render_evidence_status: "render-review-required" }},
+  summary: {{
+    render_evidence_status: "render-review-required",
+    evidence_source: "word-pdf",
+    layout_decision_eligible: true,
+  }},
   evidence_items: [],
 }});
-assert.match(stage.innerHTML, /暂不能判断页面结果/);
+assert.match(list.innerHTML, /没有返回可定位的位置/);
+assert.match(stage.innerHTML, /不能确认页面没有问题/);
+assert.match(detail.innerHTML, /页面和结构/);
+assert.doesNotMatch(stage.innerHTML, /暂无页面问题/);
+assert.doesNotMatch(detail.innerHTML, /仍有结构项需要人工确认/);
+assert.doesNotMatch(list.innerHTML, /版本对应关系待确认/);
 """
     )
 
@@ -209,7 +313,7 @@ const root = {{
   }},
 }};
 
-renderPdfReview(root, {{
+renderPdfReview(root, {{ summary: {{ evidence_source: "word-pdf", layout_decision_eligible: true }},
   evidence_items: [{{
     page: 3,
     screenshot_url: "/render-evidence/screenshot/missing",
@@ -258,7 +362,7 @@ assert.equal(emptyState.className, "empty-state");
 assert.equal(emptyState.children[0].textContent, "页面截图已不可用");
 assert.equal(emptyState.children[1].textContent, "请重新复核 PDF");
 
-renderPdfReview(root, {{
+renderPdfReview(root, {{ summary: {{ evidence_source: "word-pdf", layout_decision_eligible: true }},
   evidence_items: [{{
     page: 4,
     screenshot_url: "/render-evidence/screenshot/page-4",
@@ -295,7 +399,7 @@ const root = {{
   }},
 }};
 
-renderPdfReview(root, {{
+renderPdfReview(root, {{ summary: {{ evidence_source: "word-pdf", layout_decision_eligible: true }},
   evidence_items: [{{
     page: 8,
     screenshot_url: "/render-evidence/screenshot/page-8",
@@ -686,7 +790,7 @@ const root = {{
   }},
 }};
 
-renderPdfReview(root, {{
+renderPdfReview(root, {{ summary: {{ evidence_source: "word-pdf", layout_decision_eligible: true }},
   evidence_items: [{{
     page: 4,
     screenshot_url: "/render-evidence/screenshot/toc-line",
@@ -722,7 +826,7 @@ const root = {{
   }},
 }};
 
-renderPdfReview(root, {{
+renderPdfReview(root, {{ summary: {{ evidence_source: "word-pdf", layout_decision_eligible: true }},
   evidence_items: [{{
     page: 6,
     screenshot_url: "/render-evidence/screenshot/page-6",

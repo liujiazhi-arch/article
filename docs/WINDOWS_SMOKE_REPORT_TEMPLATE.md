@@ -9,7 +9,7 @@
 - `lnu-thesis-local-windows.zip` 下载地址:
 - `lnu-thesis-local-windows.zip.sha256` 下载地址:
 - `lnu-thesis-local-windows.zip` 文件大小:
-- `lnu-thesis-local-windows.zip.sha256` 内容:
+- `lnu-thesis-local-windows.zip.sha256` 内容: <64 位 SHA256>  lnu-thesis-local-windows.zip
 - sha256 校验结果: 通过 / 不通过
 - GitHub Actions run 地址:
 - `release-smoke-evidence-*` artifact:

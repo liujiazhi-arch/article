@@ -1,7 +1,7 @@
 import { bindCoverForm, coverSelectionIsValid, prepareCoverScope } from "./coverForm.js";
 import { escapeHtml, scopeLabel } from "./copy.js";
-import { renderFormatRadar } from "./formatRadar.js?v=20260714-module-ownership";
-import { getState } from "./state.js?v=20260714-module-ownership";
+import { renderFormatRadar } from "./formatRadar.js";
+import { getState } from "./state.js";
 
 function setMetric(root, name, value) {
   const node = root.querySelector(`[data-workbench-metric="${name}"]`);

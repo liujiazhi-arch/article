@@ -9,6 +9,7 @@ import zipfile
 
 from cli_json_output import build_failed_json_payload as _build_failed_payload
 from cli_json_output import emit_json_payload as _emit_payload
+from file_hash_utils import sha256_file as _sha256_file
 from smoke_workdir_utils import prepare_work_dir
 from windows_bundle_contract import PYTHON_ENTRY as BUNDLE_PYTHON_ENTRY
 
@@ -97,6 +98,8 @@ def run_windows_bundle_smoke(
     )
     return {
         "status": "ok",
+        "service_version": str(doctor.get("version") or ""),
+        "bundle_sha256": _sha256_file(bundle_zip_path),
         "bundle_zip": str(bundle_zip_path),
         "work_dir": str(smoke_dir),
         "bundle_root": str(bundle_root),

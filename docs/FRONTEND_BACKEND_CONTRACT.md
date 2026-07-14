@@ -34,7 +34,9 @@ Date: 2026-07-14
 
 - `POST /uploads/{docx_upload_id}/render-review-jobs`
   - Body: `{ "pdf_upload_id": "...", "pdf_matches_docx_confirmed": true, "generate_static_toc": true }`
-  - `pdf_matches_docx_confirmed` is true only after the user confirms the PDF came from the current DOCX.
+  - `pdf_matches_docx_confirmed` records only the user's confirmation that the PDF came from the current DOCX; it is not sufficient evidence by itself.
+  - The backend also compares extractable DOCX and PDF body content. Only user confirmation plus a content match can set `layout_decision_eligible = true` for a manual PDF.
+  - The frontend consumes canonical `render_evidence_status` and `layout_decision_eligible`. It must not infer trust from the confirmation flag, file names, page count, or the presence of evidence items. `pdf_content_match_status` may be shown for diagnostics.
   - Upload-based review defaults `generate_static_toc` to true. The generic render API and CLI keep it false unless explicitly requested.
   - Creates a background `render-verify` job.
   - Resolves `file_path` from the DOCX upload.
@@ -48,6 +50,7 @@ Date: 2026-07-14
 
 - `GET /jobs?limit={count}`
   - Returns local job history with student-safe display metadata.
+  - Legacy manual-PDF records that claimed layout evidence before content matching are downgraded in the response adapter only. The API returns `layout_decision_eligible = false`, `evidence_trust = "unverified"`, and `pdf_content_match_status = "not-verified"` without rewriting SQLite history.
 
 - `GET /jobs/{job_id}/artifacts/{role}/download`
   - Downloads an available `output`, `report`, or `toc-output` artifact from a completed job.
@@ -61,10 +64,10 @@ Date: 2026-07-14
 | Repair scope selection | Upload plan -> per-scope autofixable, manual-review, and unsupported counts | Enable only scopes with real automatic fixes. Keep mixed scopes selected while clearly marking that confirmation is still required. |
 | Processing flow | Upload response, plan response, job status, result availability | Mark upload, plan, apply, verify, and download stages from completed backend events. Do not advance stages on a timer or static markup. |
 | Result status | Apply result `summary`, `readiness`, and `business_status` | Distinguish generated, needs-fix, and needs-confirmation states. Do not call an unchecked result compliant. |
-| Rule spectrum | Apply result `verification.scopes[]` | Render one labelled item per returned scope. `failed_count = 0` is pass; a positive count is shown as the real remaining issue count. |
+| Rule spectrum | Apply result `verification.scopes[]` | Render one labelled item per returned scope. `status = not_checked` is a warning labelled `未检查`; otherwise `failed_count = 0` is pass and a positive count is the real remaining issue count. An actual cover insertion or replacement may show that operation result, but must not imply automated cover compliance. |
 | Downloads | Job `artifacts[]` and artifact download endpoint | Enable only artifacts marked available. Keep the original file untouched. |
 | PDF issue evidence | Render-review result `summary` and `evidence_items[]` | Show only backend-provided page images, page numbers, messages, optional boxes, and uniquely matched text-line highlighting. Never invent a page or precise location. |
-| Static TOC finalization | Render-review result `toc_finalization` and the `toc-output` artifact | Offer the download only after complete heading-to-page mapping against a confirmed same-version PDF. Then ask the student to export and review the PDF again. |
+| Static TOC finalization | Render-review result `toc_finalization` and the `toc-output` artifact | Offer the download only when `layout_decision_eligible = true` and every heading has an exact page mapping. Then ask the student to export and review the PDF again. |
 | History | Job list and job result endpoints | A completed apply job restores its result. A completed render-review job restores its document name, PDF name, completion state, and evidence. Historical PDF evidence is view-only until the student uploads the matching DOCX again. |
 
 ## Module Ownership
@@ -88,6 +91,12 @@ Date: 2026-07-14
 | `thesis_tool/pdf_backend.py` | PDF conversion and text geometry backend | Workflow policy |
 
 Every new student-facing feature must name one backend fact source, one frontend owner, and a behavior test through its public interface. New view logic does not go into `app.js`; new transport logic does not go into a view module; frontend code never derives server paths from upload responses.
+
+## Profile Metadata Boundary
+
+- Effective LNU metadata order is `CN-Common.yaml rules` -> same-ID LNU overrides -> LNU additions -> `disabled_rules`.
+- Runtime definitions and `config/capability_matrix.md` are tested mirrors of that YAML source. They may keep local checker bindings and short names, but severity, check level, method, scope, and action metadata must not drift.
+- `reference_additions` and `reference_overrides` document future or non-runtime rules only. The frontend, API, and capability matrix must not expose them as supported checks.
 
 ## Render Evidence Item
 

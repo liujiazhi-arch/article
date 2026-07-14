@@ -91,7 +91,7 @@ def _build_scope_summary(definition, scope_failed):
         "id": definition.id,
         "title": definition.title,
         "description": definition.description,
-        "status": _scope_status(scope_failed),
+        "status": "not_checked" if not definition.rule_ids else _scope_status(scope_failed),
         "failed_count": len(scope_failed),
         "failed_rules": [item["id"] for item in scope_failed],
         "failed_items": scope_failed,

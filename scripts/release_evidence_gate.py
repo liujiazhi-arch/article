@@ -30,6 +30,13 @@ WINDOWS_REQUIRED_PASS_PHRASES = [
     "发布结论: 通过",
 ]
 
+RENDER_EVIDENCE_REQUIREMENTS = (
+    ("render_evidence_trust", "user-confirmed", "render-review evidence trust"),
+    ("render_pdf_matches_docx_confirmed", True, "render-review document confirmation"),
+    ("render_pdf_content_match_status", "matched", "render-review content match"),
+    ("render_layout_decision_eligible", True, "render-review layout eligibility"),
+)
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     return dict(json.loads(path.read_text(encoding="utf-8")))
@@ -65,19 +72,41 @@ def _extract_report_tag(text: str) -> str:
     return match.group(1) if match else ""
 
 
+def _release_tag_version(tag: str) -> str:
+    match = re.fullmatch(r"v?(\d+\.\d+\.\d+)(?:[-+].+)?", tag.strip())
+    return match.group(1) if match else ""
+
+
+def _normalize_sha256(value: str) -> str:
+    normalized = value.strip().lower()
+    return normalized if re.fullmatch(r"[0-9a-f]{64}", normalized) else ""
+
+
+def _extract_report_sha256(text: str) -> str:
+    match = re.search(
+        r"(?mi)^\s*-\s*`lnu-thesis-local-windows\.zip\.sha256`\s*内容:\s*([0-9a-f]{64})(?:\s+.*)?$",
+        text,
+    )
+    return _normalize_sha256(match.group(1)) if match else ""
+
+
 def _check_windows_report(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
+    bundle_sha256 = _extract_report_sha256(text)
     report_lines = {line.strip().removeprefix("-").strip() for line in text.splitlines()}
     missing_or_failed = [
         phrase.removesuffix(": 通过")
         for phrase in WINDOWS_REQUIRED_PASS_PHRASES
         if phrase not in report_lines
     ]
+    if not bundle_sha256:
+        missing_or_failed.append("windows report bundle sha256")
     status = "ok" if not missing_or_failed else "failed"
     return {
         "status": status,
         "path": str(path),
         "tag": _extract_report_tag(text),
+        "bundle_sha256": bundle_sha256,
         "required": list(WINDOWS_REQUIRED_PASS_PHRASES),
         "missing_or_failed": missing_or_failed,
     }
@@ -114,11 +143,17 @@ def _check_http_smoke_payload(
         missing_or_failed.append(render_status_label)
     if int(http_smoke.get("render_page_count") or 0) < 1:
         missing_or_failed.append(render_page_label)
+    missing_or_failed.extend(
+        label
+        for field, expected, label in RENDER_EVIDENCE_REQUIREMENTS
+        if http_smoke.get(field) != expected
+    )
     return normalized_download_bytes, missing_or_failed
 
 
 def _check_release_smoke(path: Path) -> dict[str, Any]:
     payload = _read_json(path)
+    service_version = str(payload.get("service_version") or "").strip()
     checks = dict(payload.get("checks", {}))
     doctor = dict(checks.get("doctor", {}))
     profiles = dict(checks.get("profiles", {}))
@@ -138,9 +173,12 @@ def _check_release_smoke(path: Path) -> dict[str, Any]:
         missing_or_failed.append("doctor")
     if profiles.get("status") != "ok":
         missing_or_failed.append("profiles")
+    if not service_version:
+        missing_or_failed.append("release smoke service version")
     return {
         "status": "ok" if not missing_or_failed else "failed",
         "path": str(path),
+        "service_version": service_version,
         "download_bytes": download_bytes,
         "missing_or_failed": missing_or_failed,
     }
@@ -148,6 +186,8 @@ def _check_release_smoke(path: Path) -> dict[str, Any]:
 
 def _check_windows_bundle_smoke(path: Path) -> dict[str, Any]:
     payload = _read_json(path)
+    service_version = str(payload.get("service_version") or "").strip()
+    bundle_sha256 = _normalize_sha256(str(payload.get("bundle_sha256") or ""))
     checks = dict(payload.get("checks", {}))
     doctor = dict(checks.get("doctor", {}))
     http_smoke = dict(checks.get("http_smoke", {}))
@@ -165,10 +205,16 @@ def _check_windows_bundle_smoke(path: Path) -> dict[str, Any]:
     )
     if doctor.get("status") != "ok":
         missing_or_failed.append("windows bundle doctor")
+    if not service_version:
+        missing_or_failed.append("windows bundle service version")
+    if not bundle_sha256:
+        missing_or_failed.append("windows bundle sha256")
     return {
         "status": "ok" if not missing_or_failed else "failed",
         "path": str(path),
+        "service_version": service_version,
         "download_bytes": download_bytes,
+        "bundle_sha256": bundle_sha256,
         "bundle_zip": str(payload.get("bundle_zip") or ""),
         "bundle_root": str(payload.get("bundle_root") or ""),
         "missing_or_failed": missing_or_failed,
@@ -247,6 +293,30 @@ def check_release_evidence(
         "github_tag": github_check.get("tag", ""),
         "windows_report_tag": windows_check.get("tag", ""),
     }
+    release_tag = str(github_check.get("tag") or "")
+    release_tag_version = _release_tag_version(release_tag)
+    release_smoke_service_version = str(release_smoke_check.get("service_version") or "")
+    windows_bundle_service_version = str(windows_bundle_smoke_check.get("service_version") or "")
+    service_version_match = {
+        "status": "ok"
+        if release_tag_version
+        and release_tag_version == release_smoke_service_version
+        and release_tag_version == windows_bundle_service_version
+        else "failed",
+        "release_tag": release_tag,
+        "release_tag_version": release_tag_version,
+        "release_smoke_service_version": release_smoke_service_version,
+        "windows_bundle_service_version": windows_bundle_service_version,
+    }
+    windows_report_sha256 = str(windows_check.get("bundle_sha256") or "")
+    windows_bundle_sha256 = str(windows_bundle_smoke_check.get("bundle_sha256") or "")
+    bundle_sha256_match = {
+        "status": "ok"
+        if windows_report_sha256 and windows_report_sha256 == windows_bundle_sha256
+        else "failed",
+        "windows_report_sha256": windows_report_sha256,
+        "windows_bundle_sha256": windows_bundle_sha256,
+    }
     required_smoke_checks_ok = all(
         check["status"] == "ok"
         for check in (release_smoke_check, windows_bundle_smoke_check)
@@ -256,6 +326,8 @@ def check_release_evidence(
         github_check["status"] == "ok"
         and windows_check["status"] == "ok"
         and tag_match["status"] == "ok"
+        and service_version_match["status"] == "ok"
+        and bundle_sha256_match["status"] == "ok"
         and required_smoke_checks_ok
         and optional_browser_check_ok
     )
@@ -268,6 +340,8 @@ def check_release_evidence(
             "windows_bundle_smoke": windows_bundle_smoke_check,
             "browser_smoke": browser_smoke_check,
             "tag_match": tag_match,
+            "service_version_match": service_version_match,
+            "bundle_sha256_match": bundle_sha256_match,
         },
         "next_steps": []
         if ready

@@ -22,6 +22,7 @@ def build_static_toc_finalization(
     requested: bool,
     pdf_matches_docx_confirmed: bool,
     toc_findings: list[dict],
+    content_match: dict | None = None,
     finalize_fn: Callable = finalize_static_toc,
 ) -> dict:
     if not requested:
@@ -38,25 +39,18 @@ def build_static_toc_finalization(
             "message": "请先确认 PDF 与当前论文来自同一版本",
             "next_action": "确认后重新复核 PDF",
         }
-    if not _has_toc_issue(toc_findings):
-        return {
-            "status": "not-needed",
-            "available": False,
-            "message": "当前 PDF 没有发现目录页码问题",
-            "next_action": "无需生成静态目录版",
-        }
-
-    try:
-        content_match = verify_docx_pdf_content_match(input_docx, page_texts)
-    except Exception as exc:
-        return {
-            "status": "unavailable",
-            "available": False,
-            "reason": "content-verification-error",
-            "message": "无法确认 PDF 与当前论文内容对应 静态目录不可生成",
-            "detail": str(exc),
-            "next_action": "请确认文件可正常打开后重新复核 PDF",
-        }
+    if content_match is None:
+        try:
+            content_match = verify_docx_pdf_content_match(input_docx, page_texts)
+        except Exception as exc:
+            return {
+                "status": "unavailable",
+                "available": False,
+                "reason": "content-verification-error",
+                "message": "无法确认 PDF 与当前论文内容对应 静态目录不可生成",
+                "detail": str(exc),
+                "next_action": "请确认文件可正常打开后重新复核 PDF",
+            }
     if not content_match["matched"]:
         reason = "content-mismatch" if content_match["status"] == "mismatch" else "content-unverified"
         return {
@@ -66,6 +60,13 @@ def build_static_toc_finalization(
             "content_match": content_match,
             "message": "PDF 与当前论文的正文证据不一致 静态目录不可生成",
             "next_action": "请重新选择由当前论文导出的 PDF",
+        }
+    if not _has_toc_issue(toc_findings):
+        return {
+            "status": "not-needed",
+            "available": False,
+            "message": "当前 PDF 没有发现目录页码问题",
+            "next_action": "无需生成静态目录版",
         }
 
     output_path = (Path(output_dir).expanduser() / "static_toc.docx").resolve()

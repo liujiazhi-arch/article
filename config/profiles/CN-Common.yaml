@@ -299,6 +299,19 @@ rules:
     fix: null
     source: CN-Common
 
+  - id: S03
+    module: body
+    scope: all
+    severity: minor
+    check_level: Auto
+    description: "正文段前段后间距为0"
+    expected: {before_pt: 0, after_pt: 0}
+    method: docx-structure
+    evidence: "正文段落 w:spacing[@w:before][@w:after]"
+    notes: "正文格式化时统一处理"
+    fix: "fix_body_paragraph()"
+    source: CN-Common
+
 # ========== 图模块 ==========
 
   - id: F01
@@ -415,6 +428,19 @@ rules:
     evidence: "w:tblBorders / w:trPr / w:tcBorders"
     notes: "检查：顶线/底线存在且sz≥10；第一行底部横线存在且比顶底线细"
     fix: "fix_table_borders(top_bottom_sz=12, header_sz=6)"
+    source: CN-Common
+
+  - id: TB03_LINE
+    module: table
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "三线表第一行栏目线"
+    expected: "第一行下边框存在且细于顶线和底线"
+    method: docx-structure
+    evidence: "首行单元格 w:tcBorders/w:bottom"
+    notes: "与三线表顶线和底线一起自动修复"
+    fix: "fix_table_borders()"
     source: CN-Common
 
   - id: TB02
@@ -649,6 +675,19 @@ rules:
     evidence: "关键词段落文本按'；'分割计数"
     notes: "适用于摘要页的关键词段落"
     fix: null
+    source: CN-Common
+
+  - id: KW02
+    module: reference
+    scope: all
+    severity: important
+    check_level: Auto
+    description: "关键词末尾不保留多余标点"
+    expected: "关键词列表末尾无分号、句号或逗号"
+    method: docx-structure
+    evidence: "关键词段落末尾文本"
+    notes: "中英文关键词均检查"
+    fix: "fix_kw02_trailing_punct()"
     source: CN-Common
 
 # ========== 标点与单位模块 ==========

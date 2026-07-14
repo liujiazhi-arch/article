@@ -103,10 +103,12 @@ def test_scope_plan_groups_failed_rules_by_scope(tmp_docx):
     assert "KW01" in scopes["abstract"]["failed_rules"]
     assert scopes["abstract"]["status"] == "manual_review"
     assert scopes["abstract"]["failed_count"] >= 1
+    assert scopes["cover"]["status"] == "not_checked"
 
     rendered = render_scope_plan(plan)
     assert "正文标题（headings）" in rendered
     assert "摘要（abstract）" in rendered
+    assert "固定封面（cover）: 未自动审查" in rendered
 
 
 def test_scope_plan_exposes_action_buckets(tmp_docx):

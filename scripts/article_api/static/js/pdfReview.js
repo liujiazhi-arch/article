@@ -21,6 +21,25 @@ function resultField(result, name) {
   return result?.summary?.[name] ?? result?.[name];
 }
 
+export function isPdfEvidenceUsable(result) {
+  return resultField(result, "layout_decision_eligible") === true;
+}
+
+export function pdfReviewCompletionStatus(result) {
+  if (!isPdfEvidenceUsable(result)) {
+    return { title: "PDF 版本待确认", message: "请重新上传当前论文导出的 PDF" };
+  }
+  if (resultField(result, "render_evidence_status") === "render-review-required"
+      && evidenceItems(result).length === 0) {
+    return { title: "PDF 仍需人工复核", message: "没有返回问题位置 请继续检查页面和结构" };
+  }
+  if (resultField(result, "render_evidence_status") === "render-evidence-ready"
+      && evidenceItems(result).length === 0) {
+    return { title: "PDF 复核完成", message: "没有发现需要确认的位置" };
+  }
+  return { title: "PDF 复核完成", message: "可以查看页面问题" };
+}
+
 function tocMappingMessage(finalization, fallback = "目录与正文还没有完整对应") {
   const entryCount = finalization?.entry_count;
   const mappedCount = finalization?.mapped_count;
@@ -59,16 +78,8 @@ function tocFinalizationCopy(finalization, downloadAvailable) {
 }
 
 function isPdfReviewReady(result) {
-  if (resultField(result, "render_evidence_status") !== "render-evidence-ready") return false;
-  const source = resultField(result, "evidence_source") ?? resultField(result, "render_engine");
-  const trust = resultField(result, "evidence_trust");
-  const authoritative = source === "word-pdf"
-    && trust === "authoritative"
-    && resultField(result, "evidence_authoritative") === true;
-  const userConfirmed = trust === "user-confirmed"
-    && resultField(result, "pdf_matches_docx_confirmed") === true
+  return resultField(result, "render_evidence_status") === "render-evidence-ready"
     && resultField(result, "layout_decision_eligible") === true;
-  return authoritative || userConfirmed;
 }
 
 function createEmptyState(title, message) {
@@ -169,6 +180,7 @@ function renderPdfMetrics(root, result) {
 
 export function renderPdfReview(root, result, payload = null) {
   const items = evidenceItems(result);
+  const evidenceUsable = isPdfEvidenceUsable(result);
   if (result !== activeEvidenceResult) {
     activeEvidenceIndex = 0;
     activeEvidenceResult = result;
@@ -176,15 +188,27 @@ export function renderPdfReview(root, result, payload = null) {
   const list = root.querySelector("[data-pdf-issues]");
   const stage = root.querySelector("[data-pdf-stage]");
   const detail = root.querySelector("[data-pdf-detail]");
-  renderPdfMetrics(root, result);
+  if (evidenceUsable) renderPdfMetrics(root, result);
+  else {
+    setPdfMetric(root, "conclusion", pdfConclusion(result, 0));
+    setPdfMetric(root, "pages", "--");
+    setPdfMetric(root, "issues", "--");
+  }
   renderTocOutputAction(root, result, payload);
   if (!list || !stage || !detail) return;
 
+  if (!evidenceUsable) {
+    list.replaceChildren(createEmptyState("版本对应关系待确认", "请重新上传当前论文导出的 PDF"));
+    stage.replaceChildren(createEmptyState("暂不展示页面证据", "当前 PDF 不能用于这篇论文的版式判断"));
+    detail.replaceChildren(createFinding("下一步", "重新导出当前论文 PDF 后再复核"));
+    return;
+  }
+
   if (!items.length) {
-    if (!isPdfReviewReady(result)) {
-      list.innerHTML = `<div class="empty-state"><b>版本对应关系待确认</b><span>请确认 PDF 来自当前论文</span></div>`;
-      stage.innerHTML = `<div class="empty-state"><b>暂不能判断页面结果</b><span>当前证据不能支持无异常结论</span></div>`;
-      detail.innerHTML = `<div class="finding"><b>下一步</b><p>确认 PDF 与当前论文版本对应后重新复核</p></div>`;
+    if (resultField(result, "render_evidence_status") === "render-review-required") {
+      list.innerHTML = `<div class="empty-state"><b>没有返回可定位的位置</b><span>仍需继续人工复核</span></div>`;
+      stage.innerHTML = `<div class="empty-state"><b>不能确认页面没有问题</b><span>本次没有可展示的页面标注</span></div>`;
+      detail.innerHTML = `<div class="finding"><b>继续人工复核</b><p>请结合页面和结构检查完成确认</p></div>`;
       return;
     }
     list.innerHTML = `<div class="empty-state"><b>没有发现需要确认的位置</b><span>可以保存复核结果</span></div>`;

@@ -6,10 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ASSET_VERSION = "20260714-module-ownership"
 APP_URL = f"{(ROOT / 'scripts' / 'article_api' / 'static' / 'js' / 'app.js').as_uri()}?v={ASSET_VERSION}"
-PDF_REVIEW_URL = (
-    f"{(ROOT / 'scripts' / 'article_api' / 'static' / 'js' / 'pdfReview.js').as_uri()}?v={ASSET_VERSION}"
-)
-STATE_URL = f"{(ROOT / 'scripts' / 'article_api' / 'static' / 'js' / 'state.js').as_uri()}?v={ASSET_VERSION}"
+PDF_REVIEW_URL = (ROOT / "scripts" / "article_api" / "static" / "js" / "pdfReview.js").as_uri()
+STATE_URL = (ROOT / "scripts" / "article_api" / "static" / "js" / "state.js").as_uri()
 
 
 _NODE_HARNESS = f"""

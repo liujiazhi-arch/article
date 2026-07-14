@@ -441,6 +441,7 @@ installSuccessfulApply({
       scopes: [
         { id: "toc", title: "目录", failed_count: 0 },
         { id: "figures_tables", title: "图表", failed_count: 2 },
+        { id: "cover", title: "固定封面", failed_count: 0, status: "not_checked" },
       ],
     },
   },
@@ -455,7 +456,9 @@ assert.match(resultHeatmap.innerHTML, /通过/);
 assert.match(resultHeatmap.innerHTML, /2项/);
 assert.match(resultHeatmap.innerHTML, /class="pass"[^>]*>\s*<b>目录<\/b>\s*<small>通过<\/small>/);
 assert.match(resultHeatmap.innerHTML, /class="warn"[^>]*>\s*<b>图表<\/b>\s*<small>2项<\/small>/);
-assert.equal((resultHeatmap.innerHTML.match(/<span/g) || []).length, 2);
+assert.match(resultHeatmap.innerHTML, /class="warn"[^>]*>\s*<b>固定封面<\/b>\s*<small>未检查<\/small>/);
+assert.doesNotMatch(resultHeatmap.innerHTML, /固定封面.*通过/);
+assert.equal((resultHeatmap.innerHTML.match(/<span/g) || []).length, 3);
 assert.equal(flowSteps.find((step) => step.dataset.flowStage === "download").classList.contains("active"), true);
 """
     )
@@ -579,6 +582,7 @@ installSuccessfulPdfReview({
     evidence_authoritative: false,
     layout_decision_eligible: true,
     pdf_matches_docx_confirmed: true,
+    pdf_content_match_status: "matched",
     actionable_finding_count: 0,
   },
   evidence_items: [],
@@ -607,6 +611,57 @@ assert.deepEqual(JSON.parse(reviewRequest.options.body), {
 assert.equal(pdfMatchConfirmation.checked, false);
 assert.equal(pdfInput.value, "");
 assert.equal(pdfConclusion.textContent, "无异常");
+assert.equal(statusTitle.textContent, "PDF 复核完成");
+assert.equal(statusMessage.textContent, "没有发现需要确认的位置");
+assert.doesNotMatch(statusMessage.textContent, /查看页面问题/);
+"""
+    )
+
+
+def test_pdf_completion_status_closes_unusable_and_empty_review_results():
+    _run_node(
+        """
+setState({
+  docxUpload: { upload_id: "docx-1", file_name: "paper.docx" },
+  documentEpoch: 10,
+  pdfReviewRequiresFreshDocx: false,
+});
+installSuccessfulPdfReview({
+  summary: {
+    render_evidence_status: "unsupported-evidence",
+    evidence_source: "manual-pdf",
+    layout_decision_eligible: false,
+    pdf_content_match_status: "mismatch",
+  },
+  evidence_items: [{
+    page: 4,
+    screenshot_url: "/wrong-pdf/page-4.png",
+    rule_id: "render.formula_number_split_page",
+  }],
+});
+
+pdfMatchConfirmation.checked = true;
+pdfInput.files = [{ name: "wrong.pdf" }];
+await pdfInput.emit("change");
+
+assert.equal(statusTitle.textContent, "PDF 版本待确认");
+assert.equal(statusMessage.textContent, "请重新上传当前论文导出的 PDF");
+assert.doesNotMatch(statusMessage.textContent, /查看页面问题/);
+
+installSuccessfulPdfReview({
+  summary: {
+    render_evidence_status: "render-review-required",
+    evidence_source: "word-pdf",
+    layout_decision_eligible: true,
+  },
+  evidence_items: [],
+});
+pdfMatchConfirmation.checked = true;
+pdfInput.files = [{ name: "paper.pdf" }];
+await pdfInput.emit("change");
+assert.equal(statusTitle.textContent, "PDF 仍需人工复核");
+assert.equal(statusMessage.textContent, "没有返回问题位置 请继续检查页面和结构");
+assert.doesNotMatch(statusMessage.textContent, /查看页面问题/);
 """
     )
 

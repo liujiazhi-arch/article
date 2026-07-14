@@ -100,7 +100,7 @@ thesis-workbench verify 修复后_摘要.docx --profile lnu --scope abstract
 **目录或分页不一致**
 
 启用目录修复时，工具会直接写入可见的自动目录域结果。若后续继续修改正文导致分页变化，再在 Word/WPS 中更新目录域并复核页码；最终分页以 Word/WPS 打开结果为准。
-如果你手里已经有 Word/WPS 导出的 PDF，可以运行 `thesis-workbench render-verify 修复后.docx --profile lnu --rendered-pdf 修复后.pdf --pdf-matches-docx-confirmed --generate-static-toc`。只有确认 PDF 来自当前 DOCX 时才使用确认参数。映射完整时会在报告目录生成 `static_toc.docx`；映射不完整时不会写文件。
+如果你手里已经有 Word/WPS 导出的 PDF，可以运行 `thesis-workbench render-verify 修复后.docx --profile lnu --rendered-pdf 修复后.pdf --pdf-matches-docx-confirmed --generate-static-toc`。只有确认 PDF 来自当前 DOCX 时才使用确认参数。工具还会自动比对 DOCX 与 PDF 的正文内容；内容匹配且标题映射完整时才会在报告目录生成 `static_toc.docx`，否则不会写文件。
 
 静态目录页码只适用于本次 DOCX、本次字体环境和本次 Word/WPS 分页。下载后不要先修改正文，应直接重新导出 PDF，再上传复核一次。若正文、字体、页边距或渲染软件发生变化，需要重新生成静态目录。
 
@@ -108,6 +108,6 @@ thesis-workbench verify 修复后_摘要.docx --profile lnu --scope abstract
 
 在修复范围中显式选择封面，并填写题目、学院、专业、姓名、指导教师和完成日期。工具只在旧封面边界能够明确识别时替换；正文直接从摘要开始时可以插入新封面。字段缺失、封面与正文边界不明确或 profile 不匹配时不会写出候选稿。
 
-固定版式使用辽宁大学校名字样和校徽，封面页不设置页脚或页码。长题目、个人信息、分节和后续页码仍需在实际提交环境的 Word/WPS 中人工确认。
+封面默认不处理，也没有自动审查规则。固定版式使用辽宁大学校名字样和校徽，封面页不设置页脚或页码。长题目、个人信息、分节和后续页码仍需在实际提交环境的 Word/WPS 中人工确认。
 
 更多启动、端口、SmartScreen、`.docx` 和反馈包问题见 [故障排查](TROUBLESHOOTING.md)。

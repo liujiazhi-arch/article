@@ -8,6 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from thesis_tool.render_toc_evidence import verify_docx_pdf_content_match
+from thesis_tool.render_verify import _extract_pdf_page_texts
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = PROJECT_ROOT / "scripts" / "release_smoke.py"
@@ -19,6 +22,37 @@ def _load_release_smoke():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_release_smoke_files_have_matching_extractable_content(tmp_path):
+    release_smoke = _load_release_smoke()
+    docx_path = tmp_path / "smoke.docx"
+    pdf_path = tmp_path / "smoke.pdf"
+    release_smoke._build_smoke_docx(docx_path, python_executable=Path(sys.executable))
+    release_smoke._build_smoke_pdf(pdf_path, python_executable=Path(sys.executable))
+
+    page_texts, text_summary = _extract_pdf_page_texts(str(pdf_path), page_count=1)
+    content_match = verify_docx_pdf_content_match(docx_path, page_texts)
+
+    assert text_summary["available"] is True
+    assert content_match["matched"] is True
+    assert content_match["matched_anchor_count"] >= 2
+
+
+def test_browser_smoke_pdf_has_extractable_formula_split_evidence(tmp_path):
+    release_smoke = _load_release_smoke()
+    pdf_path = tmp_path / "browser-smoke.pdf"
+
+    release_smoke._build_smoke_pdf(
+        pdf_path,
+        python_executable=Path(sys.executable),
+        include_layout_issue=True,
+    )
+    page_texts, text_summary = _extract_pdf_page_texts(str(pdf_path), page_count=2)
+
+    assert text_summary["available"] is True
+    assert page_texts[1].splitlines()[-1] == "x=y+z"
+    assert page_texts[2].splitlines()[0] == "(1)"
 
 
 def test_release_smoke_builds_wheel_installs_clean_venv_and_runs_http_flow(monkeypatch, tmp_path):
@@ -56,7 +90,11 @@ def test_release_smoke_builds_wheel_installs_clean_venv_and_runs_http_flow(monke
             wheel_path.write_bytes(b"wheel")
         if command[0].endswith("thesis-workbench"):
             return type("Completed", (), {"stdout": "lnu-checker-2026\n", "stderr": ""})()
-        return type("Completed", (), {"stdout": '{"status": "ok"}', "stderr": ""})()
+        return type(
+            "Completed",
+            (),
+            {"stdout": '{"status": "ok", "version": "0.1.2"}', "stderr": ""},
+        )()
 
     monkeypatch.setattr(release_smoke.subprocess, "run", fake_run)
     monkeypatch.setattr(release_smoke, "_run_http_smoke", lambda **kwargs: {"status": "ok", "job_id": "job-1"})
@@ -70,6 +108,7 @@ def test_release_smoke_builds_wheel_installs_clean_venv_and_runs_http_flow(monke
     )
 
     assert payload["status"] == "ok"
+    assert payload["service_version"] == "0.1.2"
     assert payload["install"]["mode"] == "wheel"
     assert payload["distribution"]["wheel_path"] == str(wheel_path)
     assert payload["checks"]["doctor"]["status"] == "ok"
@@ -248,8 +287,13 @@ def test_release_smoke_http_flow_reuploads_repaired_docx_before_confirmed_pdf_re
                 "result": {
                     "page_count": 1,
                     "evidence_trust": "user-confirmed",
+                    "layout_decision_eligible": True,
                     "pdf_matches_docx_confirmed": True,
-                    "summary": {"pdf_matches_docx_confirmed": True},
+                    "summary": {
+                        "pdf_matches_docx_confirmed": True,
+                        "pdf_content_match_status": "matched",
+                        "pdf_content_matched": True,
+                    },
                 }
             }
         if url.endswith("/jobs/apply-job/result"):
@@ -278,6 +322,8 @@ def test_release_smoke_http_flow_reuploads_repaired_docx_before_confirmed_pdf_re
     assert payload["render_page_count"] == 1
     assert payload["render_evidence_trust"] == "user-confirmed"
     assert payload["render_pdf_matches_docx_confirmed"] is True
+    assert payload["render_pdf_content_match_status"] == "matched"
+    assert payload["render_layout_decision_eligible"] is True
     assert events == [
         ("upload", "http://127.0.0.1:49231/uploads/docx", b"source-docx"),
         (

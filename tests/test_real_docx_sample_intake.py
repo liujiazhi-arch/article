@@ -36,6 +36,8 @@ def test_real_docx_sample_policy_keeps_private_binaries_out_of_git():
     manifest = yaml.safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert manifest["policy"]["private_samples_ignored"] is True
     assert manifest["policy"]["commit_sanitized_only_with_review"] is True
+    assert manifest["policy"]["automatic_body_redaction"] is False
+    assert manifest["policy"]["manual_content_review_required"] is True
     assert {item["id"] for item in manifest["required_categories"]} == {
         "wps",
         "word",

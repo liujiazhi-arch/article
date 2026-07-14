@@ -1,8 +1,11 @@
 policy:
   private_samples_ignored: true
   commit_sanitized_only_with_review: true
+  automatic_body_redaction: false
+  manual_content_review_required: true
   notes:
     - Original student theses must never be committed.
+    - The intake script scrubs metadata and known author markers but does not redact body text, images, comments, or other embedded content.
     - Sanitized samples are committed only after manual privacy review.
     - Prefer minimal reproductions that preserve the OOXML structure that triggered the bug.
 

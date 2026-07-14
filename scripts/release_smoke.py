@@ -20,6 +20,11 @@ from smoke_workdir_utils import prepare_work_dir
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_WORK_DIR = Path(".release_smoke")
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 300.0
+SMOKE_BODY_ANCHORS = (
+    "Thesis format smoke anchor one verifies document and PDF version matching",
+    "Second distinct paragraph covers rendered page evidence in the local workflow",
+    "Third paragraph confirms the installed bundle can extract searchable PDF text",
+)
 
 
 def _venv_python(venv_dir: Path) -> Path:
@@ -163,18 +168,42 @@ h1 = doc.add_paragraph("1 绪论")
 h1.style = doc.styles["Heading 1"]
 h2 = doc.add_paragraph("1.1 研究背景")
 h2.style = doc.styles["Heading 2"]
-doc.add_paragraph("这是发布前安装 smoke 测试文档。")
+for text in {SMOKE_BODY_ANCHORS!r}:
+    doc.add_paragraph(text)
 doc.save({str(docx_path)!r})
 """
     _run([str(python_executable), "-c", script])
 
 
-def _build_smoke_pdf(pdf_path: Path, *, python_executable: Path) -> None:
+def _build_smoke_pdf(
+    pdf_path: Path,
+    *,
+    python_executable: Path,
+    include_layout_issue: bool = False,
+) -> None:
+    pages = [list(SMOKE_BODY_ANCHORS)]
+    if include_layout_issue:
+        pages = [[*SMOKE_BODY_ANCHORS, "x = y + z"], ["(1)"]]
     script = f"""
-from PIL import Image
-image = Image.new("RGB", (595, 842), "white")
-image.save({str(pdf_path)!r}, "PDF", resolution=72)
-image.close()
+import ctypes
+import pypdfium2 as pdfium
+from pypdfium2 import raw
+
+document = pdfium.PdfDocument.new()
+font = raw.FPDFText_LoadStandardFont(document.raw, b"Helvetica")
+for lines in {pages!r}:
+    page = document.new_page(595, 842)
+    for index, line in enumerate(lines):
+        text_object = raw.FPDFPageObj_CreateTextObj(document.raw, font, 12)
+        text = (ctypes.c_ushort * (len(line) + 1))(*(ord(char) for char in line), 0)
+        assert raw.FPDFText_SetText(text_object, text)
+        raw.FPDFPageObj_Transform(text_object, 1, 0, 0, 1, 72, 760 - index * 24)
+        raw.FPDFPage_InsertObject(page.raw, text_object)
+    assert raw.FPDFPage_GenerateContent(page.raw)
+    page.close()
+document.save({str(pdf_path)!r})
+raw.FPDFFont_Close(font)
+document.close()
 """
     _run([str(python_executable), "-c", script])
 
@@ -292,8 +321,11 @@ def _run_render_http_smoke(
     summary = result.get("summary") or {}
     if (
         result.get("evidence_trust") != "user-confirmed"
+        or result.get("layout_decision_eligible") is not True
         or result.get("pdf_matches_docx_confirmed") is not True
         or summary.get("pdf_matches_docx_confirmed") is not True
+        or summary.get("pdf_content_match_status") != "matched"
+        or summary.get("pdf_content_matched") is not True
     ):
         raise RuntimeError("release smoke render-review did not preserve confirmed PDF evidence")
     return {
@@ -303,6 +335,8 @@ def _run_render_http_smoke(
         "render_page_count": page_count,
         "render_evidence_trust": result["evidence_trust"],
         "render_pdf_matches_docx_confirmed": result["pdf_matches_docx_confirmed"],
+        "render_pdf_content_match_status": summary["pdf_content_match_status"],
+        "render_layout_decision_eligible": result["layout_decision_eligible"],
     }
 
 
@@ -420,6 +454,7 @@ def run_release_smoke(
     )
     return {
         "status": "ok",
+        "service_version": str(doctor.get("version") or ""),
         "work_dir": str(smoke_dir),
         "install": {
             "mode": "wheel",

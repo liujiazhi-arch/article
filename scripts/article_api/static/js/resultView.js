@@ -33,11 +33,13 @@ function setDownloadButton(button, payload, role, unavailableText) {
 function heatmapItem(scope, coverStatus) {
   const failedCount = Number(scope.failed_count || 0);
   const label = scope.title || scopeLabel(scope.id);
+  const unchecked = scope.status === "not_checked";
   const status = scope.id === "cover" && coverStatus
     ? coverStatus
-    : failedCount > 0 ? `${failedCount}项` : "通过";
+    : unchecked ? "未检查"
+      : failedCount > 0 ? `${failedCount}项` : "通过";
   const description = escapeHtml(`${label} ${status}`);
-  const state = failedCount > 0 ? "warn" : "pass";
+  const state = unchecked || failedCount > 0 ? "warn" : "pass";
   return `<span class="${state}" title="${description}" aria-label="${description}"><b>${escapeHtml(label)}</b><small>${escapeHtml(status)}</small></span>`;
 }
 

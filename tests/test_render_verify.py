@@ -11,6 +11,71 @@ import thesis_tool.render_sources as render_sources_module
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+CONTENT_MATCH_PARAGRAPHS = (
+    "论文格式检查工具用于核对当前文档和导出页面是否来自同一个版本",
+    "目录页码图表分页以及公式编号都需要在最终提交环境中完成复核",
+    "人工导出的页面证据只有与当前文档正文一致时才可用于版式结论",
+)
+
+
+def _stub_manual_pdf_report_boundaries(monkeypatch, tmp_path, page_text):
+    page_path = tmp_path / "manual-page-1.png"
+    page_path.write_bytes(b"png")
+    pdf_path = tmp_path / "manual.pdf"
+    pdf_path.write_bytes(b"%PDF")
+    monkeypatch.setattr(
+        render_verify_module,
+        "_resolve_render_metadata",
+        lambda *args, **kwargs: {
+            "engine": "manual-pdf",
+            "page_dir": str(tmp_path),
+            "page_images": [str(page_path)],
+            "pdf_path": str(pdf_path),
+            "fallback_used": False,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        render_verify_module,
+        "_extract_pdf_page_texts",
+        lambda *args, **kwargs: (
+            {1: page_text},
+            {
+                "available": True,
+                "page_text_available_count": 1,
+                "page_text_extraction_warning_count": 0,
+                "warnings": [],
+            },
+        ),
+    )
+    monkeypatch.setattr(render_verify_module, "_extract_pdf_line_boxes", lambda *args: {})
+    monkeypatch.setattr(
+        render_verify_module,
+        "analyze_page_images",
+        lambda *args, **kwargs: {
+            "findings": [],
+            "summary": {"finding_count": 0},
+            "layout_score": {"score": 100, "penalty": 0},
+        },
+    )
+    diagnostics = {"toc": {"status": "generated_toc"}, "heading_renumber_guard": {"status": "clear"}}
+    monkeypatch.setattr(
+        render_verify_module,
+        "_build_structure_context",
+        lambda *args, **kwargs: {
+            "preflight": {"preflight_status": "ready", "diagnostics": diagnostics},
+            "diagnostics": diagnostics,
+            "verification": {
+                "profile_id": "lnu-checker-2026",
+                "selected_scopes": None,
+                "overall_status": "verified",
+                "readiness": "structure-ready",
+                "manual_review_rule_ids": [],
+                "unsupported_rule_ids": [],
+            },
+        },
+    )
+    return pdf_path
 
 
 def test_render_verify_module_script_can_show_help_from_repo_root():
@@ -316,6 +381,43 @@ def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypat
     assert not report_text.lstrip().startswith("{")
 
 
+@pytest.mark.parametrize(
+    ("page_text", "match_status", "matched", "eligible", "evidence_status"),
+    [
+        ("这份页面来自另一篇论文且正文内容完全不同", "mismatch", False, False, "unsupported-evidence"),
+        ("\n".join(CONTENT_MATCH_PARAGRAPHS), "matched", True, True, "render-evidence-ready"),
+    ],
+)
+def test_confirmed_manual_pdf_requires_content_match_for_layout_decisions(
+    monkeypatch,
+    tmp_path,
+    page_text,
+    match_status,
+    matched,
+    eligible,
+    evidence_status,
+):
+    source_path = tmp_path / "content-match.docx"
+    document = Document()
+    document.add_heading("1 绪论", level=1)
+    for paragraph in CONTENT_MATCH_PARAGRAPHS:
+        document.add_paragraph(paragraph)
+    document.save(source_path)
+    pdf_path = _stub_manual_pdf_report_boundaries(monkeypatch, tmp_path, page_text)
+
+    report = render_verify_module.build_render_verify_report(
+        str(source_path),
+        rendered_pdf=str(pdf_path),
+        pdf_matches_docx_confirmed=True,
+    )
+
+    assert report["pdf_matches_docx_confirmed"] is True
+    assert report["pdf_content_match"]["status"] == match_status
+    assert report["pdf_content_match"]["matched"] is matched
+    assert report["layout_decision_eligible"] is eligible
+    assert report["render_evidence_status"] == evidence_status
+
+
 def test_filter_user_visible_render_findings_hides_all_large_blank_variants():
     visible = render_verify_module._filter_user_visible_render_findings(
         [
@@ -346,18 +448,27 @@ def test_external_rendered_pdf_uses_neutral_manual_pdf_evidence_source(monkeypat
 
 
 @pytest.mark.parametrize(
-    ("evidence_source", "confirmed", "expected_trust", "expected_authoritative", "expected_eligible"),
+    (
+        "evidence_source",
+        "confirmed",
+        "content_matched",
+        "expected_trust",
+        "expected_authoritative",
+        "expected_eligible",
+    ),
     [
-        ("manual-pdf", False, "unverified", False, False),
-        ("manual-pdf", True, "user-confirmed", False, True),
-        ("word-pdf", False, "authoritative", True, True),
-        ("word-pdf", True, "authoritative", True, True),
-        ("wps-manual-images", True, "unverified", False, False),
+        ("manual-pdf", False, False, "unverified", False, False),
+        ("manual-pdf", True, False, "unverified", False, False),
+        ("manual-pdf", True, True, "user-confirmed", False, True),
+        ("word-pdf", False, False, "authoritative", True, True),
+        ("word-pdf", True, False, "authoritative", True, True),
+        ("wps-manual-images", True, True, "unverified", False, False),
     ],
 )
 def test_evidence_trust_only_upgrades_user_confirmed_manual_pdf(
     evidence_source,
     confirmed,
+    content_matched,
     expected_trust,
     expected_authoritative,
     expected_eligible,
@@ -365,6 +476,7 @@ def test_evidence_trust_only_upgrades_user_confirmed_manual_pdf(
     trust = render_verify_module._classify_evidence_trust(
         evidence_source,
         pdf_matches_docx_confirmed=confirmed,
+        content_match={"status": "matched", "matched": True} if content_matched else None,
     )
 
     assert trust["trust"] == expected_trust
@@ -407,6 +519,11 @@ def test_render_evidence_status_requires_eligible_complete_clean_evidence(
     trust = render_verify_module._classify_evidence_trust(
         evidence_source,
         pdf_matches_docx_confirmed=confirmed,
+        content_match=(
+            {"status": "matched", "matched": True}
+            if evidence_source == "manual-pdf" and confirmed
+            else None
+        ),
     )
 
     status = render_verify_module._classify_render_evidence_status(

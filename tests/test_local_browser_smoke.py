@@ -101,6 +101,9 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
     assert payload["base_url"] == "http://127.0.0.1:54321"
     assert payload["download_bytes"] == 4
     assert payload["render_evidence_trust"] == "user-confirmed"
+    assert payload["render_evidence_status"] == "render-review-required"
+    assert payload["render_layout_decision_eligible"] is True
+    assert payload["render_pdf_content_match_status"] == "matched"
     assert payload["browser_evidence"]["history_pdf"] == {
         "document_name": "downloaded-repaired.docx",
         "pdf_name": "browser_smoke.pdf",
@@ -113,6 +116,12 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
         "no_horizontal_overflow": True,
         "rule_spectrum_labels_visible": True,
     }
+    assert payload["browser_evidence"]["desktop_compact"] == {
+        "width": 1366,
+        "height": 768,
+        "no_horizontal_overflow": True,
+        "rule_spectrum_labels_visible": True,
+    }
     assert payload["browser_evidence"]["console_errors"] == {
         "automated": True,
         "command": "console error",
@@ -122,6 +131,8 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
     assert payload["screenshots"]["home"].endswith("local-console-home.png")
     assert payload["screenshots"]["repaired"].endswith("local-console-repaired.png")
     assert payload["screenshots"]["mobile"].endswith("local-console-mobile-result.png")
+    assert payload["screenshots"]["desktop_compact"].endswith("local-console-1366-result.png")
+    assert payload["screenshots"]["pdf_review"].endswith("local-console-pdf-review.png")
     assert popen_calls == [
         [
             "/opt/python",
@@ -157,21 +168,36 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
         for index, command in enumerate(commands)
         if command[1] == "screenshot" and any("local-console-mobile-result.png" in part for part in command)
     )
-    desktop_resize = commands.index([str(playwright_cli), "resize", "1440", "900"], mobile_screenshot + 1)
-    assert mobile_resize < mobile_screenshot < desktop_resize
+    compact_resize = commands.index([str(playwright_cli), "resize", "1366", "768"], mobile_screenshot + 1)
+    compact_screenshot = next(
+        index
+        for index, command in enumerate(commands)
+        if command[1] == "screenshot" and any("local-console-1366-result.png" in part for part in command)
+    )
+    desktop_resize = commands.index([str(playwright_cli), "resize", "1440", "900"], compact_screenshot + 1)
+    assert mobile_resize < mobile_screenshot < compact_resize < compact_screenshot < desktop_resize
     assert [str(playwright_cli), "click", "[data-download-role='output']"] in commands
-    gate_nav = commands.index([str(playwright_cli), "click", "[data-screen-target='pdf-review']"])
+    gate_nav = commands.index([str(playwright_cli), "click", ".scene-nav [data-screen-target='pdf-review']"])
     gate_attempt = commands.index([str(playwright_cli), "click", "[data-action='choose-pdf']"], gate_nav + 1)
     download = commands.index([str(playwright_cli), "click", "[data-download-role='output']"], gate_attempt + 1)
     repaired_upload = commands.index([str(playwright_cli), "upload", str(download_path)], download + 1)
     review_nav = commands.index(
-        [str(playwright_cli), "click", "[data-screen-target='pdf-review']"], repaired_upload + 1
+        [str(playwright_cli), "click", ".scene-nav [data-screen-target='pdf-review']"], repaired_upload + 1
     )
     confirmation = commands.index([str(playwright_cli), "click", "#pdf-match-confirmation"], review_nav + 1)
     pdf_choice = commands.index([str(playwright_cli), "click", "[data-action='choose-pdf']"], confirmation + 1)
     commands.index([str(playwright_cli), "upload", str(pdf_path)], pdf_choice + 1)
+    assert [
+        str(playwright_cli),
+        "click",
+        "[data-pdf-issues] [data-issue-index='1']",
+    ] in commands
+    assert any(
+        command[1] == "screenshot" and any("local-console-pdf-review.png" in part for part in command)
+        for command in commands
+    )
     history_after_review = commands.index(
-        [str(playwright_cli), "click", "[data-screen-target='history']"],
+        [str(playwright_cli), "click", ".scene-nav [data-screen-target='history']"],
         commands.index([str(playwright_cli), "upload", str(pdf_path)], pdf_choice + 1) + 1,
     )
     history_retry = commands.index(
@@ -202,8 +228,11 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
         ".then((response) => response.json()); if (!jobs.length) return false; "
         "const payload = await fetch(`/jobs/${encodeURIComponent(jobs[0].job_id)}/result`)"
         ".then((response) => response.json()); const result = payload.result || {}; "
-        "return (result.summary?.evidence_trust ?? result.evidence_trust) === 'user-confirmed' "
-        "&& (result.summary?.pdf_matches_docx_confirmed ?? result.pdf_matches_docx_confirmed) === true; }"
+        "const summary = result.summary || {}; "
+        "const evidenceStatus = summary.render_evidence_status ?? result.render_evidence_status; "
+        "return ['render-evidence-ready', 'render-review-required'].includes(evidenceStatus) "
+        "&& (summary.layout_decision_eligible ?? result.layout_decision_eligible) === true "
+        "&& (summary.pdf_content_match_status ?? result.pdf_content_match_status) === 'matched'; }"
     ) in eval_waits
     assert any(
         ".pdf-page-frame" in expression

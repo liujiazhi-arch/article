@@ -7,6 +7,8 @@ This directory defines the real dirty DOCX sample intake process.
 - `sanitized/` is ignored by default. Sanitized samples may be committed only after manual privacy review.
 - `manifest.yaml` records required categories and policy.
 
+`docx_sample_intake.py` only scrubs package metadata and a small set of known author markers. It does not redact body text, images, comments, revisions, or other embedded content. Treat every output as private until a person has reviewed the full package and reduced it to a non-identifying minimal reproduction. Never commit an original thesis.
+
 Use:
 
 ```bash

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from article_api.app import create_app
 
 
-LAYOUT_BASELINE_SHA256 = "e404b51d64378834832c2abd6b892b3b6396702abeecc21f7c0eec7a741d1ae7"
+LAYOUT_BASELINE_SHA256 = "b6fa26a05e443c631f18a622571da6bca4d29b028a888a9f17bcdee518c1e67d"
 
 
 def test_static_frontend_serves_index_at_root():
@@ -246,10 +246,12 @@ def test_workbench_upload_actions_are_embedded_in_glass_rail():
     response = client.get("/")
     layout_response = client.get("/static/styles/layout.css")
     app_response = client.get("/static/js/app.js")
+    workflow_response = client.get("/static/js/workflowView.js")
 
     assert response.status_code == 200
     assert layout_response.status_code == 200
     assert app_response.status_code == 200
+    assert workflow_response.status_code == 200
     html = response.text
     css = layout_response.text
     assert 'class="upload-action-rail"' in html
@@ -261,9 +263,13 @@ def test_workbench_upload_actions_are_embedded_in_glass_rail():
     assert "<input id=\"docx-input\" class=\"visually-hidden\" type=\"file\" accept=\".docx\" hidden>" in html
     assert 'layout.css?v=20260714-style-restore' in html
     assert 'app.js?v=20260714-module-ownership' in html
-    assert 'state.js?v=20260714-module-ownership' in app_response.text
-    assert 'pdfReview.js?v=20260714-module-ownership' in app_response.text
-    assert 'workflowView.js?v=20260714-module-ownership' in app_response.text
+    assert 'from "./state.js"' in app_response.text
+    assert 'from "./pdfReview.js"' in app_response.text
+    assert 'from "./workflowView.js"' in app_response.text
+    assert 'from "./state.js"' in workflow_response.text
+    assert 'from "./formatRadar.js"' in workflow_response.text
+    assert "?v=" not in app_response.text
+    assert "?v=" not in workflow_response.text
     upload_start = html.index('<div class="doc-aperture">')
     upload_end = html.index('<div class="repair-preview">')
     upload_html = html[upload_start:upload_end]
@@ -422,13 +428,17 @@ def test_pdf_review_evidence_image_and_highlight_have_layout_styles():
         return css[start : css.index("}", start)]
 
     frame = rule(".pdf-page-frame")
+    view = rule(".pdf-evidence-view")
     image = rule(".pdf-page-frame img")
     highlight = rule(".evidence-highlight")
     notice = rule(".page-notice")
 
+    assert "display: flex" in view
     assert "position: relative" in frame
     assert "max-width" in frame
     assert "max-height" in frame
+    assert "align-self: center" in frame
+    assert "flex: 0 1 auto" in frame
     assert "object-fit: contain" in image
     assert "position: absolute" in highlight
     assert "position: absolute" in notice

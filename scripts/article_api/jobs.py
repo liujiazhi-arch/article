@@ -611,7 +611,14 @@ def runtime_snapshot() -> dict[str, Any]:
 def list_jobs() -> list[dict[str, Any]]:
     _reconcile_incomplete_jobs()
     payloads = storage.list_jobs(include_result=False)
-    return [_list_item_from_payload(_with_current_artifact_availability(_ensure_finished_report_artifact_payload(payload))) for payload in payloads]
+    return [
+        _list_item_from_payload(
+            _with_current_artifact_availability(
+                _ensure_finished_report_artifact_payload(job_payloads.normalize_render_evidence_payload(payload))
+            )
+        )
+        for payload in payloads
+    ]
 
 
 def _resolved_path(path_value: str | None) -> Path | None:
@@ -1021,6 +1028,7 @@ def get_job(job_id: str) -> dict[str, Any]:
     payload = storage.get_job(job_id, include_result=False)
     if payload is None:
         raise LookupError(f"Job not found: {job_id}")
+    payload = job_payloads.normalize_render_evidence_payload(payload)
     payload = _ensure_finished_report_artifact_payload(payload)
     payload = _with_current_artifact_availability(payload)
     if payload["status"] in _FINISHED_STATUSES:
@@ -1045,6 +1053,7 @@ def get_job_result(job_id: str) -> dict[str, Any]:
     payload = storage.get_job(job_id, include_result=True)
     if payload is None:
         raise LookupError(f"Job not found: {job_id}")
+    payload = job_payloads.normalize_render_evidence_payload(payload)
     payload = _ensure_finished_report_artifact_payload(payload)
     payload = _with_current_artifact_availability(payload)
     if payload["status"] not in _FINISHED_STATUSES:

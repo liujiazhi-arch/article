@@ -326,17 +326,21 @@ def test_build_audit_runtime_can_explicitly_allow_profile_fallback():
     assert runtime.requested_profile == "missing-profile.yaml"
 
 
-def test_runtime_rule_counts_match_readme_and_claude_docs():
+def test_runtime_rule_counts_match_authoritative_docs():
     project_root = Path(__file__).resolve().parents[1]
     readme = (project_root / "README.md").read_text(encoding="utf-8")
+    agents = (project_root / "AGENTS.md").read_text(encoding="utf-8")
     claude = (project_root / "CLAUDE.md").read_text(encoding="utf-8")
 
     actual_counts = {
         "lnu-checker-2026": len(audit_thesis.build_audit_runtime("lnu").rule_definitions),
     }
 
-    for label, text in {"README": readme, "CLAUDE": claude}.items():
+    for label, text in {"README": readme, "AGENTS": agents}.items():
         for profile_id, expected in actual_counts.items():
             match = re.search(rf"`{re.escape(profile_id)}`\s+(?:当前\s+)?runtime[:：]\s*(\d+)\s*条", text)
             assert match, f"{label} missing runtime count for {profile_id}"
             assert int(match.group(1)) == expected, f"{label} runtime count drift for {profile_id}"
+
+    assert "`AGENTS.md`" in claude
+    assert "runtime：75 条" not in claude

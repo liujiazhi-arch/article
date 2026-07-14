@@ -137,6 +137,8 @@ class _SmokeFiles(NamedTuple):
     home_screenshot: Path
     repaired_screenshot: Path
     mobile_screenshot: Path
+    desktop_compact_screenshot: Path
+    pdf_review_screenshot: Path
 
 
 _HEATMAP_READY = "() => document.querySelectorAll('[data-result-heatmap] .pass, [data-result-heatmap] .warn').length > 0"
@@ -184,13 +186,26 @@ _PDF_EVIDENCE_GEOMETRY_READY = (
     "&& highlightRect.left >= frameRect.left - 1 && highlightRect.right <= frameRect.right + 1 "
     "&& highlightRect.top >= frameRect.top - 1 && highlightRect.bottom <= frameRect.bottom + 1; }"
 )
+_PDF_EVIDENCE_GEOMETRY_DIAGNOSTIC = (
+    "() => { const stage = document.querySelector('[data-pdf-stage]'); "
+    "const frame = stage?.querySelector('.pdf-page-frame'); const image = frame?.querySelector('img'); "
+    "const highlight = frame?.querySelector('.evidence-highlight'); "
+    "const rect = (node) => node ? Object.fromEntries(['left', 'right', 'top', 'bottom', 'width', 'height']"
+    ".map((key) => [key, Number(node.getBoundingClientRect()[key].toFixed(3))])) : null; "
+    "return JSON.stringify({ stage: rect(stage), frame: rect(frame), image: rect(image), highlight: rect(highlight), "
+    "imageComplete: image?.complete, naturalWidth: image?.naturalWidth, "
+    "highlightPosition: highlight ? getComputedStyle(highlight).position : null }); }"
+)
 _PDF_TRUST_READY = (
     "async () => { const jobs = await fetch('/jobs?operation=render-verify&status=succeeded&limit=1')"
     ".then((response) => response.json()); if (!jobs.length) return false; "
     "const payload = await fetch(`/jobs/${encodeURIComponent(jobs[0].job_id)}/result`)"
     ".then((response) => response.json()); const result = payload.result || {}; "
-    "return (result.summary?.evidence_trust ?? result.evidence_trust) === 'user-confirmed' "
-    "&& (result.summary?.pdf_matches_docx_confirmed ?? result.pdf_matches_docx_confirmed) === true; }"
+    "const summary = result.summary || {}; "
+    "const evidenceStatus = summary.render_evidence_status ?? result.render_evidence_status; "
+    "return ['render-evidence-ready', 'render-review-required'].includes(evidenceStatus) "
+    "&& (summary.layout_decision_eligible ?? result.layout_decision_eligible) === true "
+    "&& (summary.pdf_content_match_status ?? result.pdf_content_match_status) === 'matched'; }"
 )
 _REMEMBER_RENDER_JOBS = (
     "async () => { const jobs = await fetch('/jobs?operation=render-verify&status=succeeded')"
@@ -254,11 +269,15 @@ def _run_upload_repair_flow(
     _wait_for_eval_truthy(playwright_cli, _HEATMAP_READY, cwd=cwd, timeout=timeout)
 
 
-def _verify_mobile_result(playwright_cli: Path, files: _SmokeFiles, *, cwd: Path, timeout: float) -> None:
+def _verify_result_viewports(playwright_cli: Path, files: _SmokeFiles, *, cwd: Path, timeout: float) -> None:
     _run_playwright(playwright_cli, "resize", "390", "844", cwd=cwd, timeout=timeout)
     _wait_for_eval_truthy(playwright_cli, _MOBILE_NO_OVERFLOW, cwd=cwd, timeout=timeout)
     _wait_for_eval_truthy(playwright_cli, _MOBILE_LABELS_VISIBLE, cwd=cwd, timeout=timeout)
     _capture_screenshot(playwright_cli, files.mobile_screenshot, cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "resize", "1366", "768", cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _MOBILE_NO_OVERFLOW, cwd=cwd, timeout=timeout)
+    _wait_for_eval_truthy(playwright_cli, _MOBILE_LABELS_VISIBLE, cwd=cwd, timeout=timeout)
+    _capture_screenshot(playwright_cli, files.desktop_compact_screenshot, cwd=cwd, timeout=timeout)
     _run_playwright(playwright_cli, "resize", "1440", "900", cwd=cwd, timeout=timeout)
     _capture_screenshot(playwright_cli, files.repaired_screenshot, cwd=cwd, timeout=timeout)
 
@@ -273,13 +292,27 @@ def _store_downloaded_docx(output: str, *, cwd: Path, target: Path) -> None:
         raise RuntimeError(f"Downloaded repaired docx is not a valid docx package: {target}")
 
 
+def _wait_for_pdf_evidence_geometry(playwright_cli: Path, *, cwd: Path, timeout: float) -> None:
+    try:
+        _wait_for_eval_truthy(playwright_cli, _PDF_EVIDENCE_GEOMETRY_READY, cwd=cwd, timeout=timeout)
+    except RuntimeError as exc:
+        diagnostic = _run_playwright(
+            playwright_cli,
+            "eval",
+            _PDF_EVIDENCE_GEOMETRY_DIAGNOSTIC,
+            cwd=cwd,
+            timeout=min(30.0, timeout),
+        )
+        raise RuntimeError(f"{exc}\nPDF geometry diagnostic:\n{diagnostic.stdout}") from exc
+
+
 def _run_pdf_review(playwright_cli: Path, files: _SmokeFiles, *, cwd: Path, timeout: float) -> None:
-    _run_playwright(playwright_cli, "click", "[data-screen-target='pdf-review']", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", ".scene-nav [data-screen-target='pdf-review']", cwd=cwd, timeout=timeout)
     _run_playwright(playwright_cli, "click", "[data-action='choose-pdf']", cwd=cwd, timeout=timeout)
     _wait_for_eval_truthy(playwright_cli, _FRESH_DOCX_GATE, cwd=cwd, timeout=timeout)
-    _run_playwright(playwright_cli, "click", "[data-screen-target='history']", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", ".scene-nav [data-screen-target='history']", cwd=cwd, timeout=timeout)
     _wait_for_snapshot_text(playwright_cli, "browser_smoke", cwd=cwd, timeout=timeout)
-    _run_playwright(playwright_cli, "click", "[data-screen-target='result']", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", ".scene-nav [data-screen-target='result']", cwd=cwd, timeout=timeout)
     download = _run_playwright(playwright_cli, "click", "[data-download-role='output']", cwd=cwd, timeout=timeout)
     _store_downloaded_docx(download.stdout, cwd=cwd, target=files.downloaded_docx)
     _run_playwright(
@@ -291,18 +324,26 @@ def _run_pdf_review(playwright_cli: Path, files: _SmokeFiles, *, cwd: Path, time
     )
     _run_playwright(playwright_cli, "upload", files.downloaded_docx, cwd=cwd, timeout=timeout)
     _wait_for_eval_truthy(playwright_cli, _REPAIRED_DOCX_READY, cwd=cwd, timeout=timeout)
-    _run_playwright(playwright_cli, "click", "[data-screen-target='pdf-review']", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", ".scene-nav [data-screen-target='pdf-review']", cwd=cwd, timeout=timeout)
     _run_playwright(playwright_cli, "click", "#pdf-match-confirmation", cwd=cwd, timeout=timeout)
     _run_playwright(playwright_cli, "click", "[data-action='choose-pdf']", cwd=cwd, timeout=timeout)
     _run_playwright(playwright_cli, "upload", files.pdf, cwd=cwd, timeout=timeout)
     _wait_for_eval_truthy(playwright_cli, _PDF_REVIEW_READY, cwd=cwd, timeout=timeout)
-    _wait_for_eval_truthy(playwright_cli, _PDF_EVIDENCE_GEOMETRY_READY, cwd=cwd, timeout=timeout)
+    _run_playwright(
+        playwright_cli,
+        "click",
+        "[data-pdf-issues] [data-issue-index='1']",
+        cwd=cwd,
+        timeout=timeout,
+    )
+    _capture_screenshot(playwright_cli, files.pdf_review_screenshot, cwd=cwd, timeout=timeout)
+    _wait_for_pdf_evidence_geometry(playwright_cli, cwd=cwd, timeout=timeout)
     _wait_for_eval_truthy(playwright_cli, _PDF_TRUST_READY, cwd=cwd, timeout=timeout)
 
 
 def _verify_history_restore(playwright_cli: Path, files: _SmokeFiles, *, cwd: Path, timeout: float) -> None:
     _wait_for_eval_truthy(playwright_cli, _REMEMBER_RENDER_JOBS, cwd=cwd, timeout=timeout)
-    _run_playwright(playwright_cli, "click", "[data-screen-target='history']", cwd=cwd, timeout=timeout)
+    _run_playwright(playwright_cli, "click", ".scene-nav [data-screen-target='history']", cwd=cwd, timeout=timeout)
     _wait_for_eval_truthy(playwright_cli, _OPEN_PDF_HISTORY, cwd=cwd, timeout=timeout)
     detail_ready = (
         "() => document.querySelector('[data-screen=\"pdf-review\"]')?.classList.contains('active') === true "
@@ -341,6 +382,9 @@ def _build_success_payload(
         "downloaded_docx": str(files.downloaded_docx),
         "download_bytes": files.downloaded_docx.stat().st_size,
         "render_evidence_trust": "user-confirmed",
+        "render_evidence_status": "render-review-required",
+        "render_layout_decision_eligible": True,
+        "render_pdf_content_match_status": "matched",
         "browser_evidence": {
             "history_pdf": {
                 "document_name": files.downloaded_docx.name,
@@ -351,6 +395,12 @@ def _build_success_payload(
             "mobile": {
                 "width": 390,
                 "height": 844,
+                "no_horizontal_overflow": True,
+                "rule_spectrum_labels_visible": True,
+            },
+            "desktop_compact": {
+                "width": 1366,
+                "height": 768,
                 "no_horizontal_overflow": True,
                 "rule_spectrum_labels_visible": True,
             },
@@ -365,6 +415,8 @@ def _build_success_payload(
             "home": str(files.home_screenshot),
             "repaired": str(files.repaired_screenshot),
             "mobile": str(files.mobile_screenshot),
+            "desktop_compact": str(files.desktop_compact_screenshot),
+            "pdf_review": str(files.pdf_review_screenshot),
         },
     }
 
@@ -399,9 +451,11 @@ def run_local_browser_smoke(
         home_screenshot=smoke_dir / "local-console-home.png",
         repaired_screenshot=smoke_dir / "local-console-repaired.png",
         mobile_screenshot=smoke_dir / "local-console-mobile-result.png",
+        desktop_compact_screenshot=smoke_dir / "local-console-1366-result.png",
+        pdf_review_screenshot=smoke_dir / "local-console-pdf-review.png",
     )
     _build_smoke_docx(files.source_docx, python_executable=python_path)
-    _build_smoke_pdf(files.pdf, python_executable=python_path)
+    _build_smoke_pdf(files.pdf, python_executable=python_path, include_layout_issue=True)
 
     port = _available_port()
     base_url = f"http://127.0.0.1:{port}"
@@ -431,7 +485,7 @@ def run_local_browser_smoke(
     try:
         ready = _wait_for_ready(base_url)
         _run_upload_repair_flow(pwcli_path, files, base_url=base_url, cwd=smoke_dir, timeout=timeout)
-        _verify_mobile_result(pwcli_path, files, cwd=smoke_dir, timeout=timeout)
+        _verify_result_viewports(pwcli_path, files, cwd=smoke_dir, timeout=timeout)
         _run_pdf_review(pwcli_path, files, cwd=smoke_dir, timeout=timeout)
         _verify_history_restore(pwcli_path, files, cwd=smoke_dir, timeout=timeout)
         console_error_count = _verify_console_errors(pwcli_path, cwd=smoke_dir, timeout=timeout)

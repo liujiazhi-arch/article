@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -44,7 +45,7 @@ def test_windows_bundle_smoke_extracts_bundle_runs_doctor_and_http_smoke(monkeyp
 
     def fake_json_run(command, *, cwd=None, timeout=None):
         doctor_calls.append(([str(item) for item in command], cwd, timeout))
-        return {"status": "ok", "summary": {"headline": "ready"}}
+        return {"status": "ok", "version": "0.1.2", "summary": {"headline": "ready"}}
 
     def fake_http_smoke(**kwargs):
         http_calls.append(kwargs)
@@ -64,6 +65,8 @@ def test_windows_bundle_smoke_extracts_bundle_runs_doctor_and_http_smoke(monkeyp
     state_root = bundle_root / "data" / "state"
     runtime_root = bundle_root / "data" / "runtime"
     assert payload["status"] == "ok"
+    assert payload["service_version"] == "0.1.2"
+    assert payload["bundle_sha256"] == hashlib.sha256(bundle_zip.read_bytes()).hexdigest()
     assert payload["bundle_root"] == str(bundle_root)
     assert payload["python"] == str(python_exe)
     assert payload["roots"] == {"state_root": str(state_root), "runtime_root": str(runtime_root)}

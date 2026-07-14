@@ -28,6 +28,7 @@ def render_scope_plan(plan: dict) -> str:
     ]
 
     ranked_scopes = [scope for scope in plan["scopes"] if scope["failed_count"] > 0]
+    not_checked_scopes = [scope for scope in plan["scopes"] if scope["status"] == "not_checked"]
     if not ranked_scopes:
         lines.append("1. 所有已定义范围当前均未发现规则问题。")
     else:
@@ -44,6 +45,11 @@ def render_scope_plan(plan: dict) -> str:
                 f"当前不支持 {scope['unsupported_count']}"
             )
             lines.append(f"   说明: {scope['description']}")
+
+    if not_checked_scopes:
+        lines.extend(["", "未自动审查范围:"])
+        for scope in not_checked_scopes:
+            lines.append(f"- {scope['title']}（{scope['id']}）: 未自动审查 需要显式选择并人工复核")
 
     if plan["unscoped_failed"]:
         lines.append("")

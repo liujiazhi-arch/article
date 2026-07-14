@@ -72,6 +72,8 @@ python3 -m pytest tests/test_real_docx_sample_intake.py tests/test_docx_compat_s
 
 该命令会下载 Apache POI/docx4j 的公开 `.docx` 样本并通过 `scripts/docx_sample_intake.py` 登记到被忽略的 `tests/real_docx_samples/sanitized/`，覆盖 WPS/Word、目录域、脚注、批注、修订、浮动图片、公式、嵌套表格和异常 section break。极端深层表格样本只做 package validation，避免每次审查回归被 20000 层表格拖慢。
 
+intake 只清理包元数据和少量已知作者标记，不会自动脱敏正文、图片、批注、修订或其他嵌入内容。用户论文只能在明确授权后本地处理；任何派生样本在人工检查完整包并缩减为不可识别的最小复现前都不得提交。
+
 兼容样本的最低回归门槛：
 
 - 必须是完整 `.docx` 包。
@@ -84,7 +86,8 @@ python3 -m pytest tests/test_real_docx_sample_intake.py tests/test_docx_compat_s
 ```text
 CLI
   -> thesis_workbench.py
-    -> thesis_tool/workflow.py
+    -> thesis_tool/scope_plan.py (plan)
+    -> thesis_tool/workflow.py (apply / verify)
       -> audit_thesis.py / fix_thesis.py
         -> _thesis_utils.py
           -> DocumentModel / ParagraphNode / section-module 分类
@@ -97,7 +100,7 @@ CLI
 - 新增 runtime 规则时，同时更新测试和 `config/capability_matrix.md`。
 - 如果 profile 中新增 active `additions`，必须与 runtime/checker 对齐。
 - 不要再引入第二套规则来源。
-- 封面不是当前自动修复主线。
+- 封面默认不处理，也没有自动审查规则；显式选择 `cover` 只生成固定模板，仍需在 Word/WPS 中人工复核。
 - 用户论文、运行输出、缓存、虚拟环境和状态目录不得提交。
 
 ## Frontend Workbench
@@ -171,7 +174,7 @@ python3 scripts/github_release_status.py --repo <owner>/<repo> --branch main --t
 python3 scripts/release_evidence_gate.py --github-status-json /tmp/article-github-status.json --windows-report /path/to/windows-smoke-report.md --release-smoke-json /tmp/article-release-smoke.json --windows-bundle-smoke-json /path/to/windows-bundle-smoke.json --browser-smoke-json /tmp/article-browser-smoke.json
 ```
 
-该脚本只有在 GitHub Release 状态为 `ok`、最近一次 CI 为 `completed/success`、Release 资产同时包含 `lnu-thesis-local-windows.zip` 和 `lnu-thesis-local-windows.zip.sha256`、GitHub Release tag 与 Windows smoke 报告的 Release tag 一致，并且 Windows 报告中的 clean Windows、未预装 Python、双击启动、浏览器自动打开、upload / audit / plan / apply / download、WPS/Word 打开修复稿、人工复核和隐私确认都为“通过”时才输出 `ready`。`--release-smoke-json` 和 `--windows-bundle-smoke-json` 是必填证据，门禁会确认本地安装 smoke 的 doctor/profiles/http download 成功，以及 CI Windows bundle smoke 的 doctor/http download 成功。`--browser-smoke-json` 是可选补充证据；传入时会确认真实浏览器 smoke 的截图、下载稿和 `.docx` 包有效。它用于防止把单独的 CI 绿色状态、本地 smoke、CI bundle smoke 或旧 Windows smoke 报告误当成完整发布完成。
+该脚本只有在 GitHub Release 状态为 `ok`、最近一次 CI 为 `completed/success`、Release 资产同时包含 `lnu-thesis-local-windows.zip` 和 `lnu-thesis-local-windows.zip.sha256`、GitHub Release tag 与 Windows smoke 报告的 Release tag 一致，并且 Windows 报告中的 clean Windows、未预装 Python、双击启动、浏览器自动打开、upload / audit / plan / apply / download、WPS/Word 打开修复稿、人工复核和隐私确认都为“通过”时才输出 `ready`。`--release-smoke-json` 和 `--windows-bundle-smoke-json` 是必填证据；门禁还会将 `vX.Y.Z-beta` 规范化为 `X.Y.Z` 后，同时与 release smoke 和 Windows bundle smoke 的 `service_version` 比对，并将 Windows 报告记录的 SHA256 与 bundle smoke 的 `bundle_sha256` 比对。缺少这些绑定字段的旧证据会直接失败。`--browser-smoke-json` 是可选补充证据；传入时会确认真实浏览器 smoke 的截图、下载稿和 `.docx` 包有效。它用于防止把单独的 CI 绿色状态、本地 smoke、CI bundle smoke 或旧 Windows smoke 报告误当成完整发布完成。
 
 证据门禁输出 `ready` 后，可以把 JSON/Markdown 证据归档成一个不含论文内容的 zip：
 

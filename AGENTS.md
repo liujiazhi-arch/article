@@ -91,6 +91,7 @@ CLI
 
 ## Profile 约定
 
+- 有效规则元数据组装顺序：`CN-Common.yaml rules` -> `lnu-checker-2026.yaml` 中同 ID 规则覆盖 -> `lnu-checker-2026.yaml additions` -> `disabled_rules` 移除。
 - `settings`：当前 runtime 实际消费
 - `disabled_rules`：禁用当前 runtime 规则
 - `additions`：当前已接入 runtime 的扩展规则
@@ -99,10 +100,11 @@ CLI
 注意：
 
 - `lnu-checker-2026.yaml` 的 active additions 已与当前 runtime 对齐
+- runtime 和能力矩阵是上述 YAML 事实的受测镜像；不得再新增第二套未受 parity 测试约束的规则元数据来源。
 
 ## 当前规则规模
 
-- 公开 runtime 只有 `lnu-checker-2026`：75 条规则
+- `lnu-checker-2026` runtime：75 条规则，是唯一公开 runtime
 - `CN-Common.yaml` 保留为内部基线和 LNU 继承来源，不作为公开 profile catalog 项
 
 能力矩阵以 `config/capability_matrix.md` 为准，并只记录公开 LNU runtime 当前启用规则。
@@ -146,7 +148,9 @@ python3 scripts/fix_thesis.py ~/Desktop/论文.docx --profile lnu --output ~/Des
 
 ## 重要事实
 
-- 封面不是当前自动修复主线的一部分
+- 封面默认不处理；只有显式选择 `cover` 并填写完整六项信息时才生成固定模板
+- 封面没有自动审查规则；固定模板仍需在实际提交环境的 Word/WPS 中人工复核
+- 手动 PDF 只有在用户确认且 DOCX/PDF 正文内容匹配时，才能用于页面版式结论；旧历史记录缺少该证据时在响应层降级为未验证，不回写 SQLite。
 - 已失效的网页预览链路已移除，不存在可用的 `preview/` 目录
 - 历史脚本目录已删除，不再保留“仅供参考”的旧脚本
 

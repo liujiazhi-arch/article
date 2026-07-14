@@ -7,15 +7,41 @@ import yaml
 import audit_thesis
 import fix_thesis
 from _profile_utils import list_profile_catalog
-from thesis_rules.lnu_runtime import effective_lnu_rule_definitions
-from thesis_tool.capabilities import load_rule_capabilities
+from thesis_rules.lnu_runtime import LNU_DISABLED_RULE_IDS, effective_lnu_rule_definitions
+from thesis_tool.capabilities import classify_rule_action, load_rule_capabilities
 from thesis_tool.scopes import list_scope_definitions, list_scoped_rule_ids, scope_for_rule
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CAPABILITY_MATRIX = PROJECT_ROOT / "config" / "capability_matrix.md"
+CN_COMMON_PROFILE = PROJECT_ROOT / "config" / "profiles" / "CN-Common.yaml"
 LNU_PROFILE = PROJECT_ROOT / "config" / "profiles" / "lnu-checker-2026.yaml"
 RENDER_ONLY_RULE_IDS = {"LNU_TOC04", "PDF_PUNCT01"}
+
+
+def _effective_lnu_rule_metadata() -> dict[str, dict]:
+    baseline = yaml.safe_load(CN_COMMON_PROFILE.read_text(encoding="utf-8"))
+    profile = yaml.safe_load(LNU_PROFILE.read_text(encoding="utf-8"))
+    assert profile["meta"]["extends"] == baseline["meta"]["id"]
+
+    effective = {item["id"]: dict(item) for item in baseline.get("rules") or []}
+    for override in profile.get("overrides") or []:
+        rule_id = override["id"]
+        assert rule_id in effective, f"Override references unknown baseline rule {rule_id}"
+        effective[rule_id] = {**effective[rule_id], **override}
+    for addition in profile.get("additions") or []:
+        effective[addition["id"]] = dict(addition)
+    for rule_id in profile.get("disabled_rules") or []:
+        effective.pop(rule_id, None)
+    return effective
+
+
+def _metadata_action(metadata: dict) -> str:
+    if metadata.get("fix") not in (None, ""):
+        return "autofix"
+    if metadata.get("check_level") in {"Semi", "Manual"}:
+        return "manual_review"
+    return "unsupported"
 
 
 def test_public_profile_catalog_is_lnu_only():
@@ -54,6 +80,59 @@ def test_lnu_runtime_metadata_sources_agree():
     assert runtime_rule_ids <= checker_rule_ids
     assert runtime_rule_ids | RENDER_ONLY_RULE_IDS == capability_rule_ids
     assert profile_addition_ids == {rule_id for rule_id in runtime_rule_ids if rule_id.startswith("LNU_")}
+
+
+def test_lnu_effective_metadata_matches_all_runtime_and_capability_semantics():
+    runtime = {
+        rule_id: {"severity": severity}
+        for rule_id, _name, severity in audit_thesis.build_audit_runtime("lnu").rule_definitions
+    }
+    capabilities = load_rule_capabilities()
+    effective = _effective_lnu_rule_metadata()
+
+    assert set(effective) == set(runtime)
+    for rule_id, runtime_metadata in runtime.items():
+        expected = effective[rule_id]
+        capability = capabilities[rule_id]
+        assert runtime_metadata["severity"] == expected["severity"], rule_id
+        assert capability["check_level"] == expected["check_level"], rule_id
+        assert capability["method"] == expected["method"], rule_id
+        assert classify_rule_action(rule_id) == _metadata_action(expected), rule_id
+
+
+def test_lnu_disabled_rule_mirror_matches_profile_metadata():
+    profile = yaml.safe_load(LNU_PROFILE.read_text(encoding="utf-8"))
+
+    assert LNU_DISABLED_RULE_IDS == frozenset(profile.get("disabled_rules") or [])
+
+
+def test_lnu_runtime_severity_matches_profile_metadata():
+    runtime = audit_thesis.build_audit_runtime("lnu")
+    runtime_severity = {
+        rule_id: severity
+        for rule_id, _, severity in runtime.rule_definitions
+        if rule_id.startswith("LNU_")
+    }
+    profile_data = yaml.safe_load(LNU_PROFILE.read_text(encoding="utf-8"))
+
+    for item in profile_data.get("additions") or []:
+        assert runtime_severity[item["id"]] == item["severity"], (
+            f"{item['id']} severity drift: runtime={runtime_severity[item['id']]} "
+            f"profile={item['severity']}"
+        )
+
+
+def test_lnu_capability_semantics_match_profile_metadata():
+    capabilities = load_rule_capabilities()
+    profile_data = yaml.safe_load(LNU_PROFILE.read_text(encoding="utf-8"))
+
+    for item in profile_data.get("additions") or []:
+        capability = capabilities[item["id"]]
+        for field in ("check_level", "method"):
+            assert capability[field] == item[field], (
+                f"{item['id']} {field} drift: capability={capability[field]} "
+                f"profile={item[field]}"
+            )
 
 
 def _parse_matrix_autofix_flags() -> dict[str, bool]:

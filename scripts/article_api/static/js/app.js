@@ -8,14 +8,15 @@ import {
   uploadPdf,
   waitForJob,
 } from "./api.js";
-import { getState, setState } from "./state.js?v=20260714-module-ownership";
+import { getState, setState } from "./state.js";
 import {
   bindPdfReview,
   isPdfMatchConfirmed,
+  pdfReviewCompletionStatus,
   renderPdfReview,
   renderPdfReviewContext,
   resetPdfReview,
-} from "./pdfReview.js?v=20260714-module-ownership";
+} from "./pdfReview.js";
 import { collectCoverFields, resetCoverForm } from "./coverForm.js";
 import { renderHistory, renderHistoryError } from "./historyView.js";
 import { renderResult } from "./resultView.js";
@@ -26,7 +27,7 @@ import {
   selectedScopeIds,
   setFlowStage,
   updateApplyButtons,
-} from "./workflowView.js?v=20260714-module-ownership";
+} from "./workflowView.js";
 let historyRequestEpoch = 0;
 let resultOwnerEpoch = 0;
 
@@ -333,7 +334,8 @@ async function runPdfReview(root, context) {
     setState({ renderResult: resultPayload.result, renderResultPayload: resultPayload });
     renderCurrentPdfReview();
     renderPdfReviewContext(root, { status: "已完成" });
-    setStatus("PDF 复核完成", "可以查看页面问题");
+    const completionStatus = pdfReviewCompletionStatus(resultPayload.result);
+    setStatus(completionStatus.title, completionStatus.message);
     showScreen("pdf-review");
   } catch (error) {
     if (!pdfReviewIsCurrent(context)) return;

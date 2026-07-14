@@ -15,10 +15,66 @@ from thesis_tool.scopes import normalize_scope_names
 FAST_CANDIDATE_MODE = "fast_candidate"
 COMPACT_CANDIDATE_MODE = "compact_candidate"
 DEFAULT_CANDIDATE_TIMEOUT_SECONDS = 180.0
+_LAYOUT_EVIDENCE_STATUSES = {"render-evidence-ready", "render-review-required"}
 
 
 def clone_dict(payload: dict[str, Any]) -> dict[str, Any]:
     return deepcopy(payload)
+
+
+def _first_render_field(layers: list[dict[str, Any]], name: str) -> Any:
+    for layer in layers:
+        if layer.get(name) is not None:
+            return layer[name]
+    return None
+
+
+def _downgrade_unmatched_render_metadata(metadata: dict[str, Any]) -> None:
+    if metadata.get("render_evidence_status") in _LAYOUT_EVIDENCE_STATUSES:
+        metadata["render_evidence_status"] = "unsupported-evidence"
+    if metadata.get("business_status") in _LAYOUT_EVIDENCE_STATUSES:
+        metadata["business_status"] = "unsupported-evidence"
+    metadata["layout_decision_eligible"] = False
+    metadata["evidence_trust"] = "unverified"
+    metadata["evidence_authoritative"] = False
+    metadata.setdefault("pdf_content_match_status", "not-verified")
+    metadata["pdf_content_matched"] = False
+    metadata["toc_output_available"] = False
+
+
+def normalize_render_evidence_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = clone_dict(payload)
+    if normalized.get("operation") != "render-verify":
+        return normalized
+    result = normalized.get("result") if isinstance(normalized.get("result"), dict) else {}
+    result_summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    job_summary = normalized.get("summary") if isinstance(normalized.get("summary"), dict) else {}
+    layers = [result_summary, result, job_summary]
+    source = _first_render_field(layers, "evidence_source") or _first_render_field(layers, "render_engine")
+    trust = _first_render_field(layers, "evidence_trust")
+    authoritative = source == "word-pdf" or (source is None and trust == "authoritative")
+    matched = (
+        _first_render_field(layers, "pdf_content_match_status") == "matched"
+        and _first_render_field(layers, "pdf_content_matched") is True
+    )
+    status = _first_render_field(layers, "render_evidence_status")
+    claims_layout = _first_render_field(layers, "layout_decision_eligible") is True or status in _LAYOUT_EVIDENCE_STATUSES
+    if authoritative or matched or not claims_layout:
+        return normalized
+    for layer in layers:
+        _downgrade_unmatched_render_metadata(layer)
+    normalized["artifacts"] = [
+        artifact for artifact in normalized.get("artifacts") or [] if artifact.get("role") != "toc-output"
+    ]
+    toc_finalization = result.get("toc_finalization")
+    if isinstance(toc_finalization, dict):
+        result["toc_finalization"] = {
+            **toc_finalization,
+            "status": "blocked",
+            "available": False,
+            "output_path": None,
+        }
+    return normalized
 
 
 @dataclass
@@ -340,6 +396,13 @@ def build_result_summary(operation: str, result: dict[str, Any], resolved_reques
         summary["pdf_matches_docx_confirmed"] = bool(
             result.get("pdf_matches_docx_confirmed", resolved_request.get("pdf_matches_docx_confirmed"))
         )
+        for field in (
+            "evidence_trust",
+            "layout_decision_eligible",
+            "pdf_content_match_status",
+            "pdf_content_matched",
+        ):
+            summary[field] = render_summary.get(field, result.get(field))
         summary["toc_finalization_status"] = render_summary.get("toc_finalization_status")
         summary["toc_output_available"] = bool(render_summary.get("toc_output_available"))
         summary["toc_entry_count"] = render_summary.get("toc_entry_count")

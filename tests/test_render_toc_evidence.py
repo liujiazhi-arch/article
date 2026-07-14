@@ -298,6 +298,7 @@ def test_build_render_verify_report_connects_static_toc_finalization(monkeypatch
     page_image.write_bytes(b"png")
     page_texts = {1: "目录\n第1章 绪论 ...... 1", 2: "第1章 绪论\n- 1 -"}
     toc_findings = [{"id": "toc_page_number_mismatch", "page": 1, "severity": "warning"}]
+    content_match = {"status": "matched", "matched": True}
     captured = {}
 
     monkeypatch.setattr(
@@ -320,6 +321,11 @@ def test_build_render_verify_report_connects_static_toc_finalization(monkeypatch
         ),
     )
     monkeypatch.setattr(render_verify_module, "_extract_pdf_line_boxes", lambda *_args: {})
+    monkeypatch.setattr(
+        render_verify_module,
+        "verify_docx_pdf_content_match",
+        lambda *_args, **_kwargs: content_match,
+    )
     monkeypatch.setattr(render_verify_module, "_build_toc_page_number_findings", lambda *_args, **_kwargs: toc_findings)
     monkeypatch.setattr(
         render_verify_module,
@@ -384,5 +390,6 @@ def test_build_render_verify_report_connects_static_toc_finalization(monkeypatch
     assert captured["kwargs"] == {
         "requested": True,
         "pdf_matches_docx_confirmed": True,
+        "content_match": content_match,
         "toc_findings": toc_findings,
     }

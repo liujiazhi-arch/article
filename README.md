@@ -146,6 +146,8 @@ thesis-workbench render-verify 修复后_正文段落.docx --profile lnu --rende
 thesis-workbench scopes
 ```
 
+`--pdf-matches-docx-confirmed` 只表示你确认 PDF 来自当前 DOCX。工具还会自动比对两者的正文内容；只有人工确认和内容匹配同时成立时，PDF 才能用于版式结论或静态目录生成。传错 PDF 时会保留复核报告，但不会把它当作可信版式证据。
+
 仍可从源码目录直接运行脚本：
 
 ```bash
@@ -192,7 +194,7 @@ python3 scripts/thesis_workbench.py verify 修复后_摘要.docx --profile lnu -
 
 **目录页码需要复核**
 
-若启用了 `--toc`，工具会直接写入可见的自动目录域结果。之后如果继续修改正文导致分页变化，再在 Word/WPS 中更新目录域并复核页码。也可以把 Word/WPS 导出的 PDF 传给 `render-verify --rendered-pdf`；确认 PDF 来自当前 DOCX 后同时传入 `--pdf-matches-docx-confirmed --generate-static-toc`。只有全部正文标题都能与 PDF 精确对应时才会生成新的 `static_toc.docx`，原稿不会被覆盖。下载后需要用同一套 Word/WPS 环境重新导出 PDF 并再次复核。
+若启用了 `--toc`，工具会直接写入可见的自动目录域结果。之后如果继续修改正文导致分页变化，再在 Word/WPS 中更新目录域并复核页码。也可以把 Word/WPS 导出的 PDF 传给 `render-verify --rendered-pdf`；确认 PDF 来自当前 DOCX 后同时传入 `--pdf-matches-docx-confirmed --generate-static-toc`。只有正文内容匹配且全部正文标题都能与 PDF 精确对应时才会生成新的 `static_toc.docx`，原稿不会被覆盖。下载后需要用同一套 Word/WPS 环境重新导出 PDF 并再次复核。
 
 **WPS 打开后分页仍不完全一致**
 
