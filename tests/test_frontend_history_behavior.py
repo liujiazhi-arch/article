@@ -1,4 +1,4 @@
-from tests.test_frontend_app_behavior import _run_node
+from tests.frontend_app_harness import run_node as _run_node
 
 
 def test_history_pdf_result_does_not_replace_a_new_document_flow():
@@ -9,8 +9,8 @@ await openHistoryAndResolve(
   { operation: "render-verify", result: { marker: "stale-pdf" } },
   () => setState({ documentEpoch: 11 }),
 );
-assert.equal(getState().selectedHistoryJob, null);
 assert.equal(getState().renderResult, null);
+assert.equal(pdfScreen.classList.contains("active"), false);
 """
     )
 
@@ -123,8 +123,43 @@ assert.equal(getState().renderResult.marker, "history-render");
 resolveApplyJob(jsonResponse({ job_id: "apply-1", status: "succeeded" }));
 await applyFlow;
 assert.equal(getState().renderResult.marker, "history-render");
-assert.equal(getState().applyResultPayload, null);
+assert.equal(resultScreen.classList.contains("active"), false);
 assert.equal(fetchCalls.some(({ url }) => url === "/jobs/apply-1/result"), false);
+"""
+    )
+
+
+def test_inflight_apply_survives_ordinary_screen_navigation():
+    _run_node(
+        """
+setState({
+  documentEpoch: 10,
+  docxUpload: { upload_id: "docx-1", file_name: "paper.docx" },
+  workbenchPlan: { scopes: [] },
+});
+scopeInput.checked = true;
+scopeInput.disabled = false;
+let resolveApplyJob;
+fetchHandler = async (url) => {
+  if (url.endsWith("/jobs/apply")) return jsonResponse({ job_id: "apply-1" }, 201);
+  if (url === "/jobs/apply-1") return new Promise((resolve) => { resolveApplyJob = resolve; });
+  if (url === "/jobs/apply-1/result") {
+    return jsonResponse({ operation: "apply", job_id: "apply-1", summary: { output_name: "apply-result.docx" }, result: { marker: "apply" } });
+  }
+  throw new Error(`unexpected request ${url}`);
+};
+
+const applyFlow = applyButton.emit("click");
+await new Promise((resolve) => setImmediate(resolve));
+assert.ok(resolveApplyJob, "apply should be polling");
+
+await workbenchNav.emit("click");
+resolveApplyJob(jsonResponse({ job_id: "apply-1", status: "succeeded" }));
+await applyFlow;
+
+assert.equal(resultFileName.textContent, "apply-result.docx");
+assert.equal(resultScreen.classList.contains("active"), true);
+assert.equal(fetchCalls.some(({ url }) => url === "/jobs/apply-1/result"), true);
 """
     )
 
@@ -137,8 +172,7 @@ await openHistoryAndResolve(
   { operation: "apply", result: { marker: "stale-apply" } },
   () => setState({ pdfReviewEpoch: 21 }),
 );
-assert.equal(getState().selectedHistoryJob, null);
-assert.equal(getState().applyResultPayload, null);
+assert.equal(resultScreen.classList.contains("active"), false);
 """
     )
 
@@ -161,7 +195,7 @@ fetchHandler = async (url) => {
     return jsonResponse({ operation: "render-verify", job_id: "old-render", result: { marker: "old-pdf" } });
   }
   if (url === "/jobs/history-apply/result") {
-    return jsonResponse({ operation: "apply", job_id: "history-apply", result: { marker: "history-apply" } });
+    return jsonResponse({ operation: "apply", job_id: "history-apply", summary: { output_name: "history-apply.docx" }, result: { marker: "history-apply" } });
   }
   throw new Error(`unexpected request ${url}`);
 };
@@ -179,11 +213,11 @@ const historyTarget = {
 };
 await document.emit("click", { target: historyTarget });
 await new Promise((resolve) => setImmediate(resolve));
-assert.equal(getState().applyResultPayload.result.marker, "history-apply");
+assert.equal(resultFileName.textContent, "history-apply.docx");
 
 resolveOldJob(jsonResponse({ job_id: "old-render", status: "succeeded" }));
 await oldReview;
-assert.equal(getState().applyResultPayload.result.marker, "history-apply");
+assert.equal(resultFileName.textContent, "history-apply.docx");
 assert.equal(getState().renderResult, null);
 assert.equal(fetchCalls.some(({ url }) => url === "/jobs/old-render/result"), false);
 """
@@ -205,14 +239,13 @@ await document.emit("click", { target: historyTarget("older-job") });
 await document.emit("click", { target: historyTarget("latest-job") });
 assert.equal(resolvers.length, 2);
 
-resolvers[1](jsonResponse({ operation: "apply", job_id: "latest-job", result: { marker: "latest" } }));
+resolvers[1](jsonResponse({ operation: "apply", job_id: "latest-job", summary: { output_name: "latest.docx" }, result: { marker: "latest" } }));
 await new Promise((resolve) => setImmediate(resolve));
-assert.equal(getState().selectedHistoryJob.job_id, "latest-job");
+assert.equal(resultFileName.textContent, "latest.docx");
 
-resolvers[0](jsonResponse({ operation: "apply", job_id: "older-job", result: { marker: "older" } }));
+resolvers[0](jsonResponse({ operation: "apply", job_id: "older-job", summary: { output_name: "older.docx" }, result: { marker: "older" } }));
 await new Promise((resolve) => setImmediate(resolve));
-assert.equal(getState().selectedHistoryJob.job_id, "latest-job");
-assert.equal(getState().applyResultPayload.result.marker, "latest");
+assert.equal(resultFileName.textContent, "latest.docx");
 """
     )
 
@@ -238,6 +271,5 @@ resolveFetch(jsonResponse({ operation: "apply", job_id: "history-job", result: {
 await new Promise((resolve) => setImmediate(resolve));
 assert.equal(workbenchScreen.classList.contains("active"), true);
 assert.equal(resultScreen.classList.contains("active"), false);
-assert.equal(getState().selectedHistoryJob, null);
 """
     )

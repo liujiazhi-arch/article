@@ -1,6 +1,13 @@
-import { renderRuleLabels, severityLabels } from "./copy.js";
+import { renderEvidenceStatusLabels, renderRuleLabels, severityLabels } from "./copy.js";
 import { downloadJobArtifactUrl } from "./api.js";
-import { getState, setState } from "./state.js";
+
+const blockingEvidenceStatuses = new Set([
+  "structure-not-ready",
+  "blocked-by-wild-doc",
+  "unsupported-evidence",
+]);
+let activeEvidenceIndex = 0;
+let activeEvidenceResult = null;
 
 function labelForRule(ruleId) {
   return renderRuleLabels[ruleId] || renderRuleLabels.default;
@@ -51,7 +58,7 @@ function tocFinalizationCopy(finalization, downloadAvailable) {
   return { title: "静态目录版未生成", message: "本次目录处理没有完成", next: "请在 Word 或 WPS 中人工确认目录" };
 }
 
-export function isPdfReviewReady(result) {
+function isPdfReviewReady(result) {
   if (resultField(result, "render_evidence_status") !== "render-evidence-ready") return false;
   const source = resultField(result, "evidence_source") ?? resultField(result, "render_engine");
   const trust = resultField(result, "evidence_trust");
@@ -75,7 +82,32 @@ function createEmptyState(title, message) {
   return empty;
 }
 
-export function clearPdfReview(root, { title = "等待 PDF 复核", message = "上传对应 PDF 后查看页面问题" } = {}) {
+export function isPdfMatchConfirmed(root = document) {
+  return root.querySelector("#pdf-match-confirmation")?.checked === true;
+}
+
+export function renderPdfReviewContext(root, {
+  documentName,
+  pdfName,
+  status,
+  confirmationChecked,
+} = {}) {
+  const values = [
+    ["[data-pdf-docx-file]", documentName],
+    ["[data-pdf-file]", pdfName],
+    ["[data-render-state]", status],
+  ];
+  values.forEach(([selector, value]) => {
+    const node = root.querySelector(selector);
+    if (node && value !== undefined) node.textContent = value;
+  });
+  const confirmation = root.querySelector("#pdf-match-confirmation");
+  if (confirmation && confirmationChecked !== undefined) {
+    confirmation.checked = confirmationChecked;
+  }
+}
+
+function clearPdfReview(root, { title = "等待 PDF 复核", message = "上传对应 PDF 后查看页面问题" } = {}) {
   const list = root.querySelector("[data-pdf-issues]");
   const stage = root.querySelector("[data-pdf-stage]");
   const detail = root.querySelector("[data-pdf-detail]");
@@ -85,11 +117,66 @@ export function clearPdfReview(root, { title = "等待 PDF 复核", message = "�
   renderTocOutputAction(root, null, null);
 }
 
+function pdfConclusion(result, issueCount) {
+  const evidenceStatus = resultField(result, "render_evidence_status");
+  if (blockingEvidenceStatuses.has(evidenceStatus)) {
+    return renderEvidenceStatusLabels[evidenceStatus] || "待确认";
+  }
+  if (Number(issueCount) > 0) return "需复核";
+  if (evidenceStatus === "render-evidence-ready") {
+    return isPdfReviewReady(result) ? "无异常" : "待确认";
+  }
+  return renderEvidenceStatusLabels[evidenceStatus] || "待确认";
+}
+
+function setPdfMetric(root, name, value) {
+  const selector = `[data-pdf-metric="${name}"]`;
+  const node = root.querySelector(selector) || (root === document ? null : document.querySelector(selector));
+  if (node) node.textContent = String(value);
+}
+
+export function resetPdfReview(root, {
+  renderState = "待上传",
+  conclusion = "待确认",
+  title = "等待 PDF 复核",
+  message = "上传对应 PDF 后查看页面问题",
+} = {}) {
+  activeEvidenceIndex = 0;
+  activeEvidenceResult = null;
+  renderPdfReviewContext(root, {
+    pdfName: "等待上传对应 PDF",
+    status: renderState,
+    confirmationChecked: false,
+  });
+  setPdfMetric(root, "conclusion", conclusion);
+  setPdfMetric(root, "pages", "--");
+  setPdfMetric(root, "issues", "--");
+  clearPdfReview(root, { title, message });
+}
+
+function renderPdfMetrics(root, result) {
+  const items = Array.isArray(result?.evidence_items) ? result.evidence_items : null;
+  const pages = resultField(result, "page_count") ?? "--";
+  const issues = resultField(result, "evidence_item_count")
+    ?? (items ? items.length : null)
+    ?? resultField(result, "actionable_finding_count")
+    ?? result?.render_summary?.actionable_finding_count
+    ?? (items ? items.length : "--");
+  setPdfMetric(root, "conclusion", pdfConclusion(result, issues));
+  setPdfMetric(root, "pages", pages);
+  setPdfMetric(root, "issues", issues);
+}
+
 export function renderPdfReview(root, result, payload = null) {
   const items = evidenceItems(result);
+  if (result !== activeEvidenceResult) {
+    activeEvidenceIndex = 0;
+    activeEvidenceResult = result;
+  }
   const list = root.querySelector("[data-pdf-issues]");
   const stage = root.querySelector("[data-pdf-stage]");
   const detail = root.querySelector("[data-pdf-detail]");
+  renderPdfMetrics(root, result);
   renderTocOutputAction(root, result, payload);
   if (!list || !stage || !detail) return;
 
@@ -106,8 +193,7 @@ export function renderPdfReview(root, result, payload = null) {
     return;
   }
 
-  const state = getState();
-  const activeIndex = Math.max(0, Math.min(state.activeEvidenceIndex, items.length - 1));
+  const activeIndex = Math.max(0, Math.min(activeEvidenceIndex, items.length - 1));
   const active = items[activeIndex];
 
   list.replaceChildren(...items.map((item, index) => createIssueButton(item, index, activeIndex)));
@@ -150,12 +236,23 @@ function validBbox(box) {
   return box.x + box.w <= 1.000001 && box.y + box.h <= 1.000001;
 }
 
-function renderPageStage(stage, item) {
-  if (!item.screenshot_url) {
-    stage.innerHTML = `<div class="empty-state"><b>页面截图已不可用</b><span>请重新复核 PDF</span></div>`;
-    return;
-  }
+function evidenceBoxes(item) {
+  const spanBoxes = (Array.isArray(item?.text_spans) ? item.text_spans : [])
+    .map((span) => span?.bbox)
+    .filter(validBbox);
+  if (spanBoxes.length) return spanBoxes;
+  return validBbox(item?.bbox) ? [item.bbox] : [];
+}
 
+function enclosingBox(boxes) {
+  const left = Math.min(...boxes.map((box) => box.x));
+  const top = Math.min(...boxes.map((box) => box.y));
+  const right = Math.max(...boxes.map((box) => box.x + box.w));
+  const bottom = Math.max(...boxes.map((box) => box.y + box.h));
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+function createPageFrame(stage, view, item) {
   const frame = document.createElement("div");
   frame.className = "pdf-page-frame";
   const image = document.createElement("img");
@@ -167,26 +264,91 @@ function renderPageStage(stage, item) {
     }
   }, { once: true });
   image.addEventListener("error", () => {
-    if (stage.firstElementChild !== frame) return;
+    if (stage.firstElementChild !== view) return;
     stage.replaceChildren(createEmptyState("页面截图已不可用", "请重新复核 PDF"));
   }, { once: true });
   frame.append(image);
-  const box = item.bbox;
-  if (validBbox(box)) {
-    const highlight = document.createElement("span");
-    highlight.className = "evidence-highlight";
-    highlight.style.left = `${box.x * 100}%`;
-    highlight.style.top = `${box.y * 100}%`;
-    highlight.style.width = `${box.w * 100}%`;
-    highlight.style.height = `${box.h * 100}%`;
-    frame.append(highlight);
-  } else {
+  return frame;
+}
+
+function createEvidenceHighlight(box, labelled) {
+  const highlight = document.createElement("span");
+  highlight.className = "evidence-highlight";
+  if (labelled) highlight.dataset.label = "问题位置";
+  highlight.ariaHidden = "true";
+  highlight.style.left = `${box.x * 100}%`;
+  highlight.style.top = `${box.y * 100}%`;
+  highlight.style.width = `${box.w * 100}%`;
+  highlight.style.height = `${box.h * 100}%`;
+  return highlight;
+}
+
+function createEvidenceZoom(item, boxes) {
+  const box = enclosingBox(boxes);
+  const zoom = document.createElement("div");
+  zoom.className = "pdf-evidence-zoom";
+  const title = document.createElement("b");
+  title.textContent = boxes.length > 1 ? `问题片段 ${boxes.length} 处` : "问题片段";
+  const crop = document.createElement("div");
+  crop.className = "pdf-evidence-crop";
+  crop.style.backgroundImage = `url(${JSON.stringify(item.screenshot_url)})`;
+  crop.style.backgroundPosition = `${(box.x + box.w / 2) * 100}% ${(box.y + box.h / 2) * 100}%`;
+  crop.style.backgroundSize = `${Math.min(900, Math.max(240, Math.round(60 / box.w)))}% auto`;
+  crop.role = "img";
+  crop.ariaLabel = `第 ${item.page || "-"} 页 ${labelForRule(item.rule_id)} 问题片段`;
+  const caption = document.createElement("span");
+  caption.textContent = `第 ${item.page || "-"} 页 ${labelForRule(item.rule_id)}`;
+  zoom.append(title, crop, caption);
+  return zoom;
+}
+
+function fitEvidenceZoom(crop, image, box) {
+  const rect = crop.getBoundingClientRect();
+  const pageAspect = image.naturalWidth / image.naturalHeight;
+  if (!rect.width || !rect.height || !Number.isFinite(pageAspect) || pageAspect <= 0) return;
+  const preferredScale = Math.min(900, Math.max(240, 60 / box.w));
+  const heightLimit = 70 * rect.height * pageAspect / (rect.width * box.h);
+  const scale = Math.max(1, Math.floor(Math.min(preferredScale, heightLimit)));
+  const backgroundWidth = rect.width * scale / 100;
+  const backgroundHeight = backgroundWidth / pageAspect;
+  const centerX = box.x + box.w / 2;
+  const centerY = box.y + box.h / 2;
+  const offsetX = Math.round(rect.width / 2 - centerX * backgroundWidth);
+  const offsetY = Math.round(rect.height / 2 - centerY * backgroundHeight);
+  crop.style.backgroundSize = `${scale}% auto`;
+  crop.style.backgroundPosition = `${offsetX}px ${offsetY}px`;
+}
+
+function renderPageStage(stage, item) {
+  if (!item.screenshot_url) {
+    stage.replaceChildren(createEmptyState("页面截图已不可用", "请重新复核 PDF"));
+    return;
+  }
+  const boxes = evidenceBoxes(item);
+  const focusBox = boxes.length ? enclosingBox(boxes) : null;
+  const hasFocus = focusBox && focusBox.w * focusBox.h < 0.8;
+  const view = document.createElement("div");
+  view.className = hasFocus
+    ? `pdf-evidence-view${boxes.length > 1 ? " multiple" : ""}`
+    : "pdf-evidence-view single";
+  const frame = createPageFrame(stage, view, item);
+  if (hasFocus) frame.append(...boxes.map((box, index) => createEvidenceHighlight(box, index === 0)));
+  else {
     const notice = document.createElement("span");
     notice.className = "page-notice";
     notice.textContent = "这一页需要整体确认";
     frame.append(notice);
   }
-  stage.replaceChildren(frame);
+  const zoom = hasFocus ? createEvidenceZoom(item, boxes) : null;
+  view.append(...(zoom ? [frame, zoom] : [frame]));
+  stage.replaceChildren(view);
+  if (zoom) {
+    const image = frame.firstElementChild;
+    const crop = zoom.children[1];
+    const fitZoom = () => fitEvidenceZoom(crop, image, focusBox);
+    image.addEventListener("load", fitZoom, { once: true });
+    if (image.complete) fitZoom();
+  }
 }
 
 function createFinding(title, message) {
@@ -221,10 +383,14 @@ function createIssueButton(item, index, activeIndex) {
   const button = document.createElement("button");
   button.className = `film-frame ${index === activeIndex ? "active" : ""}`;
   button.type = "button";
+  button.ariaPressed = String(index === activeIndex);
+  button.setAttribute("aria-controls", "pdf-evidence-stage");
   button.dataset.issueIndex = String(index);
   const label = document.createElement("span");
   label.textContent = `第 ${item.page || "-"} 页`;
-  button.append(label);
+  const issue = document.createElement("b");
+  issue.textContent = labelForRule(item.rule_id);
+  button.append(label, issue);
   return button;
 }
 
@@ -232,7 +398,7 @@ export function bindPdfReview(root, rerender) {
   root.addEventListener("click", (event) => {
     const issueButton = event.target.closest("[data-issue-index]");
     if (!issueButton) return;
-    setState({ activeEvidenceIndex: Number(issueButton.dataset.issueIndex) || 0 });
+    activeEvidenceIndex = Number(issueButton.dataset.issueIndex) || 0;
     rerender();
   });
 }

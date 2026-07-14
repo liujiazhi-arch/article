@@ -331,7 +331,7 @@ def build_result_summary(operation: str, result: dict[str, Any], resolved_reques
         summary["changed"] = bool(result.get("changed"))
         summary["operation_count"] = len(result.get("operations") or [])
     elif operation == "render-verify":
-        toc_finalization = result.get("toc_finalization") or {}
+        render_summary = result.get("summary") or {}
         summary["business_status"] = result.get("render_evidence_status")
         summary["render_evidence_status"] = result.get("render_evidence_status")
         summary["render_workflow_mode"] = resolved_request.get("workflow_mode")
@@ -340,10 +340,10 @@ def build_result_summary(operation: str, result: dict[str, Any], resolved_reques
         summary["pdf_matches_docx_confirmed"] = bool(
             result.get("pdf_matches_docx_confirmed", resolved_request.get("pdf_matches_docx_confirmed"))
         )
-        summary["toc_finalization_status"] = toc_finalization.get("status")
-        summary["toc_output_available"] = bool(toc_finalization.get("available"))
-        summary["toc_entry_count"] = toc_finalization.get("entry_count")
-        summary["toc_mapped_count"] = toc_finalization.get("mapped_count")
+        summary["toc_finalization_status"] = render_summary.get("toc_finalization_status")
+        summary["toc_output_available"] = bool(render_summary.get("toc_output_available"))
+        summary["toc_entry_count"] = render_summary.get("toc_entry_count")
+        summary["toc_mapped_count"] = render_summary.get("toc_mapped_count")
     if resolved_request.get("dry_run") is not None:
         summary["dry_run"] = bool(resolved_request.get("dry_run"))
     summary["attempt_count"] = int(resolved_request.get("attempt_count") or 1)

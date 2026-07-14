@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import audit_thesis
 import pytest
 from docx import Document
 
@@ -120,6 +121,28 @@ def test_audit_document_returns_structured_payload(tmp_docx):
     failed_by_id = {item["id"]: item for item in payload["failed_results"]}
     assert failed_by_id["H02"]["action"] == "autofix"
     assert failed_by_id["KW01"]["action"] == "manual_review"
+
+
+def test_audit_document_runs_full_audit_once(monkeypatch, tmp_docx):
+    source_path = _build_mutated_doc(
+        tmp_docx,
+        filename="article_engine_single_audit.docx",
+        rule_ids=("H02",),
+    )
+    original_audit = audit_thesis.audit_docx_with_runtime
+    audit_calls = 0
+
+    def counting_audit(*args, **kwargs):
+        nonlocal audit_calls
+        audit_calls += 1
+        return original_audit(*args, **kwargs)
+
+    monkeypatch.setattr(audit_thesis, "audit_docx_with_runtime", counting_audit)
+
+    payload = audit_document(str(source_path))
+
+    assert payload["summary"]["failed_rules"] >= 1
+    assert audit_calls == 1
 
 
 def test_audit_document_supports_lnu_profile_alias(tmp_docx):

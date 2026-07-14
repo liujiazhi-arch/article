@@ -4,6 +4,7 @@ from docx import Document
 import pytest
 
 import thesis_tool.render_verify as render_verify_module
+import thesis_tool.render_sources as render_sources_module
 
 
 def test_build_pdf_toc_page_number_report_detects_mismatch(monkeypatch, tmp_path):
@@ -56,7 +57,7 @@ def test_build_render_verify_report_flags_toc_declared_page_mismatch(monkeypatch
             "warnings": [],
         }
 
-    monkeypatch.setattr(render_verify_module, "_run_render_engine", fake_run_render_engine)
+    monkeypatch.setattr(render_sources_module, "_run_render_engine", fake_run_render_engine)
     monkeypatch.setattr(
         render_verify_module,
         "_extract_pdf_page_texts",
@@ -355,7 +356,13 @@ def test_build_render_verify_report_connects_static_toc_finalization(monkeypatch
             page_texts=current_page_texts,
             kwargs=kwargs,
         )
-        return {"status": "generated", "available": True, "output_path": str(tmp_path / "static_toc.docx")}
+        return {
+            "status": "generated",
+            "available": True,
+            "entry_count": 26,
+            "mapped_count": 26,
+            "output_path": str(tmp_path / "static_toc.docx"),
+        }
 
     monkeypatch.setattr(render_verify_module, "build_static_toc_finalization", fake_finalize, raising=False)
 
@@ -368,6 +375,10 @@ def test_build_render_verify_report_connects_static_toc_finalization(monkeypatch
     )
 
     assert report["toc_finalization"]["status"] == "generated"
+    assert report["summary"]["toc_finalization_status"] == "generated"
+    assert report["summary"]["toc_output_available"] is True
+    assert report["summary"]["toc_entry_count"] == 26
+    assert report["summary"]["toc_mapped_count"] == 26
     assert captured["input_docx"] == str(source_path)
     assert captured["page_texts"] == page_texts
     assert captured["kwargs"] == {

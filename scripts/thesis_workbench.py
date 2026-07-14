@@ -9,6 +9,7 @@ from _profile_utils import list_profile_catalog
 
 from thesis_tool.apply_guard import assess_apply_risk, render_post_verify_notice as _render_post_verify_notice
 from thesis_tool.scopes import list_scope_definitions, normalize_scope_names
+from thesis_tool.scope_plan import build_scope_plan
 from thesis_tool.render_verify import build_render_verify_report, render_render_verify_report
 from thesis_tool.workflow import (
     apply_scoped_fix,
@@ -17,7 +18,6 @@ from thesis_tool.workflow import (
     build_document_preflight,
     build_audit_human_reports,
     build_scoped_fix_preview,
-    build_scope_plan,
     build_scope_verify,
     render_document_diagnostics_compact,
     render_document_diagnostics,

@@ -179,6 +179,7 @@ def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
         "thesis_fix/toc.py",
         "thesis_tool/apply_guard.py",
         "thesis_tool/render_image_metrics.py",
+        "thesis_tool/scope_plan.py",
         "thesis_tool/workflow_renderers.py",
         "article_api/local_feedback.py",
         "article_api/render_evidence.py",
@@ -191,7 +192,11 @@ def test_built_wheel_contains_runtime_modules_and_resources(tmp_path):
     assert "article_api/assets/lnu-emblem.jpg" not in names
     assert "article_api/static/index.html" in names
     assert "article_api/static/styles/tokens.css" in names
+    assert "article_api/static/styles/themes.css" in names
+    assert "article_api/static/styles/layout.css" in names
+    assert "article_api/static/styles/format-radar.css" in names
     assert "article_api/static/js/app.js" in names
+    assert "article_api/static/js/formatRadar.js" in names
 
     required_resource_suffixes = {
         "config/profiles/lnu-checker-2026.yaml",
@@ -259,6 +264,7 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
         "scripts/thesis_fix/toc.py",
         "scripts/thesis_tool/apply_guard.py",
         "scripts/thesis_tool/render_image_metrics.py",
+        "scripts/thesis_tool/scope_plan.py",
         "scripts/thesis_tool/workflow_renderers.py",
         "scripts/article_api/local_feedback.py",
         "scripts/article_api/render_evidence.py",
@@ -282,7 +288,11 @@ def test_built_sdist_contains_runtime_modules_and_resources(tmp_path):
     required_static_suffixes = {
         "scripts/article_api/static/index.html",
         "scripts/article_api/static/styles/tokens.css",
+        "scripts/article_api/static/styles/themes.css",
+        "scripts/article_api/static/styles/layout.css",
+        "scripts/article_api/static/styles/format-radar.css",
         "scripts/article_api/static/js/app.js",
+        "scripts/article_api/static/js/formatRadar.js",
     }
     for suffix in required_static_suffixes:
         assert any(name.endswith(suffix) for name in names), suffix
@@ -337,6 +347,7 @@ for name in (
     "text_spacing_utils",
     "thesis_tool.render_analyzer",
     "thesis_tool.render_image_metrics",
+    "thesis_tool.scope_plan",
     "thesis_tool.workflow_renderers",
     "docx_sample_intake",
     "fetch_public_docx_samples",

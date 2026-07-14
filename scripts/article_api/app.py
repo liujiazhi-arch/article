@@ -402,6 +402,8 @@ def create_app():
         upload_view_fn=lambda payload: _upload_view(payload),
         cleanup_upload_fn=lambda upload_id: _cleanup_upload(upload_id),
         create_job_fn=lambda operation, payload: create_job(operation, payload),
+        plan_document_fn=lambda **kwargs: plan_document(**kwargs),
+        resolve_upload_fn=lambda upload_id: resolve_upload(upload_id),
         verify_upload_job_kwargs_fn=lambda upload_id, request: _verify_upload_job_kwargs(upload_id, request),
         normalize_upload_job_kwargs_fn=lambda upload_id, request: _normalize_upload_job_kwargs(upload_id, request),
         apply_upload_job_kwargs_fn=lambda upload_id, request: _apply_upload_job_kwargs(upload_id, request),

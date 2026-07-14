@@ -16,6 +16,21 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
+const finishedJobStates = new Set(["succeeded", "failed"]);
+
+export async function waitForJob(jobId, isCurrent = () => true) {
+  while (isCurrent()) {
+    const job = await getJob(jobId);
+    if (!isCurrent()) return null;
+    if (finishedJobStates.has(job.status)) {
+      if (job.status === "failed") throw new Error("处理没有完成");
+      return job;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+  return null;
+}
+
 export async function uploadDocx(file) {
   const body = new FormData();
   body.append("file", file);
@@ -48,15 +63,15 @@ export async function createRenderReviewJob(docxUploadId, pdfUploadId, pdfMatche
   });
 }
 
-export async function createPlan(filePath) {
-  return requestJson("/plan", {
+export async function createUploadPlan(uploadId, body = {}) {
+  return requestJson(`/uploads/${encodeURIComponent(uploadId)}/plan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_path: filePath }),
+    body: JSON.stringify(body),
   });
 }
 
-export async function getJob(jobId) {
+async function getJob(jobId) {
   return requestJson(`/jobs/${encodeURIComponent(jobId)}`);
 }
 

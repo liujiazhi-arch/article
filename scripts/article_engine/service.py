@@ -8,17 +8,16 @@ import fix_thesis
 from thesis_tool.apply_guard import assess_apply_risk, render_post_verify_notice as _render_post_verify_notice
 from thesis_tool.capabilities import load_rule_capabilities
 from thesis_tool.render_verify import build_render_verify_report
+from thesis_tool.scope_plan import build_scope_plan, build_scope_plan_from_audit, classify_audit_result_action
 from thesis_tool.scopes import normalize_scope_names
 from thesis_tool.workflow import (
     apply_scoped_fix,
     build_document_diagnostics,
     build_document_normalize,
     build_document_preflight,
-    build_scope_plan,
     build_scope_verify,
     build_scoped_fix_preview,
     classify_apply_readiness,
-    classify_audit_result_action,
 )
 
 
@@ -273,10 +272,13 @@ def audit_document(file_path: str, profile_path: str | None = None, strict_profi
         profile_path=profile_path,
         strict_profile=strict_profile,
     )
-    plan = build_scope_plan(
+    plan = build_scope_plan_from_audit(
         file_path,
+        results=results,
+        score=score,
+        report=report,
+        runtime=runtime,
         profile_path=profile_path,
-        strict_profile=strict_profile,
     )
     serialized_results = [_serialize_result(result) for result in results]
     failed_results = [result for result in serialized_results if not result["passed"]]

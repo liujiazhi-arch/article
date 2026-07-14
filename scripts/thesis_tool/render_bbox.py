@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import re
-import subprocess
+import unicodedata
 import xml.etree.ElementTree as ET
 from math import isfinite
 from pathlib import Path
-from typing import Callable
 
 from thesis_tool.render_analyzer import ISOLATED_PUNCTUATION_RE
 
@@ -16,6 +15,11 @@ RENDER_EVIDENCE_RULE_BY_CLASSIFICATION = {
     "suspicious_heading_break": "render.heading_break",
     "expected_chapter_break": "render.expected_chapter_break",
     "render_integrity": "render.integrity",
+}
+TEXT_TARGET_FIELD_BY_RULE = {
+    "render.isolated_punctuation": "punctuation",
+    "render.formula_number_split_page": "formula_number",
+    "render.heading_orphan_at_page_bottom": "heading_text",
 }
 
 
@@ -83,13 +87,6 @@ def _raw_bbox_page_lines(raw_bbox: str) -> list[list[dict]]:
     return pages
 
 
-def bbox_page_lines(raw_bbox: str) -> dict[int, list[dict]]:
-    return {
-        page_number: [{"text": line["text"], "bbox": line["bbox"]} for line in lines]
-        for page_number, lines in enumerate(_raw_bbox_page_lines(raw_bbox), start=1)
-    }
-
-
 def bbox_punctuation_lines(raw_bbox: str) -> list[list[tuple[str, bool]]]:
     pages: list[list[tuple[str, bool]]] = []
     for lines in _raw_bbox_page_lines(raw_bbox):
@@ -106,29 +103,6 @@ def bbox_punctuation_lines(raw_bbox: str) -> list[list[tuple[str, bool]]]:
             punctuation_lines.append((line["text"], attached))
         pages.append(punctuation_lines)
     return pages
-
-
-def extract_pdf_line_boxes(
-    pdf_path: str | None,
-    *,
-    find_pdftotext: Callable[[], str],
-    run: Callable = subprocess.run,
-) -> dict[int, list[dict]]:
-    if not pdf_path:
-        return {}
-    resolved_pdf = Path(pdf_path).expanduser().resolve()
-    if not resolved_pdf.exists():
-        return {}
-    try:
-        completed = run(
-            [find_pdftotext(), "-bbox-layout", str(resolved_pdf), "-"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return bbox_page_lines(str(completed.stdout or ""))
-    except (RuntimeError, subprocess.CalledProcessError, ET.ParseError):
-        return {}
 
 
 def merge_same_baseline_punctuation(page_text: str, bbox_lines: list[tuple[str, bool]]) -> str:
@@ -173,6 +147,20 @@ def normalized_evidence_bbox(value) -> dict[str, float] | None:
     return normalized
 
 
+def normalized_text_spans(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    spans = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        bbox = normalized_evidence_bbox(item.get("bbox"))
+        if text and bbox is not None:
+            spans.append({"text": text, "bbox": bbox})
+    return spans
+
+
 def _coerce_positive_page(value) -> int | None:
     try:
         page = int(value)
@@ -191,6 +179,55 @@ def _render_evidence_rule_id(finding: dict) -> str:
     finding_id = str(finding.get("id") or finding.get("type") or "finding").strip() or "finding"
     safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", finding_id).strip("_.-") or "finding"
     return safe_id if safe_id.startswith("render.") else f"render.{safe_id}"
+
+
+def _compact_match_text(value) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or ""))
+    return re.sub(r"\s+", "", normalized).strip()
+
+
+def _text_target(finding: dict) -> tuple[int, str, str] | None:
+    field = TEXT_TARGET_FIELD_BY_RULE.get(str(finding.get("rule_id") or ""))
+    page = _coerce_positive_page(finding.get("page") or finding.get("page_number"))
+    text = str(finding.get(field) or "").strip() if field else ""
+    compact = _compact_match_text(text)
+    return (page, compact, text) if page is not None and compact else None
+
+
+def _line_candidates(line_boxes_by_page: dict[int, list[dict]]) -> dict[tuple[int, str], list[dict]]:
+    candidates: dict[tuple[int, str], list[dict]] = {}
+    for page, lines in line_boxes_by_page.items():
+        for line in lines if isinstance(lines, list) else []:
+            if not isinstance(line, dict):
+                continue
+            compact = _compact_match_text(line.get("text"))
+            bbox = normalized_evidence_bbox(line.get("bbox"))
+            if compact and bbox is not None and bbox not in candidates.setdefault((int(page), compact), []):
+                candidates[(int(page), compact)].append(bbox)
+    return candidates
+
+
+def attach_text_line_spans(findings: list[dict], line_boxes_by_page: dict[int, list[dict]]) -> list[dict]:
+    resolved = [dict(finding) for finding in findings]
+    groups: dict[tuple[int, str], list[tuple[int, str]]] = {}
+    for index, finding in enumerate(resolved):
+        target = _text_target(finding)
+        if target is not None:
+            page, compact, text = target
+            groups.setdefault((page, compact), []).append((index, text))
+    candidates = _line_candidates(line_boxes_by_page)
+    for key, targets in groups.items():
+        boxes = candidates.get(key, [])
+        for index, text in targets:
+            resolved[index]["bbox"] = None
+            resolved[index].pop("text_spans", None)
+        if len(boxes) != 1 or len(targets) != 1:
+            continue
+        index, text = targets[0]
+        bbox = boxes[0]
+        resolved[index]["bbox"] = dict(bbox)
+        resolved[index]["text_spans"] = [{"text": text, "bbox": dict(bbox)}]
+    return resolved
 
 
 def _resolved_screenshot_path(finding: dict, page_images_by_page: dict[int, str]) -> str | None:
@@ -213,8 +250,7 @@ def build_evidence_items(render_findings: list[dict], *, page_images: list[str])
         if not isinstance(finding, dict):
             continue
         page = _coerce_positive_page(finding.get("page") or finding.get("page_number"))
-        evidence_items.append(
-            {
+        item = {
                 "page": page,
                 "screenshot_path": _resolved_screenshot_path(finding, page_images_by_page),
                 "rule_id": _render_evidence_rule_id(finding),
@@ -229,5 +265,8 @@ def build_evidence_items(render_findings: list[dict], *, page_images: list[str])
                 "suggested_scope": finding.get("suggested_scope"),
                 "fix_mode": str(finding.get("fix_mode") or "manual"),
             }
-        )
+        text_spans = normalized_text_spans(finding.get("text_spans"))
+        if text_spans:
+            item["text_spans"] = text_spans
+        evidence_items.append(item)
     return evidence_items

@@ -1,267 +1,4 @@
-import json
-import subprocess
-from pathlib import Path
-
-
-ROOT = Path(__file__).resolve().parents[1]
-APP_URL = (ROOT / "scripts" / "article_api" / "static" / "js" / "app.js").as_uri()
-PDF_REVIEW_URL = (ROOT / "scripts" / "article_api" / "static" / "js" / "pdfReview.js").as_uri()
-STATE_URL = (ROOT / "scripts" / "article_api" / "static" / "js" / "state.js").as_uri()
-
-
-NODE_HARNESS = f"""
-import assert from "node:assert/strict";
-
-class FakeElement {{
-  constructor() {{
-    this.dataset = {{}};
-    this.files = [];
-    this.value = "";
-    this.checked = false;
-    this.disabled = false;
-    this.textContent = "";
-    this.innerHTML = "";
-    this.clickCount = 0;
-    this.children = [];
-    this.listeners = new Map();
-    this.classes = new Set();
-    this.styleValues = {{}};
-    this.classList = {{
-      toggle: (name, force) => {{
-        if (force === undefined ? !this.classes.has(name) : force) this.classes.add(name);
-        else this.classes.delete(name);
-      }},
-      contains: (name) => this.classes.has(name),
-    }};
-    this.style = {{
-      setProperty: (name, value) => {{ this.styleValues[name] = value; }},
-    }};
-  }}
-
-  addEventListener(type, listener) {{
-    const listeners = this.listeners.get(type) || [];
-    listeners.push(listener);
-    this.listeners.set(type, listeners);
-  }}
-
-  async emit(type, event = {{}}) {{
-    for (const listener of this.listeners.get(type) || []) {{
-      await listener({{ target: this, ...event }});
-    }}
-  }}
-
-  querySelector() {{ return null; }}
-  querySelectorAll() {{ return []; }}
-  get firstElementChild() {{ return this.children[0] || null; }}
-  replaceChildren(...children) {{ this.children = children; }}
-  append(...children) {{ this.children.push(...children); }}
-  click() {{ this.clickCount += 1; }}
-}}
-
-const pdfInput = new FakeElement();
-const docxInput = new FakeElement();
-const pdfMatchConfirmation = new FakeElement();
-const choosePdfButton = new FakeElement();
-const chooseDocxButton = new FakeElement();
-const applyButton = new FakeElement();
-const scopeInput = new FakeElement();
-scopeInput.checked = true;
-scopeInput.value = "toc";
-const scopeState = new FakeElement();
-const scopeOption = new FakeElement();
-scopeOption.dataset.scopeOption = "toc";
-scopeOption.querySelector = (selector) => selector === "input" ? scopeInput : selector === "[data-scope-state]" ? scopeState : null;
-scopeInput.closest = () => scopeOption;
-let exposeScopeOption = false;
-const statusTitle = new FakeElement();
-const statusMessage = new FakeElement();
-const nextAction = new FakeElement();
-const pdfConclusion = new FakeElement();
-const formatRadar = new FakeElement();
-const formatRadarLabel = new FakeElement();
-const resultHeatmap = new FakeElement();
-const workbenchLedger = new FakeElement();
-const historyList = new FakeElement();
-const pdfFile = new FakeElement();
-const pdfDocxFile = new FakeElement();
-const renderState = new FakeElement();
-const tocOutputAction = new FakeElement();
-tocOutputAction.hidden = true;
-const tocOutputNextAction = new FakeElement();
-const tocOutputButton = new FakeElement();
-tocOutputButton.dataset.downloadRole = "toc-output";
-tocOutputButton.disabled = true;
-
-function createStructureNode(scopes) {{
-  const node = new FakeElement();
-  node.dataset.structureScopes = scopes;
-  node.counter = new FakeElement();
-  node.querySelector = (selector) => selector === "[data-structure-count]" ? node.counter : null;
-  return node;
-}}
-
-const structureMain = createStructureNode("abstract,toc,body_paragraphs,references,figures_tables");
-const structureAbstract = createStructureNode("abstract");
-const structureToc = createStructureNode("toc");
-const structureBody = createStructureNode("body_paragraphs");
-const structureReferences = createStructureNode("references");
-const structureFigures = createStructureNode("figures_tables");
-const structureNodes = [structureMain, structureAbstract, structureToc, structureBody, structureReferences, structureFigures];
-const flowSteps = ["upload", "plan", "apply", "verify", "download"].map((stage) => {{
-  const step = new FakeElement();
-  step.dataset.flowStage = stage;
-  return step;
-}});
-const pdfScreen = new FakeElement();
-pdfScreen.dataset.screen = "pdf-review";
-pdfScreen.querySelector = (selector) => ({{
-  "[data-toc-output-action]": tocOutputAction,
-  "[data-toc-output-next-action]": tocOutputNextAction,
-  "[data-download-role='toc-output']": tocOutputButton,
-}}[selector] || null);
-const workbenchScreen = new FakeElement();
-workbenchScreen.dataset.screen = "workbench";
-const historyScreen = new FakeElement();
-historyScreen.dataset.screen = "history";
-const resultScreen = new FakeElement();
-resultScreen.dataset.screen = "result";
-const workbenchNav = new FakeElement();
-workbenchNav.dataset.screenTarget = "workbench";
-const historyNav = new FakeElement();
-historyNav.dataset.screenTarget = "history";
-class FakeDocument extends FakeElement {{
-  constructor() {{
-    super();
-    this.body = new FakeElement();
-  }}
-
-  querySelector(selector) {{
-    const elements = {{
-      "#pdf-input": pdfInput,
-      "#docx-input": docxInput,
-      "#pdf-match-confirmation": pdfMatchConfirmation,
-      "[data-status-title]": statusTitle,
-      "[data-status-message]": statusMessage,
-      "[data-next-action]": nextAction,
-      '[data-pdf-metric="conclusion"]': pdfConclusion,
-      "[data-format-radar]": formatRadar,
-      "[data-format-radar-label]": formatRadarLabel,
-      "[data-result-heatmap]": resultHeatmap,
-      "[data-workbench-ledger]": workbenchLedger,
-      "[data-history-list]": historyList,
-      "[data-pdf-file]": pdfFile,
-      "[data-pdf-docx-file]": pdfDocxFile,
-      "[data-render-state]": renderState,
-      "[data-toc-output-action]": tocOutputAction,
-      "[data-toc-output-next-action]": tocOutputNextAction,
-      "[data-download-role='toc-output']": tocOutputButton,
-      "[data-screen='pdf-review']": pdfScreen,
-    }};
-    return elements[selector] || null;
-  }}
-
-  querySelectorAll(selector) {{
-    const elements = {{
-      "[data-action='choose-docx']": [chooseDocxButton],
-      "[data-action='choose-pdf']": [choosePdfButton],
-      "[data-action='create-apply-job']": [applyButton],
-      "[data-screen-target]": [workbenchNav, historyNav],
-      "[data-screen]": [workbenchScreen, historyScreen, pdfScreen, resultScreen],
-      "[data-scope-option]": exposeScopeOption ? [scopeOption] : [],
-      "[data-scope-option] input": exposeScopeOption ? [scopeInput] : [],
-      "[data-structure-scopes]": structureNodes,
-      "[data-flow-stage]": flowSteps,
-      "[data-scope-option] input:checked:not(:disabled)": scopeInput.checked && !scopeInput.disabled ? [scopeInput] : [],
-    }};
-    return elements[selector] || [];
-  }}
-
-  createElement() {{ return new FakeElement(); }}
-}}
-
-globalThis.document = new FakeDocument();
-globalThis.window = {{ location: {{ href: "" }}, scrollTo() {{}} }};
-globalThis.FormData = class {{ append() {{}} }};
-
-let resolveFetch;
-let fetchCalls = [];
-let fetchHandler = () => new Promise((resolve) => {{ resolveFetch = resolve; }});
-globalThis.fetch = (url, options = {{}}) => {{
-  fetchCalls.push({{ url, options }});
-  return fetchHandler(url, options);
-}};
-
-function jsonResponse(payload, status = 200) {{
-  return {{
-    ok: status >= 200 && status < 300,
-    status,
-    async text() {{ return JSON.stringify(payload); }},
-  }};
-}}
-
-function installSuccessfulPdfReview(result, payload = {{}}) {{
-  fetchHandler = async (url) => {{
-    if (url === "/uploads/pdf") return jsonResponse({{ upload_id: "pdf-1", file_name: "paper.pdf" }});
-    if (url.endsWith("/render-review-jobs")) return jsonResponse({{ job_id: "render-1" }}, 201);
-    if (url === "/jobs/render-1") return jsonResponse({{ job_id: "render-1", status: "succeeded" }});
-    if (url === "/jobs/render-1/result") return jsonResponse({{
-      operation: "render-verify",
-      job_id: "render-1",
-      artifacts: [],
-      ...payload,
-      result,
-    }});
-    throw new Error(`unexpected request ${{url}}`);
-  }};
-}}
-
-function installSuccessfulApply(resultPayload = null) {{
-  setState({{ workbenchPlan: {{ scopes: [] }} }});
-  const payload = resultPayload || {{ operation: "apply", job_id: "apply-1", result: {{}}, summary: {{}}, artifacts: [] }};
-  fetchHandler = async (url) => {{
-    if (url.endsWith("/jobs/apply")) return jsonResponse({{ job_id: "apply-1" }}, 201);
-    if (url === "/jobs/apply-1") return jsonResponse({{ job_id: "apply-1", status: "succeeded" }});
-    if (url === "/jobs/apply-1/result") {{
-      return jsonResponse(payload);
-    }}
-    throw new Error(`unexpected request ${{url}}`);
-  }};
-}}
-
-await import({json.dumps(APP_URL)});
-const {{ getState, setState }} = await import({json.dumps(STATE_URL)});
-
-async function openHistoryAndResolve(payload, mutateEpoch) {{
-  const historyButton = {{ dataset: {{ historyJobId: "history-job" }} }};
-  const target = {{
-    closest(selector) {{
-      return selector === "[data-history-job-id]" ? historyButton : null;
-    }},
-  }};
-  await document.emit("click", {{ target }});
-  assert.ok(resolveFetch, "history click should request the job result");
-  mutateEpoch();
-  resolveFetch({{
-    ok: true,
-    status: 200,
-    async text() {{ return JSON.stringify(payload); }},
-  }});
-  await new Promise((resolve) => setImmediate(resolve));
-}}
-"""
-
-
-def _run_node(scenario: str) -> None:
-    result = subprocess.run(
-        ["node", "--input-type=module"],
-        cwd=ROOT,
-        input=f"{NODE_HARNESS}\n{scenario}",
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=10,
-    )
-    assert result.returncode == 0, result.stderr or result.stdout
+from tests.frontend_app_harness import PDF_REVIEW_URL, run_node as _run_node, run_state_script
 
 
 def test_pdf_can_be_selected_again_after_docx_precondition_rejects_it():
@@ -275,6 +12,17 @@ assert.equal(pdfInput.value, "");
     )
 
 
+def test_state_declares_document_and_pdf_review_lifecycle_defaults():
+    run_state_script(
+        """
+const current = getState();
+assert.equal(current.documentEpoch, 0);
+assert.equal(current.pdfReviewEpoch, 0);
+assert.equal(current.pdfReviewRequiresFreshDocx, false);
+"""
+    )
+
+
 def test_format_radar_uses_the_backend_score_without_recounting_findings():
     _run_node(
         """
@@ -282,7 +30,7 @@ fetchHandler = async (url) => {
   if (url === "/uploads/docx") {
     return jsonResponse({ upload_id: "docx-1", file_name: "paper.docx", stored_path: "/tmp/paper.docx" });
   }
-  if (url === "/plan") {
+  if (url === "/uploads/docx-1/plan") {
     return jsonResponse({
       score: 93,
       summary: {
@@ -306,6 +54,147 @@ assert.equal(formatRadar.styleValues["--radar-progress"], "93%");
     )
 
 
+def test_workbench_plan_uses_upload_identity_instead_of_server_path():
+    _run_node(
+        """
+fetchHandler = async (url, options) => {
+  if (url === "/uploads/docx") {
+    return jsonResponse({ upload_id: "docx-1", file_name: "paper.docx" });
+  }
+  if (url === "/uploads/docx-1/plan") {
+    assert.deepEqual(JSON.parse(options.body), {});
+    return jsonResponse({
+      score: 93,
+      scope_radar_summary: {
+        scope_count: 0,
+        failed_scope_count: 0,
+        autofixable_scope_count: 0,
+        manual_review_count: 0,
+        unsupported_count: 0,
+        manual_confirmation_count: 0,
+        unknown_count: 0,
+      },
+      scopes: [],
+    });
+  }
+  throw new Error(`unexpected request ${url}`);
+};
+
+docxInput.files = [{ name: "paper.docx" }];
+await docxInput.emit("change");
+
+assert.equal(getState().workbenchPlan.score, 93);
+assert.equal(fetchCalls.some(({ url }) => url === "/plan"), false);
+"""
+    )
+
+
+def test_unknown_scope_count_does_not_become_manual_confirmation_total():
+    _run_node(
+        """
+fetchHandler = async (url) => {
+  if (url === "/uploads/docx") {
+    return jsonResponse({ upload_id: "docx-1", file_name: "paper.docx", stored_path: "/tmp/paper.docx" });
+  }
+  if (url === "/uploads/docx-1/plan") {
+    return jsonResponse({
+      score: 90,
+      scope_radar_summary: {
+        scope_count: 2,
+        failed_scope_count: 1,
+        autofixable_scope_count: 1,
+        manual_review_count: 0,
+        unsupported_count: 0,
+        manual_confirmation_count: 0,
+        unknown_count: 2,
+      },
+      scopes: [
+        { id: "toc", failed_count: 1, autofixable_count: 1, manual_review_count: 0, unsupported_count: 0, unknown_count: 2 },
+      ],
+    });
+  }
+  throw new Error(`unexpected request ${url}`);
+};
+
+docxInput.files = [{ name: "paper.docx" }];
+await docxInput.emit("change");
+
+assert.equal(document.querySelector('[data-workbench-metric="manual-confirmation"]').textContent, "0");
+"""
+    )
+
+
+def test_incomplete_plan_does_not_claim_zero_workbench_items():
+    _run_node(
+        """
+exposeScopeOption = true;
+fetchHandler = async (url) => {
+  if (url === "/uploads/docx") {
+    return jsonResponse({ upload_id: "docx-1", file_name: "paper.docx", stored_path: "/tmp/paper.docx" });
+  }
+  if (url === "/uploads/docx-1/plan") return jsonResponse({ score: 92 });
+  throw new Error(`unexpected request ${url}`);
+};
+
+docxInput.files = [{ name: "paper.docx" }];
+await docxInput.emit("change");
+
+assert.equal(document.querySelector('[data-workbench-metric="autofixable-scopes"]').textContent, "--");
+assert.equal(document.querySelector('[data-workbench-metric="manual-confirmation"]').textContent, "--");
+assert.equal(structureMain.counter.textContent, "--");
+assert.equal(scopeState.textContent, "等待方案");
+assert.equal(scopeInput.disabled, true);
+assert.match(workbenchLedger.innerHTML, /方案统计暂不可用/);
+"""
+    )
+
+
+def test_partial_radar_keeps_complete_backend_scope_plan_selectable():
+    _run_node(
+        """
+exposeScopeOption = true;
+fetchHandler = async (url) => {
+  if (url === "/uploads/docx") {
+    return jsonResponse({ upload_id: "docx-1", file_name: "paper.docx" });
+  }
+  if (url === "/uploads/docx-1/plan") {
+    return jsonResponse({
+      score: null,
+      scope_radar_summary: {
+        scope_count: 1,
+        failed_scope_count: 1,
+        autofixable_scope_count: 1,
+        manual_review_count: 0,
+        unsupported_count: 0,
+        unknown_count: 0,
+      },
+      scopes: [{
+        id: "toc",
+        failed_count: 1,
+        autofixable_count: 1,
+        manual_review_count: 0,
+        unsupported_count: 0,
+        unknown_count: 0,
+      }],
+    });
+  }
+  throw new Error(`unexpected request ${url}`);
+};
+
+docxInput.files = [{ name: "paper.docx" }];
+await docxInput.emit("change");
+
+assert.equal(formatRadarLabel.textContent, "暂无分数");
+assert.equal(docxFile.textContent, "paper.docx");
+assert.equal(structureToc.counter.textContent, "1");
+assert.equal(scopeInput.disabled, false);
+assert.equal(scopeInput.checked, true);
+assert.equal(scopeState.textContent, "已选择");
+assert.equal(applyButton.disabled, false);
+"""
+    )
+
+
 def test_plan_updates_structure_counts_and_preserves_mixed_scope_warning():
     _run_node(
         """
@@ -314,7 +203,7 @@ fetchHandler = async (url) => {
   if (url === "/uploads/docx") {
     return jsonResponse({ upload_id: "docx-1", file_name: "paper.docx", stored_path: "/tmp/paper.docx" });
   }
-  if (url === "/plan") {
+  if (url === "/uploads/docx-1/plan") {
     return jsonResponse({
       score: 90,
       summary: { autofixable_scopes: 1, manual_confirmation_items: 1 },
@@ -344,6 +233,42 @@ assert.equal(scopeState.textContent, "已选 仍需确认");
     )
 
 
+def test_plan_keeps_unknown_rule_scope_visible_for_manual_confirmation():
+    _run_node(
+        """
+exposeScopeOption = true;
+fetchHandler = async (url) => {
+  if (url === "/uploads/docx") {
+    return jsonResponse({ upload_id: "docx-1", file_name: "paper.docx", stored_path: "/tmp/paper.docx" });
+  }
+  if (url === "/uploads/docx-1/plan") {
+    return jsonResponse({
+      score: 100,
+      scope_radar_summary: {
+        scope_count: 1,
+        failed_scope_count: 1,
+        autofixable_scope_count: 0,
+        manual_review_count: 0,
+        unsupported_count: 0,
+        unknown_count: 1,
+      },
+      scopes: [
+        { id: "toc", failed_count: 1, autofixable_count: 0, manual_review_count: 0, unsupported_count: 0, unknown_count: 1 },
+      ],
+    });
+  }
+  throw new Error(`unexpected request ${url}`);
+};
+
+docxInput.files = [{ name: "paper.docx" }];
+await docxInput.emit("change");
+
+assert.equal(scopeInput.disabled, true);
+assert.equal(scopeState.textContent, "需人工确认");
+"""
+    )
+
+
 def test_plan_ledger_does_not_claim_a_scope_count_for_manual_items():
     _run_node(
         """
@@ -351,7 +276,7 @@ fetchHandler = async (url) => {
   if (url === "/uploads/docx") {
     return jsonResponse({ upload_id: "docx-1", file_name: "paper.docx", stored_path: "/tmp/paper.docx" });
   }
-  if (url === "/plan") {
+  if (url === "/uploads/docx-1/plan") {
     return jsonResponse({
       score: 90,
       summary: { autofixable_scopes: 1, manual_confirmation_items: 2 },
@@ -388,7 +313,20 @@ resolveHistory(jsonResponse([{ job_id: "stale-job", status: "succeeded" }]));
 await new Promise((resolve) => setImmediate(resolve));
 
 assert.equal(historyList.innerHTML, "unchanged");
-assert.deepEqual(getState().jobHistory, []);
+"""
+    )
+
+
+def test_empty_history_record_links_back_to_the_workbench():
+    _run_node(
+        """
+fetchHandler = async () => jsonResponse([]);
+
+await historyNav.emit("click");
+await new Promise((resolve) => setImmediate(resolve));
+
+assert.match(historyList.innerHTML, /data-action="enter-workbench"/);
+assert.match(historyList.innerHTML, /上传论文/);
 """
     )
 
@@ -402,7 +340,7 @@ fetchHandler = (url) => {
   if (url === "/uploads/docx") {
     return new Promise((resolve) => { resolveUpload = resolve; });
   }
-  if (url === "/plan") {
+  if (url === "/uploads/docx-1/plan") {
     return new Promise((resolve) => { resolvePlan = resolve; });
   }
   throw new Error(`unexpected request ${url}`);
@@ -447,6 +385,43 @@ assert.equal(statusMessage.textContent, "方案完成后再生成修正结果");
     )
 
 
+def test_apply_submits_selected_scopes_once_while_the_job_is_starting():
+    _run_node(
+        """
+setState({
+  docxUpload: { upload_id: "docx-1", file_name: "paper.docx" },
+  documentEpoch: 10,
+  workbenchPlan: { scopes: [] },
+});
+scopeInput.checked = true;
+scopeInput.disabled = false;
+let resolveCreate;
+let createCount = 0;
+fetchHandler = async (url, options) => {
+  if (url.endsWith("/jobs/apply")) {
+    createCount += 1;
+    assert.deepEqual(JSON.parse(options.body).scopes, ["toc"]);
+    return new Promise((resolve) => { resolveCreate = resolve; });
+  }
+  if (url === "/jobs/apply-1") return jsonResponse({ job_id: "apply-1", status: "succeeded" });
+  if (url === "/jobs/apply-1/result") {
+    return jsonResponse({ operation: "apply", job_id: "apply-1", result: {}, summary: {}, artifacts: [] });
+  }
+  throw new Error(`unexpected request ${url}`);
+};
+
+const firstRun = applyButton.emit("click");
+await new Promise((resolve) => setImmediate(resolve));
+const duplicateRun = applyButton.emit("click");
+await new Promise((resolve) => setImmediate(resolve));
+
+assert.equal(createCount, 1);
+resolveCreate(jsonResponse({ job_id: "apply-1" }, 201));
+await Promise.all([firstRun, duplicateRun]);
+"""
+    )
+
+
 def test_result_spectrum_uses_backend_scope_results_instead_of_fixed_cells():
     _run_node(
         r"""
@@ -482,6 +457,32 @@ assert.match(resultHeatmap.innerHTML, /class="pass"[^>]*>\s*<b>目录<\/b>\s*<sm
 assert.match(resultHeatmap.innerHTML, /class="warn"[^>]*>\s*<b>图表<\/b>\s*<small>2项<\/small>/);
 assert.equal((resultHeatmap.innerHTML.match(/<span/g) || []).length, 2);
 assert.equal(flowSteps.find((step) => step.dataset.flowStage === "download").classList.contains("active"), true);
+"""
+    )
+
+
+def test_result_copy_distinguishes_not_generated_from_missing_artifacts():
+    _run_node(
+        """
+assert.equal(resultDownloadNote.textContent, "生成结果后可下载");
+assert.equal(resultReportText.textContent, "生成结果后可下载报告");
+assert.equal(resultEmpty.hidden, false);
+assert.equal(resultDetails.every((node) => node.hidden === true), true);
+
+setState({
+  docxUpload: { upload_id: "docx-1", file_name: "paper.docx" },
+  documentEpoch: 10,
+  pdfReviewRequiresFreshDocx: false,
+});
+installSuccessfulApply();
+scopeInput.checked = true;
+scopeInput.disabled = false;
+await applyButton.emit("click");
+
+assert.equal(resultDownloadNote.textContent, "下载文件已不可用 请重新运行修复");
+assert.equal(resultReportText.textContent, "报告文件已不可用 请重新运行修复");
+assert.equal(resultEmpty.hidden, true);
+assert.equal(resultDetails.every((node) => node.hidden === false), true);
 """
     )
 
@@ -642,7 +643,7 @@ fetchHandler = async (url) => {
   if (url === "/uploads/docx") {
     return jsonResponse({ upload_id: "docx-2", file_name: "paper-fixed.docx", stored_path: "/tmp/paper-fixed.docx" });
   }
-  if (url === "/plan") return jsonResponse({ scopes: [], summary: {} });
+  if (url === "/uploads/docx-2/plan") return jsonResponse({ scopes: [], summary: {} });
   throw new Error(`unexpected request ${url}`);
 };
 docxInput.files = [{ name: "paper-fixed.docx" }];

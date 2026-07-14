@@ -1,6 +1,141 @@
 import json
 
-from tests.test_frontend_app_behavior import PDF_REVIEW_URL, _run_node
+from tests.frontend_app_harness import PDF_REVIEW_URL, run_node as _run_node
+
+
+def test_pdf_review_module_owns_shell_context_and_reset_rendering():
+    _run_node(
+        f"""
+const {{ isPdfMatchConfirmed, renderPdfReviewContext, resetPdfReview }} = await import({json.dumps(PDF_REVIEW_URL)});
+const confirmation = new FakeElement();
+confirmation.checked = true;
+const documentName = new FakeElement();
+const pdfName = new FakeElement();
+const shellRenderState = new FakeElement();
+const shellConclusion = new FakeElement();
+const shellPages = new FakeElement();
+const shellIssues = new FakeElement();
+const list = new FakeElement();
+const stage = new FakeElement();
+const detail = new FakeElement();
+const root = {{
+  querySelector(selector) {{
+    return {{
+      "#pdf-match-confirmation": confirmation,
+      "[data-pdf-docx-file]": documentName,
+      "[data-pdf-file]": pdfName,
+      "[data-render-state]": shellRenderState,
+      '[data-pdf-metric="conclusion"]': shellConclusion,
+      '[data-pdf-metric="pages"]': shellPages,
+      '[data-pdf-metric="issues"]': shellIssues,
+      "[data-pdf-issues]": list,
+      "[data-pdf-stage]": stage,
+      "[data-pdf-detail]": detail,
+    }}[selector] || null;
+  }},
+}};
+
+assert.equal(isPdfMatchConfirmed(root), true);
+renderPdfReviewContext(root, {{
+  documentName: "paper.docx",
+  pdfName: "paper.pdf",
+  status: "已完成",
+  confirmationChecked: false,
+}});
+assert.equal(documentName.textContent, "paper.docx");
+assert.equal(pdfName.textContent, "paper.pdf");
+assert.equal(shellRenderState.textContent, "已完成");
+assert.equal(confirmation.checked, false);
+
+resetPdfReview(root, {{
+  renderState: "复核中",
+  conclusion: "待确认",
+  title: "正在复核 PDF",
+  message: "完成后显示页面问题",
+}});
+assert.equal(isPdfMatchConfirmed(root), false);
+assert.equal(pdfName.textContent, "等待上传对应 PDF");
+assert.equal(shellRenderState.textContent, "复核中");
+assert.equal(shellConclusion.textContent, "待确认");
+assert.equal(shellPages.textContent, "--");
+assert.equal(shellIssues.textContent, "--");
+assert.equal(stage.firstElementChild.children[0].textContent, "正在复核 PDF");
+assert.equal(stage.firstElementChild.children[1].textContent, "完成后显示页面问题");
+"""
+    )
+
+
+def test_pdf_review_reset_returns_new_evidence_to_the_first_issue():
+    _run_node(
+        f"""
+const {{ bindPdfReview, renderPdfReview, resetPdfReview }} = await import({json.dumps(PDF_REVIEW_URL)});
+const list = new FakeElement();
+const stage = new FakeElement();
+const detail = new FakeElement();
+const root = new FakeElement();
+root.querySelector = (selector) => ({{
+  "[data-pdf-issues]": list,
+  "[data-pdf-stage]": stage,
+  "[data-pdf-detail]": detail,
+}}[selector] || null);
+const result = {{
+  evidence_items: [
+    {{ page: 2, rule_id: "render.line_overflow" }},
+    {{ page: 5, rule_id: "render.heading_orphan_at_page_bottom" }},
+  ],
+}};
+let currentResult = result;
+bindPdfReview(root, () => renderPdfReview(root, currentResult));
+
+renderPdfReview(root, currentResult);
+const secondIssue = list.children[1];
+await root.emit("click", {{
+  target: {{
+    closest(selector) {{
+      return selector === "[data-issue-index]" ? secondIssue : null;
+    }},
+  }},
+}});
+assert.equal(list.children[1].ariaPressed, "true");
+
+resetPdfReview(root);
+currentResult = {{ ...result, evidence_items: [...result.evidence_items] }};
+renderPdfReview(root, currentResult);
+assert.equal(list.children[0].ariaPressed, "true");
+assert.equal(list.children[1].ariaPressed, "false");
+"""
+    )
+
+
+def test_pdf_metrics_preserve_legacy_count_only_when_evidence_items_are_absent():
+    _run_node(
+        f"""
+const {{ renderPdfReview }} = await import({json.dumps(PDF_REVIEW_URL)});
+const issues = new FakeElement();
+const list = new FakeElement();
+const stage = new FakeElement();
+const detail = new FakeElement();
+const root = {{
+  querySelector(selector) {{
+    return {{
+      '[data-pdf-metric="issues"]': issues,
+      "[data-pdf-issues]": list,
+      "[data-pdf-stage]": stage,
+      "[data-pdf-detail]": detail,
+    }}[selector] || null;
+  }},
+}};
+
+renderPdfReview(root, {{ render_summary: {{ actionable_finding_count: 3 }} }});
+assert.equal(issues.textContent, "3");
+
+renderPdfReview(root, {{
+  evidence_items: [],
+  render_summary: {{ actionable_finding_count: 3 }},
+}});
+assert.equal(issues.textContent, "0");
+"""
+    )
 
 
 def test_pdf_empty_state_uses_only_backend_readiness_evidence():
@@ -78,7 +213,7 @@ renderPdfReview(root, {{
   evidence_items: [{{
     page: 3,
     screenshot_url: "/render-evidence/screenshot/missing",
-    rule_id: "render.toc_page_mismatch",
+    rule_id: "render.toc_page_number_mismatch",
     message: "目录页码需要确认",
     severity: "warning",
     next_action: "重新导出 PDF",
@@ -86,10 +221,18 @@ renderPdfReview(root, {{
   }}],
 }});
 
-const frame = stage.firstElementChild;
+const issueButton = list.firstElementChild;
+assert.equal(issueButton.children[0].textContent, "第 3 页");
+assert.equal(issueButton.children[1].textContent, "目录页码疑似错位");
+assert.equal(issueButton.ariaPressed, "true");
+
+const view = stage.firstElementChild;
+assert.equal(view.className, "pdf-evidence-view");
+const frame = view.children[0];
 assert.equal(frame.className, "pdf-page-frame");
 const highlight = frame.children[1];
 assert.equal(highlight.className, "evidence-highlight");
+assert.equal(highlight.dataset.label, "问题位置");
 assert.deepEqual({{
   left: highlight.style.left,
   top: highlight.style.top,
@@ -101,6 +244,12 @@ assert.deepEqual({{
   width: "30%",
   height: "10%",
 }});
+const zoom = view.children[1];
+assert.equal(zoom.className, "pdf-evidence-zoom");
+assert.equal(zoom.children[0].textContent, "问题片段");
+assert.equal(zoom.children[1].className, "pdf-evidence-crop");
+assert.equal(zoom.children[1].style.backgroundImage, 'url("/render-evidence/screenshot/missing")');
+assert.equal(zoom.children[1].style.backgroundPosition, "25% 25%");
 const image = frame.firstElementChild;
 await image.emit("error");
 
@@ -108,6 +257,84 @@ const emptyState = stage.firstElementChild;
 assert.equal(emptyState.className, "empty-state");
 assert.equal(emptyState.children[0].textContent, "页面截图已不可用");
 assert.equal(emptyState.children[1].textContent, "请重新复核 PDF");
+
+renderPdfReview(root, {{
+  evidence_items: [{{
+    page: 4,
+    screenshot_url: "/render-evidence/screenshot/page-4",
+    rule_id: "render.line_overflow",
+    bbox: {{ x: 0, y: 0, w: 1, h: 1 }},
+  }}],
+}});
+
+const pageView = stage.firstElementChild;
+assert.equal(pageView.className, "pdf-evidence-view single");
+assert.equal(pageView.children.length, 1);
+const pageFrame = pageView.firstElementChild;
+assert.equal(pageFrame.children.length, 2);
+assert.equal(pageFrame.children[1].className, "page-notice");
+assert.equal(pageFrame.children[1].textContent, "这一页需要整体确认");
+"""
+    )
+
+
+def test_pdf_text_spans_override_legacy_bbox_and_render_multiple_real_boxes():
+    _run_node(
+        f"""
+const {{ renderPdfReview }} = await import({json.dumps(PDF_REVIEW_URL)});
+const list = new FakeElement();
+const stage = new FakeElement();
+const detail = new FakeElement();
+const root = {{
+  querySelector(selector) {{
+    return {{
+      "[data-pdf-issues]": list,
+      "[data-pdf-stage]": stage,
+      "[data-pdf-detail]": detail,
+    }}[selector] || null;
+  }},
+}};
+
+renderPdfReview(root, {{
+  evidence_items: [{{
+    page: 8,
+    screenshot_url: "/render-evidence/screenshot/page-8",
+    rule_id: "render.heading_orphan_at_page_bottom",
+    bbox: {{ x: 0, y: 0, w: 1, h: 1 }},
+    text_spans: [
+      {{ text: "1.1", bbox: {{ x: 0.1, y: 0, w: 0.2, h: 0.1 }} }},
+      {{ text: "研究背景", bbox: {{ x: 0.1, y: 0.2, w: 0.2, h: 0.1 }} }},
+      {{ text: "bad", bbox: {{ x: 1.2, y: 0.4, w: 0.2, h: 0.1 }} }},
+    ],
+  }}],
+}});
+
+const view = stage.firstElementChild;
+assert.equal(view.className, "pdf-evidence-view multiple");
+const frame = view.firstElementChild;
+assert.equal(frame.children.length, 3);
+const first = frame.children[1];
+const second = frame.children[2];
+assert.equal(first.className, "evidence-highlight");
+assert.equal(first.dataset.label, "问题位置");
+assert.equal(first.ariaHidden, "true");
+assert.equal(second.className, "evidence-highlight");
+assert.equal(second.dataset.label, undefined);
+assert.deepEqual({{ left: first.style.left, top: first.style.top }}, {{ left: "10%", top: "0%" }});
+assert.deepEqual({{ left: second.style.left, top: second.style.top }}, {{ left: "10%", top: "20%" }});
+const zoom = view.children[1];
+assert.equal(zoom.children[0].textContent, "问题片段 2 处");
+const crop = zoom.children[1];
+const image = frame.children[0];
+image.naturalWidth = 100;
+image.naturalHeight = 200;
+crop.getBoundingClientRect = () => ({{ width: 400, height: 320 }});
+await image.emit("load");
+assert.equal(crop.style.backgroundSize, "93% auto");
+assert.equal(crop.style.backgroundPosition, "126px 48px");
+assert.equal(crop.role, "img");
+assert.match(crop.ariaLabel, /第 8 页/);
+assert.equal(list.firstElementChild.getAttribute("aria-controls"), "pdf-evidence-stage");
 """
     )
 
@@ -503,7 +730,10 @@ renderPdfReview(root, {{
   }}],
 }});
 
-const frame = stage.firstElementChild;
+const view = stage.firstElementChild;
+assert.equal(view.className, "pdf-evidence-view single");
+assert.equal(view.children.length, 1);
+const frame = view.firstElementChild;
 assert.equal(frame.children.length, 2);
 assert.equal(frame.children[1].className, "page-notice");
 assert.equal(frame.children[1].textContent, "这一页需要整体确认");

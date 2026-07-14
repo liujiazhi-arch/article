@@ -1,9 +1,13 @@
+import hashlib
 import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from article_api.app import create_app
+
+
+LAYOUT_BASELINE_SHA256 = "e404b51d64378834832c2abd6b892b3b6396702abeecc21f7c0eec7a741d1ae7"
 
 
 def test_static_frontend_serves_index_at_root():
@@ -13,6 +17,7 @@ def test_static_frontend_serves_index_at_root():
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["cache-control"] == "no-cache"
     assert "辽宁大学" in response.text
     assert "data-app=\"lnu-thesis-workbench\"" in response.text
     assert "data-screen=\"workbench\"" in response.text
@@ -37,14 +42,49 @@ def test_static_frontend_serves_css_and_js_assets():
 
     css_response = client.get("/static/styles/tokens.css")
     js_response = client.get("/static/js/app.js")
-    actions_response = client.get("/static/js/globalActions.js")
 
     assert css_response.status_code == 200
+    assert css_response.headers["cache-control"] == "no-cache"
     assert "--text-base: 16px" in css_response.text
     assert js_response.status_code == 200
+    assert js_response.headers["cache-control"] == "no-cache"
     assert "initWorkbench" in js_response.text
-    assert actions_response.status_code == 200
-    assert "bindGlobalActions" in actions_response.text
+
+
+def test_static_stylesheets_preserve_the_versioned_visual_baseline():
+    client = TestClient(create_app())
+
+    html = client.get("/").text
+    versioned_hrefs = re.findall(r'<link rel="stylesheet" href="([^"]+)">', html)
+    assert all("?v=" in href for href in versioned_hrefs)
+    hrefs = [href.split("?", 1)[0] for href in versioned_hrefs]
+    expected = [
+        "/static/styles/tokens.css",
+        "/static/styles/themes.css",
+        "/static/styles/layout.css",
+        "/static/styles/format-radar.css",
+    ]
+
+    assert hrefs == expected
+    styles = {path: client.get(path).text for path in expected}
+    assert all(client.get(path).status_code == 200 for path in expected)
+    layout_digest = hashlib.sha256(styles["/static/styles/layout.css"].encode("utf-8")).hexdigest()
+    assert layout_digest == LAYOUT_BASELINE_SHA256
+    assert "--text-base: 16px" in styles["/static/styles/tokens.css"]
+    assert "--font-ui" in styles["/static/styles/layout.css"]
+    assert "--radius-xl" in styles["/static/styles/layout.css"]
+    assert "--asset-workflow-board" in styles["/static/styles/layout.css"]
+    assert '[data-theme="snow"]' in styles["/static/styles/layout.css"]
+    assert ".cover-grid" in styles["/static/styles/layout.css"]
+    assert ".workbench-layout" in styles["/static/styles/layout.css"]
+    assert ".pdf-layout" in styles["/static/styles/layout.css"]
+    assert re.search(
+        r"\.pdf-layout\s*\{[^}]*grid-template-columns:\s*360px minmax\(0, 1fr\)",
+        styles["/static/styles/layout.css"],
+        re.S,
+    )
+    assert ".history-layout" in styles["/static/styles/layout.css"]
+    assert ".result-layout" in styles["/static/styles/layout.css"]
 
 
 def test_static_frontend_contains_four_theme_controls():
@@ -79,6 +119,16 @@ def test_static_frontend_preserves_prototype_screen_markers():
     assert "--asset-result-board" in css
 
 
+def test_feature_cards_are_real_screen_navigation_buttons():
+    client = TestClient(create_app())
+
+    html = client.get("/").text
+    kit = html[html.index('<div class="kit-list">') : html.index("</aside>", html.index('<div class="kit-list">'))]
+    targets = re.findall(r'<button type="button" data-screen-target="([^"]+)">', kit)
+
+    assert targets == ["workbench", "workbench", "pdf-review", "history", "result", "result"]
+
+
 def test_static_frontend_exposes_real_result_history_and_metric_hooks():
     client = TestClient(create_app())
 
@@ -105,6 +155,56 @@ def test_static_frontend_exposes_real_result_history_and_metric_hooks():
     assert 'data-pdf-metric="issues"' in html
 
 
+def test_pdf_review_relies_on_automatic_results_without_a_redundant_refresh_action():
+    client = TestClient(create_app())
+
+    html = client.get("/").text
+
+    assert 'data-action="refresh-render-result"' not in html
+
+
+def test_pdf_review_explains_manual_image_adjustment_without_fake_evidence():
+    client = TestClient(create_app())
+
+    html = client.get("/").text
+    css = client.get("/static/styles/layout.css").text
+    pdf_review = html[html.index('<section class="screen" data-screen="pdf-review">') : html.index("</section>", html.index('<section class="screen" data-screen="pdf-review">'))]
+
+    assert "图片留白优先人工调整" in pdf_review
+    assert "等比例微调图片尺寸" in pdf_review
+    assert 'class="ruler-page"' not in pdf_review
+    assert 'class="pdf-evidence-box"' not in pdf_review
+    assert 'class="film-frame"' not in pdf_review
+    assert 'id="pdf-evidence-stage"' in pdf_review
+    assert 'role="region"' in pdf_review
+    assert 'role="group"' in pdf_review
+    assert re.search(r"\.pdf-guidance span\s*\{[^}]*color: var\(--pdf-ink\)", css, re.S)
+    assert re.search(r"\.finding p\s*\{[^}]*color: var\(--pdf-ink\)[^}]*font-size: 15px", css, re.S)
+
+
+def test_result_screen_keeps_a_clear_path_back_to_the_workbench():
+    client = TestClient(create_app())
+
+    html = client.get("/").text
+    result = html[html.index('<section class="screen" data-screen="result">') : html.index("</section>", html.index('<section class="screen" data-screen="result">'))]
+
+    assert 'data-action="enter-workbench"' in result
+    assert "返回工作台" in result
+
+
+def test_result_screen_hides_detail_blocks_until_results_exist():
+    client = TestClient(create_app())
+
+    html = client.get("/").text
+    css = client.get("/static/styles/layout.css").text
+    result = html[html.index('<section class="screen" data-screen="result">') : html.index("</section>", html.index('<section class="screen" data-screen="result">'))]
+
+    assert 'data-result-empty' in result
+    assert "结果生成后会显示在这里" in result
+    assert "[data-result-detail][hidden]" in css
+    assert "[data-result-empty][hidden]" in css
+
+
 def test_static_frontend_exposes_workbench_plan_hooks_without_fake_counts():
     client = TestClient(create_app())
 
@@ -126,31 +226,32 @@ def test_static_frontend_real_action_buttons_use_theme_action_style():
     client = TestClient(create_app())
 
     response = client.get("/")
-    css_response = client.get("/static/styles/layout.css")
+    layout_response = client.get("/static/styles/layout.css")
 
     assert response.status_code == 200
-    assert css_response.status_code == 200
+    assert layout_response.status_code == 200
     html = response.text
-    css = css_response.text
     assert 'class="theme-action pdf-action-button"' in html
     assert 'class="theme-action result-download-button"' in html
     assert 'data-download-role="output"' in html
-    assert ".theme-action" in css
-    assert ".pdf-action-button" in css
-    assert ".result-download-button" in css
-    assert ".pdf-action button {" not in css
+    assert ".theme-action" in layout_response.text
+    assert ".pdf-action-button" in layout_response.text
+    assert ".result-download-button" in layout_response.text
+    assert ".pdf-action button {" not in layout_response.text
 
 
 def test_workbench_upload_actions_are_embedded_in_glass_rail():
     client = TestClient(create_app())
 
     response = client.get("/")
-    css_response = client.get("/static/styles/layout.css")
+    layout_response = client.get("/static/styles/layout.css")
+    app_response = client.get("/static/js/app.js")
 
     assert response.status_code == 200
-    assert css_response.status_code == 200
+    assert layout_response.status_code == 200
+    assert app_response.status_code == 200
     html = response.text
-    css = css_response.text
+    css = layout_response.text
     assert 'class="upload-action-rail"' in html
     assert 'class="upload-action primary"' in html
     assert 'class="upload-action"' in html
@@ -158,7 +259,11 @@ def test_workbench_upload_actions_are_embedded_in_glass_rail():
     assert 'data-action="create-apply-job" disabled><b>生成结果</b></button>' in html
     assert 'data-action="create-plan"><b>修复方案</b></button>' in html
     assert "<input id=\"docx-input\" class=\"visually-hidden\" type=\"file\" accept=\".docx\" hidden>" in html
-    assert html.count("20260712-contract-closeout") == 2
+    assert 'layout.css?v=20260714-style-restore' in html
+    assert 'app.js?v=20260714-module-ownership' in html
+    assert 'state.js?v=20260714-module-ownership' in app_response.text
+    assert 'pdfReview.js?v=20260714-module-ownership' in app_response.text
+    assert 'workflowView.js?v=20260714-module-ownership' in app_response.text
     upload_start = html.index('<div class="doc-aperture">')
     upload_end = html.index('<div class="repair-preview">')
     upload_html = html[upload_start:upload_end]
@@ -173,9 +278,9 @@ def test_workbench_upload_actions_are_embedded_in_glass_rail():
     assert 'class="token">开始修正</span>' not in html
     assert '<button class="upload-action" type="button" data-action="create-apply-job"><small>3</small><b>修复方案</b></button>' not in html
     assert ".upload-action-rail" in css
-    assert ".visually-hidden" in css
-    assert "display: none !important" in css
-    assert "clip-path: inset(50%)" in css
+    assert ".visually-hidden" in layout_response.text
+    assert "display: none !important" in layout_response.text
+    assert "clip-path: inset(50%)" in layout_response.text
     assert ".doc-aperture::before" not in css
     assert ".doc-aperture::after" not in css
     assert ".upload-action::after" not in css
@@ -183,6 +288,20 @@ def test_workbench_upload_actions_are_embedded_in_glass_rail():
     assert "width: 14px" in css
     assert "height: 14px" in css
     assert "border-radius: 50%" in css
+
+
+def test_desktop_workbench_places_the_ledger_beside_the_tall_scope_rail():
+    client = TestClient(create_app())
+
+    css = client.get("/static/styles/layout.css").text
+    left_rail = css[css.index(".left-rail {") : css.index("}", css.index(".left-rail {"))]
+    ledger = css[css.index(".ledger {") : css.index("}", css.index(".ledger {"))]
+    compact = css[css.index("@media (max-width: 980px)") :]
+
+    assert "grid-row: 1 / span 2" in left_rail
+    assert "grid-column: 2 / -1" in ledger
+    assert "grid-row: auto" in compact
+    assert "grid-column: 1 / -1" in compact
 
 
 def test_static_frontend_uses_migrated_action_hooks_not_legacy_console_ids():
@@ -222,21 +341,42 @@ def test_format_radar_exposes_real_state_hooks():
     client = TestClient(create_app())
 
     response = client.get("/")
-    css_response = client.get("/static/styles/layout.css")
+    css_response = client.get("/static/styles/format-radar.css")
 
     assert response.status_code == 200
     assert css_response.status_code == 200
     html = response.text
     css = css_response.text
-    assert 'class="radar"' in html
+    assert 'href="/static/styles/format-radar.css' in html
+    assert 'data-format-radar-panel' in html
+    assert 'class="format-radar-dial"' in html
     assert 'data-format-radar' in html
     assert 'data-format-radar-label' in html
+    assert 'data-format-radar-conclusion' in html
+    assert 'data-format-radar-note' in html
+    assert 'data-format-radar-unknown' in html
+    assert 'data-format-radar-status' in html
+    assert 'class="format-radar-live-status"' in html
+    assert '<dt>方案范围</dt><dd data-format-radar-metric="scope-count">' in html
+    assert html.count('data-format-radar-metric') == 5
     assert "--radar-progress" in css
-    radar_start = css.index(".radar {")
+    assert ".format-radar-metrics" in css
+    assert ".format-radar-note" in css
+    radar_start = css.index(".format-radar-dial {")
     radar_rule = css[radar_start : css.index("}", radar_start)]
     assert "width: 168px" in radar_rule
     assert "aspect-ratio: 1" in radar_rule
     assert "border-radius: 50%" in radar_rule
+    live_start = css.index(".format-radar-live-status {")
+    live_rule = css[live_start : css.index("}", live_start)]
+    assert "clip-path: inset(50%)" in live_rule
+    assert "display:" not in live_rule
+    value_label_start = css.index(".format-radar-value span {")
+    value_label_rule = css[value_label_start : css.index("}", value_label_start)]
+    metric_label_start = css.index(".format-radar-metric dt {")
+    metric_label_rule = css[metric_label_start : css.index("}", metric_label_start)]
+    assert "font-size: 0.8125rem" in value_label_rule
+    assert "font-size: 0.8125rem" in metric_label_rule
     assert "overflow: hidden" in radar_rule
 
 

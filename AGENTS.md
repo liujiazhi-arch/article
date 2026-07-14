@@ -56,6 +56,7 @@
 当前稳定主链是：
 
 - `scripts/thesis_workbench.py`
+- `scripts/thesis_tool/scope_plan.py`
 - `scripts/thesis_tool/workflow.py`
 - `scripts/audit_thesis.py`
 - `scripts/fix_thesis.py`
@@ -68,7 +69,8 @@
 ```text
 CLI
   -> thesis_workbench.py
-    -> thesis_tool/workflow.py
+    -> thesis_tool/scope_plan.py (plan)
+    -> thesis_tool/workflow.py (apply / verify)
       -> audit_thesis.py / fix_thesis.py
         -> _thesis_utils.py
           -> DocumentModel / ParagraphNode / section-module 分类
@@ -79,7 +81,8 @@ CLI
 - `scripts/thesis_workbench.py`：推荐用户入口
 - `scripts/thesis_tool/scopes.py`：scope 定义与别名
 - `scripts/thesis_tool/capabilities.py`：读取 `config/capability_matrix.md`
-- `scripts/thesis_tool/workflow.py`：plan/apply/verify 编排
+- `scripts/thesis_tool/scope_plan.py`：审查结果到 scope plan 的唯一组装入口
+- `scripts/thesis_tool/workflow.py`：apply/verify 编排
 - `scripts/audit_thesis.py`：rule runtime、profile 解析、报告生成
 - `scripts/fix_thesis.py`：按 scope 修复
 - `scripts/_thesis_utils.py`：document_model、段落分类、section/bucket/module 工具

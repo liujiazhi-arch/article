@@ -5,6 +5,7 @@ from docx import Document
 import pytest
 
 import thesis_tool.render_verify as render_verify_module
+import thesis_tool.render_sources as render_sources_module
 
 
 def test_extract_pdf_page_texts_uses_pdfium_when_pdftotext_is_missing(monkeypatch, tmp_path):
@@ -188,7 +189,7 @@ def test_build_render_verify_report_requires_usable_pdf_text(
             },
         }
 
-    monkeypatch.setattr(render_verify_module, "_run_render_engine", fake_run_render_engine)
+    monkeypatch.setattr(render_sources_module, "_run_render_engine", fake_run_render_engine)
     monkeypatch.setattr(
         render_verify_module,
         "_extract_pdf_page_texts",

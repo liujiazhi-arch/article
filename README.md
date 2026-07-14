@@ -222,7 +222,8 @@ python3 scripts/thesis_workbench.py verify 修复后_摘要.docx --profile lnu -
 ```text
 CLI
   -> thesis_workbench.py
-    -> thesis_tool/workflow.py
+    -> thesis_tool/scope_plan.py (plan)
+    -> thesis_tool/workflow.py (apply / verify)
       -> audit_thesis.py / fix_thesis.py
         -> _thesis_utils.py
           -> DocumentModel / ParagraphNode / section-module 分类
@@ -231,7 +232,8 @@ CLI
 核心入口：
 
 - `scripts/thesis_workbench.py`：推荐用户入口
-- `scripts/thesis_tool/workflow.py`：scope/workflow 编排层
+- `scripts/thesis_tool/scope_plan.py`：scope plan 组装层
+- `scripts/thesis_tool/workflow.py`：apply/verify 编排层
 - `scripts/audit_thesis.py`：审查引擎
 - `scripts/fix_thesis.py`：修复引擎
 - `scripts/_thesis_utils.py`：文档模型与共享工具

@@ -7,6 +7,7 @@ from docx import Document
 import pytest
 
 import thesis_tool.render_verify as render_verify_module
+import thesis_tool.render_sources as render_sources_module
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
@@ -62,7 +63,7 @@ def test_find_external_tool_prefers_existing_env_path(monkeypatch, tmp_path):
     tool_path.write_text("#!/bin/sh\n", encoding="utf-8")
     monkeypatch.setenv("ARTICLE_CUSTOM_TOOL", str(tool_path))
     monkeypatch.setattr(
-        render_verify_module.shutil,
+        render_sources_module.shutil,
         "which",
         lambda name: pytest.fail("env path should be used before PATH lookup"),
     )
@@ -76,7 +77,7 @@ def test_find_external_tool_prefers_existing_env_path(monkeypatch, tmp_path):
 
 def test_find_external_tool_falls_back_to_path_lookup(monkeypatch):
     monkeypatch.delenv("ARTICLE_CUSTOM_TOOL", raising=False)
-    monkeypatch.setattr(render_verify_module.shutil, "which", lambda name: f"/opt/bin/{name}")
+    monkeypatch.setattr(render_sources_module.shutil, "which", lambda name: f"/opt/bin/{name}")
 
     assert render_verify_module._find_external_tool(
         env_name="ARTICLE_CUSTOM_TOOL",
@@ -87,7 +88,7 @@ def test_find_external_tool_falls_back_to_path_lookup(monkeypatch):
 
 def test_find_external_tool_missing_raises_original_message(monkeypatch):
     monkeypatch.delenv("ARTICLE_CUSTOM_TOOL", raising=False)
-    monkeypatch.setattr(render_verify_module.shutil, "which", lambda name: None)
+    monkeypatch.setattr(render_sources_module.shutil, "which", lambda name: None)
 
     with pytest.raises(RuntimeError, match="missing custom tool.*ARTICLE_CUSTOM_TOOL"):
         render_verify_module._find_external_tool(
@@ -109,7 +110,7 @@ def test_convert_pdf_to_page_images_removes_stale_pages(monkeypatch, tmp_path):
         Path(f"{command[-1]}-1.png").write_bytes(b"new")
         return SimpleNamespace(stdout="", stderr="")
 
-    monkeypatch.setattr(render_verify_module, "_find_pdftoppm", lambda: "/usr/bin/pdftoppm")
+    monkeypatch.setattr(render_sources_module, "_find_pdftoppm", lambda: "/usr/bin/pdftoppm")
     monkeypatch.setattr(render_verify_module.subprocess, "run", fake_run)
 
     render_verify_module._convert_pdf_to_page_images(str(pdf_path), str(page_dir))
@@ -128,7 +129,7 @@ def test_convert_pdf_to_page_images_uses_pdfium_when_poppler_is_missing(monkeypa
     def missing_poppler():
         raise RuntimeError("pdftoppm missing")
 
-    monkeypatch.setattr(render_verify_module, "_find_pdftoppm", missing_poppler)
+    monkeypatch.setattr(render_sources_module, "_find_pdftoppm", missing_poppler)
 
     render_verify_module._convert_pdf_to_page_images(str(pdf_path), str(page_dir))
 
@@ -152,7 +153,7 @@ def test_word_pdf_export_script_targets_opened_file_not_active_document(monkeypa
         return SimpleNamespace(stdout="", stderr="")
 
     monkeypatch.setattr(render_verify_module.sys, "platform", "darwin")
-    monkeypatch.setattr(render_verify_module.shutil, "which", lambda name: "/usr/bin/osascript" if name == "osascript" else None)
+    monkeypatch.setattr(render_sources_module.shutil, "which", lambda name: "/usr/bin/osascript" if name == "osascript" else None)
     monkeypatch.setattr(render_verify_module.subprocess, "run", fake_run)
 
     render_verify_module._export_docx_to_pdf_with_word(str(source_path), str(output_pdf))
@@ -177,7 +178,7 @@ def test_word_pdf_export_timeout_explains_word_automation_block(monkeypatch, tmp
         raise render_verify_module.subprocess.TimeoutExpired(command, timeout=kwargs["timeout"])
 
     monkeypatch.setattr(render_verify_module.sys, "platform", "darwin")
-    monkeypatch.setattr(render_verify_module.shutil, "which", lambda name: "/usr/bin/osascript" if name == "osascript" else None)
+    monkeypatch.setattr(render_sources_module.shutil, "which", lambda name: "/usr/bin/osascript" if name == "osascript" else None)
     monkeypatch.setattr(render_verify_module.subprocess, "run", fake_run)
 
     with pytest.raises(RuntimeError, match="Word 自动化没有完成"):
@@ -189,6 +190,11 @@ def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypat
     doc = Document()
     doc.add_heading("Render Verify", level=1)
     doc.save(source_path)
+    diagnostics = {
+        "toc": {"status": "field_only"},
+        "heading_renumber_guard": {"status": "warn", "reason": "table_risk"},
+    }
+    verify_kwargs = {}
 
     def fake_run_render_engine(input_docx: str, output_dir: str, renderer: str) -> dict:
         page_dir = Path(output_dir) / "word_pdf_pages"
@@ -204,7 +210,7 @@ def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypat
             "warnings": [],
         }
 
-    monkeypatch.setattr(render_verify_module, "_run_render_engine", fake_run_render_engine)
+    monkeypatch.setattr(render_sources_module, "_run_render_engine", fake_run_render_engine)
     monkeypatch.setattr(
         render_verify_module,
         "analyze_page_images",
@@ -240,16 +246,13 @@ def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypat
             "style_conflict_count": 0,
             "table_heading_risk_count": 2,
             "recommended_actions": ["先复核目录域刷新。"],
-            "diagnostics": {
-                "toc": {"status": "field_only"},
-                "heading_renumber_guard": {"status": "warn", "reason": "table_risk"},
-            },
+            "diagnostics": diagnostics,
         },
     )
-    monkeypatch.setattr(
-        render_verify_module,
-        "build_scope_verify",
-        lambda *args, **kwargs: {
+
+    def fake_build_scope_verify(*args, **kwargs):
+        verify_kwargs.update(kwargs)
+        return {
             "profile_id": "lnu-checker-2026",
             "requested_profile": "lnu",
             "fallback_used": False,
@@ -259,7 +262,12 @@ def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypat
             "readiness": "structure-ready",
             "manual_review_rule_ids": [],
             "unsupported_rule_ids": [],
-        },
+        }
+
+    monkeypatch.setattr(
+        render_verify_module,
+        "build_scope_verify",
+        fake_build_scope_verify,
     )
 
     report = render_verify_module.build_render_verify_report(
@@ -289,6 +297,7 @@ def test_build_render_verify_report_writes_markdown_and_collects_pages(monkeypat
     assert report["summary"]["wild_doc_signal_count"] == 2
     assert report["summary"]["render_finding_count"] == 0
     assert report["summary"]["render_highest_severity"] is None
+    assert verify_kwargs["diagnostics"] is diagnostics
     report_path = Path(report["report_path"])
     assert report_path.name == "render_verify_report.md"
     assert report_path.exists()
@@ -324,7 +333,7 @@ def test_external_rendered_pdf_uses_neutral_manual_pdf_evidence_source(monkeypat
     pdf_path = tmp_path / "word-export.pdf"
     pdf_path.write_bytes(b"%PDF")
 
-    monkeypatch.setattr(render_verify_module, "_convert_pdf_to_page_images", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render_sources_module, "_convert_pdf_to_page_images", lambda *args, **kwargs: None)
 
     metadata = render_verify_module._run_external_pdf_render(str(pdf_path), str(tmp_path / "proof"))
     trust = render_verify_module._classify_evidence_trust(metadata["engine"])
@@ -447,7 +456,7 @@ def test_run_render_engine_auto_does_not_fallback_to_artifact(monkeypatch, tmp_p
     def fake_word_pdf_render(input_docx: str, output_dir: str) -> dict:
         raise RuntimeError("Word PDF 渲染不可用: mock")
 
-    monkeypatch.setattr(render_verify_module, "_run_word_pdf_render", fake_word_pdf_render)
+    monkeypatch.setattr(render_sources_module, "_run_word_pdf_render", fake_word_pdf_render)
 
     with pytest.raises(RuntimeError, match="Word PDF 渲染不可用"):
         render_verify_module._run_render_engine("demo.docx", str(tmp_path), "auto")

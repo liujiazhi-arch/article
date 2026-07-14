@@ -13,7 +13,11 @@ def register_static_frontend_routes(app: Any, *, file_response_cls: Any, http_ex
         index_path = STATIC_ROOT / "index.html"
         if not index_path.exists():
             raise http_exception_cls(status_code=404, detail="Frontend index is unavailable.")
-        return file_response_cls(str(index_path), media_type="text/html; charset=utf-8")
+        return file_response_cls(
+            str(index_path),
+            media_type="text/html; charset=utf-8",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/static/{asset_path:path}", include_in_schema=False)
     def frontend_asset(asset_path: str):
@@ -24,4 +28,4 @@ def register_static_frontend_routes(app: Any, *, file_response_cls: Any, http_ex
             raise http_exception_cls(status_code=404, detail="Frontend asset is unavailable.") from exc
         if not requested.exists() or not requested.is_file():
             raise http_exception_cls(status_code=404, detail="Frontend asset is unavailable.")
-        return file_response_cls(str(requested))
+        return file_response_cls(str(requested), headers={"Cache-Control": "no-cache"})

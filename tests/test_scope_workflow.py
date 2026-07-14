@@ -4,16 +4,18 @@ from types import SimpleNamespace
 import audit_thesis
 from docx import Document
 from docx.oxml import OxmlElement
+import pytest
 
 from thesis_workbench import default_output_path
 from thesis_tool.scopes import scope_for_rule
+from thesis_tool.scope_plan import _build_scope_radar_summary, _scope_status, build_scope_plan
 from thesis_tool.workflow import (
     apply_scoped_fix,
     build_document_diagnostics,
     build_document_normalize,
     build_document_preflight,
-    build_scope_plan,
     build_scope_verify,
+    build_scope_verify_from_plan,
     render_document_diagnostics_compact,
     render_document_diagnostics,
     render_document_normalize,
@@ -22,8 +24,6 @@ from thesis_tool.workflow import (
     render_document_preflight_compact,
     render_scope_plan,
     render_scope_verify,
-    _build_scope_radar_summary,
-    _scope_status,
 )
 
 from .conftest import RULE_MUTATORS, _add_heading, _set_heading, audit_rule_status, make_compliant_doc
@@ -230,8 +230,12 @@ def test_scope_plan_all_scope_includes_unscoped_failures(monkeypatch, tmp_path):
 
     assert default_plan["failed_count"] == 2
     assert [item["id"] for item in default_plan["unscoped_failed"]] == ["UNSCOPED_X"]
+    assert default_plan["scope_radar_summary"]["unscoped_count"] == 1
+    assert default_plan["scope_radar_summary"]["unknown_count"] == 1
     assert all_plan["failed_count"] == default_plan["failed_count"]
     assert [item["id"] for item in all_plan["unscoped_failed"]] == ["UNSCOPED_X"]
+    assert all_plan["scope_radar_summary"]["unscoped_count"] == 1
+    assert all_plan["scope_radar_summary"]["unknown_count"] == 1
     assert all_plan["selected_scopes"] is None
 
 
@@ -846,6 +850,43 @@ def test_build_scope_verify_marks_field_only_toc_as_render_check_required(tmp_pa
     rendered = render_scope_verify(verification)
     assert "验证状态: needs_fix" in rendered
     assert "TOC_REFRESH_REQUIRED" in rendered
+
+
+def test_build_scope_verify_from_plan_reuses_existing_diagnostics(monkeypatch):
+    plan = {
+        "file_path": "paper.docx",
+        "profile_path": "lnu",
+        "profile_id": "lnu-checker-2026",
+        "requested_profile": "lnu",
+        "fallback_used": False,
+        "profile_display": "lnu-checker-2026 (requested: lnu)",
+        "score": 100,
+        "failed_count": 0,
+        "selected_scopes": ["toc"],
+        "scopes": [
+            {
+                "id": "toc",
+                "title": "目录",
+                "failed_count": 0,
+                "failed_items": [],
+                "autofixable_count": 0,
+                "manual_review_count": 0,
+                "unsupported_count": 0,
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "thesis_tool.workflow.build_document_diagnostics",
+        lambda *_args, **_kwargs: pytest.fail("pure verify must not reopen the DOCX"),
+    )
+
+    verification = build_scope_verify_from_plan(
+        plan,
+        diagnostics={"toc": {"status": "field_only"}},
+    )
+
+    assert verification["readiness"] == "render-check-required"
+    assert verification["render_check_rule_ids"] == ["TOC_REFRESH_REQUIRED"]
 
 
 def test_build_document_diagnostics_detects_lnu_preface_zero_based_mismatch(tmp_path):

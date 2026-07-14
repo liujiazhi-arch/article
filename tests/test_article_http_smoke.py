@@ -81,6 +81,29 @@ def _upload_pdf(client: TestClient, runtime_root: Path) -> dict[str, object]:
     return upload_response.json()
 
 
+def test_upload_plan_uses_the_composed_upload_resolver(monkeypatch, tmp_path):
+    captured = {}
+
+    monkeypatch.setattr(
+        app_module,
+        "resolve_upload",
+        lambda upload_id: {"upload_id": upload_id, "stored_path": "/virtual/current.docx"},
+    )
+
+    def fake_plan_document(**kwargs):
+        captured.update(kwargs)
+        return {"operation": "plan", "scopes": [], "summary": {}}
+
+    monkeypatch.setattr(app_module, "plan_document", fake_plan_document)
+    client = _make_client(monkeypatch, tmp_path / "state")
+
+    response = client.post("/uploads/injected-upload/plan", json={"profile": "lnu"})
+
+    assert response.status_code == 200
+    assert captured["file_path"] == "/virtual/current.docx"
+    assert captured["profile_path"] == "lnu"
+
+
 def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_docx, tmp_path):
     monkeypatch.delenv("ARTICLE_LOCAL_RELEASE_API_URL", raising=False)
     source_path = tmp_docx(make_compliant_doc, filename="article_http_smoke.docx")
@@ -213,6 +236,10 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
             "manual_review_rule_ids": ["LNU_TOC03"],
             "unsupported_rule_ids": [],
             "review_items": ["目录需复核页码、层级和可见目录结果。"],
+            "summary": {
+                "evidence_item_count": 1,
+                "manual_review_rule_count": 1,
+            },
             "report_path": str(tmp_path / "http-render-proof" / "render_verify_report.md"),
         },
     )
@@ -243,9 +270,8 @@ def test_live_http_upload_apply_result_download_and_cleanup(monkeypatch, tmp_doc
     assert Path(pdf_upload_payload["stored_path"]).exists()
 
     plan_response = client.post(
-        "/plan",
+        f"/uploads/{upload_payload['upload_id']}/plan",
         json={
-            "file_path": upload_payload["stored_path"],
             "profile": "lnu",
         },
     )

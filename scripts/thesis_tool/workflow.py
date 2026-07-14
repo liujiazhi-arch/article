@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import xml.etree.ElementTree as ET
-import re
 
 import audit_thesis
 import fix_thesis
@@ -10,11 +9,24 @@ from _thesis_utils import NSMAP, W_NS, HeadingCandidateFilter, build_document_mo
 from backmatter_title_utils import is_preface_heading_title
 from frontmatter_utils import has_toc_field_instr, is_toc_structural_style_id
 
-from thesis_tool.capabilities import classify_rule_action, load_rule_capabilities
 from thesis_tool.scopes import build_rule_scope_map, filter_scope_definitions, normalize_scope_names
 from thesis_tool import workflow_renderers
 from thesis_tool.conclusion_report import render_ai_review_context, render_student_conclusion_report
 from thesis_tool.issue_evidence import build_issue_groups
+from thesis_tool.scope_plan import (
+    build_scope_plan,
+    classify_audit_result_action,
+)
+from thesis_tool.scope_verify import (
+    READINESS_MANUAL_REVIEW_REQUIRED,
+    READINESS_NEEDS_FIX,
+    READINESS_RENDER_CHECK_REQUIRED,
+    READINESS_STRUCTURE_READY,
+    READINESS_UNSUPPORTED,
+    build_scope_verify_from_plan,
+    classify_overall_status,
+    classify_scope_readiness,
+)
 
 _HEADING_KIND_TO_LEVEL = {
     "h1": 1,
@@ -23,91 +35,9 @@ _HEADING_KIND_TO_LEVEL = {
     "h4": 4,
 }
 
-READINESS_STRUCTURE_READY = "structure-ready"
-READINESS_RENDER_CHECK_REQUIRED = "render-check-required"
-READINESS_MANUAL_REVIEW_REQUIRED = "manual-review-required"
-READINESS_UNSUPPORTED = "unsupported"
-READINESS_NEEDS_FIX = "needs-fix"
 PREFLIGHT_READY = "ready"
 PREFLIGHT_WARNING = "warning"
 PREFLIGHT_BLOCKED = "blocked"
-
-
-def _filter_scopes(scopes: list[dict], requested_scope_ids: set[str] | None) -> list[dict]:
-    if requested_scope_ids is None:
-        return scopes
-    return [scope for scope in scopes if scope["id"] in requested_scope_ids]
-
-
-def _scope_status(scope_failed: list[dict]) -> str:
-    if not scope_failed:
-        return "clean"
-
-    actions = {item["action"] for item in scope_failed}
-    if actions <= {"autofix"}:
-        return "autofix_ready"
-    if actions <= {"manual_review"}:
-        return "manual_review"
-    if actions <= {"unsupported"}:
-        return "unsupported"
-    return "mixed"
-
-
-def _build_scope_radar_summary(scopes: list[dict]) -> dict:
-    status_counts: dict[str, int] = {}
-    for scope in scopes:
-        status = scope.get("status") or "unknown"
-        status_counts[status] = status_counts.get(status, 0) + 1
-
-    return {
-        "scope_count": len(scopes),
-        "failed_scope_count": sum(1 for scope in scopes if scope["failed_count"] > 0),
-        "autofixable_scope_count": sum(1 for scope in scopes if scope["autofixable_count"] > 0),
-        "manual_review_count": sum(scope["manual_review_count"] for scope in scopes),
-        "unsupported_count": sum(scope["unsupported_count"] for scope in scopes),
-        "manual_confirmation_count": sum(
-            scope["manual_review_count"] + scope["unsupported_count"] for scope in scopes
-        ),
-        "unknown_count": sum(scope["unknown_count"] for scope in scopes),
-        "status_counts": status_counts,
-    }
-
-
-def classify_scope_readiness(*, autofixable: int, manual_review: int, unsupported: int) -> str:
-    if unsupported > 0:
-        return READINESS_UNSUPPORTED
-    if manual_review > 0:
-        return READINESS_MANUAL_REVIEW_REQUIRED
-    if autofixable > 0:
-        return READINESS_NEEDS_FIX
-    return READINESS_STRUCTURE_READY
-
-
-def _collect_render_check_rules(plan: dict, *, file_path: str, profile_path: str | None, strict_profile: bool | None) -> list[dict]:
-    selected_scope_ids = set(plan["selected_scopes"] or [scope["id"] for scope in plan["scopes"]])
-    if "toc" not in selected_scope_ids:
-        return []
-
-    diagnostics = build_document_diagnostics(
-        file_path,
-        profile_path=profile_path,
-        strict_profile=strict_profile,
-    )
-    toc_status = str((diagnostics.get("toc") or {}).get("status") or "")
-    if toc_status != "field_only":
-        return []
-
-    toc_scope = next((scope for scope in plan["scopes"] if scope["id"] == "toc"), None)
-    return [
-        {
-            "id": "TOC_REFRESH_REQUIRED",
-            "name": "目录只有域指令，缺少脚本预填的可见目录结果",
-            "check_level": "Rendered",
-            "scope_id": "toc",
-            "scope_title": toc_scope["title"] if toc_scope is not None else "目录",
-            "action": "render_check",
-        }
-    ]
 
 
 def classify_apply_readiness(verification: dict) -> str:
@@ -115,112 +45,6 @@ def classify_apply_readiness(verification: dict) -> str:
     if readiness == READINESS_STRUCTURE_READY:
         return READINESS_RENDER_CHECK_REQUIRED
     return readiness
-
-
-def classify_overall_status(*, autofixable: int, manual_review: int, unsupported: int, has_failures: bool) -> str:
-    if not has_failures:
-        return "verified"
-    if autofixable > 0:
-        return "needs_fix"
-    if manual_review > 0 and unsupported == 0:
-        return "manual_review"
-    if unsupported > 0 and manual_review == 0:
-        return "unsupported"
-    return "mixed"
-
-
-def classify_audit_result_action(result: dict) -> str:
-    action = classify_rule_action(result["id"])
-    issues = result.get("issues") or []
-
-    # C01 can only be auto-fixed when bracket citations already exist and merely
-    # need superscript normalization. If the document contains no bracket
-    # citations at all, the user must add or confirm citations manually.
-    if result["id"] == "C01" and any("全文未发现任何上标格式的方括号引用" in issue for issue in issues):
-        return "manual_review"
-    if result["id"] == "KW01":
-        for issue in issues:
-            match = re.search(r"关键词数量为\s*(\d+)", issue)
-            if match and int(match.group(1)) < 3:
-                return "manual_review"
-    return action
-
-
-def build_scope_plan(file_path: str, profile_path: str | None = None, scopes=None, strict_profile: bool | None = None) -> dict:
-    requested_scope_ids = normalize_scope_names(scopes)
-    capabilities = load_rule_capabilities()
-    results, score, report, runtime = audit_thesis.audit_docx_with_runtime(
-        file_path,
-        profile_path=profile_path,
-        strict_profile=strict_profile,
-    )
-    runtime_rule_ids = {rule_id for rule_id, _, _ in runtime.rule_definitions}
-    scope_definitions = filter_scope_definitions(runtime_rule_ids)
-    rule_to_scope = build_rule_scope_map(scope_definitions)
-    failed_results = [result for result in results if not result.get("passed")]
-    failed_by_scope: dict[str, list[dict]] = {}
-    unscoped_failed: list[dict] = []
-
-    for result in failed_results:
-        capability = capabilities.get(result["id"], {})
-        enriched_result = dict(result)
-        enriched_result["check_level"] = capability.get("check_level", "Unknown")
-        enriched_result["autofix"] = capability.get("autofix", "?")
-        enriched_result["action"] = classify_audit_result_action(result)
-        scope_id = rule_to_scope.get(result["id"])
-        if scope_id is None:
-            unscoped_failed.append(enriched_result)
-            continue
-        failed_by_scope.setdefault(scope_id, []).append(enriched_result)
-
-    scopes = []
-    for definition in scope_definitions:
-        scope_failed = failed_by_scope.get(definition.id, [])
-        action_counts = {
-            "autofixable_count": sum(1 for item in scope_failed if item["action"] == "autofix"),
-            "manual_review_count": sum(1 for item in scope_failed if item["action"] == "manual_review"),
-            "unsupported_count": sum(1 for item in scope_failed if item["action"] == "unsupported"),
-            "unknown_count": sum(1 for item in scope_failed if item["action"] == "unknown"),
-        }
-        scopes.append(
-            {
-                "id": definition.id,
-                "title": definition.title,
-                "description": definition.description,
-                "status": _scope_status(scope_failed),
-                "failed_count": len(scope_failed),
-                "failed_rules": [item["id"] for item in scope_failed],
-                "failed_items": scope_failed,
-                **action_counts,
-            }
-        )
-
-    visible_scopes = _filter_scopes(scopes, requested_scope_ids)
-    visible_scopes.sort(key=lambda item: (item["failed_count"] == 0, item["title"]))
-    selected_failed_count = sum(scope["failed_count"] for scope in visible_scopes)
-    if requested_scope_ids is None:
-        selected_failed_count += len(unscoped_failed)
-
-    return {
-        "file_path": str(Path(file_path)),
-        "profile_path": profile_path,
-        "profile_id": runtime.profile_id,
-        "requested_profile": runtime.requested_profile,
-        "fallback_used": runtime.fallback_used,
-        "profile_display": audit_thesis.format_profile_resolution(
-            runtime.profile_id,
-            runtime.requested_profile,
-            runtime.fallback_used,
-        ),
-        "score": score,
-        "failed_count": selected_failed_count,
-        "total_failed_count": len(failed_results),
-        "scopes": visible_scopes,
-        "scope_radar_summary": _build_scope_radar_summary(visible_scopes),
-        "selected_scopes": sorted(requested_scope_ids) if requested_scope_ids else None,
-        "unscoped_failed": unscoped_failed if requested_scope_ids is None else [],
-        "report": report,
-    }
 
 
 def build_audit_human_reports(
@@ -288,76 +112,23 @@ def render_scope_plan(plan: dict) -> str:
     return workflow_renderers.render_scope_plan(plan)
 
 
-def build_scope_verify(file_path: str, profile_path: str | None = None, scopes=None, strict_profile: bool | None = None) -> dict:
+def build_scope_verify(
+    file_path: str,
+    profile_path: str | None = None,
+    scopes=None,
+    strict_profile: bool | None = None,
+    *,
+    diagnostics: dict | None = None,
+) -> dict:
     plan = build_scope_plan(file_path, profile_path=profile_path, scopes=scopes, strict_profile=strict_profile)
-    selected_scopes = [scope for scope in plan["scopes"] if scope["failed_count"] > 0]
-    needs_manual = sum(scope["manual_review_count"] for scope in selected_scopes)
-    unsupported = sum(scope["unsupported_count"] for scope in selected_scopes)
-    autofixable = sum(scope["autofixable_count"] for scope in selected_scopes)
-    manual_review_rules: list[dict] = []
-    unsupported_rules: list[dict] = []
-
-    for scope in selected_scopes:
-        for item in scope.get("failed_items", []):
-            summary_item = {
-                "id": item["id"],
-                "name": item["name"],
-                "check_level": item.get("check_level", "Unknown"),
-                "scope_id": scope["id"],
-                "scope_title": scope["title"],
-                "action": item.get("action", "unknown"),
-            }
-            if item.get("action") == "manual_review":
-                manual_review_rules.append(summary_item)
-            elif item.get("action") == "unsupported":
-                unsupported_rules.append(summary_item)
-
-    manual_review_rules.sort(key=lambda item: item["id"])
-    unsupported_rules.sort(key=lambda item: item["id"])
-    readiness = classify_scope_readiness(
-        autofixable=autofixable,
-        manual_review=needs_manual,
-        unsupported=unsupported,
-    )
-    render_check_rules = _collect_render_check_rules(
-        plan,
-        file_path=file_path,
-        profile_path=profile_path,
-        strict_profile=strict_profile,
-    )
-    if readiness == READINESS_STRUCTURE_READY and render_check_rules:
-        readiness = READINESS_RENDER_CHECK_REQUIRED
-    overall_status = classify_overall_status(
-        autofixable=autofixable,
-        manual_review=needs_manual,
-        unsupported=unsupported,
-        has_failures=bool(selected_scopes),
-    )
-
-    return {
-        "file_path": plan["file_path"],
-        "profile_path": plan["profile_path"],
-        "profile_id": plan.get("profile_id"),
-        "requested_profile": plan.get("requested_profile"),
-        "fallback_used": bool(plan.get("fallback_used")),
-        "profile_display": plan.get("profile_display"),
-        "score": plan["score"],
-        "failed_count": plan["failed_count"],
-        "selected_scopes": plan["selected_scopes"],
-        "scopes": plan["scopes"],
-        "readiness": readiness,
-        "overall_status": overall_status,
-        "manual_review_count": needs_manual,
-        "unsupported_count": unsupported,
-        "autofixable_count": autofixable,
-        "manual_review_rules": manual_review_rules,
-        "unsupported_rules": unsupported_rules,
-        "manual_review_rule_ids": [item["id"] for item in manual_review_rules],
-        "unsupported_rule_ids": [item["id"] for item in unsupported_rules],
-        "render_check_count": len(render_check_rules),
-        "render_check_rules": render_check_rules,
-        "render_check_rule_ids": [item["id"] for item in render_check_rules],
-    }
+    selected_scope_ids = set(plan["selected_scopes"] or [scope["id"] for scope in plan["scopes"]])
+    if diagnostics is None and "toc" in selected_scope_ids:
+        diagnostics = build_document_diagnostics(
+            file_path,
+            profile_path=profile_path,
+            strict_profile=strict_profile,
+        )
+    return build_scope_verify_from_plan(plan, diagnostics=diagnostics or {})
 
 
 def render_scope_verify(verification: dict) -> str:

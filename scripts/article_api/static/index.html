@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>辽宁大学毕业论文格式修正器</title>
   <link rel="icon" href="/static/assets/lnu-emblem.jpg" type="image/jpeg">
-  <link rel="stylesheet" href="/static/styles/tokens.css">
-  <link rel="stylesheet" href="/static/styles/themes.css">
-  <link rel="stylesheet" href="/static/styles/layout.css?v=20260712-contract-closeout">
+  <link rel="stylesheet" href="/static/styles/tokens.css?v=20260714-style-restore">
+  <link rel="stylesheet" href="/static/styles/themes.css?v=20260714-style-restore">
+  <link rel="stylesheet" href="/static/styles/layout.css?v=20260714-style-restore">
+  <link rel="stylesheet" href="/static/styles/format-radar.css?v=20260714-radar-depth">
 </head>
 <body data-app="lnu-thesis-workbench" data-theme="snow">
   <main class="app-shell">
@@ -71,12 +72,12 @@
           <h2>学生会用到的六个功能入口</h2>
           <p>这一页把工具流程拆成可识别的入口 每个入口都对应后续页面里的真实操作和真实数据</p>
           <div class="kit-list">
-            <div><b>论文台面</b><span>上传论文后先看修复方案 再选择要处理的范围</span></div>
-            <div><b>修复流程</b><span>显示检查 生成方案 修正 复查 下载的当前进度</span></div>
-            <div><b>PDF 复核</b><span>用截图和问题位置说明格式问题 只展示真实检测结果</span></div>
-            <div><b>历史任务</b><span>查看修复任务 PDF 复核结果和仍可下载的文件</span></div>
-            <div><b>结果文件</b><span>集中下载修复包 报告 并提示下一步是否需要人工确认</span></div>
-            <div><b>规则结果</b><span>把通过 提醒 需要人工复核的项目分清楚</span></div>
+            <button type="button" data-screen-target="workbench"><b>论文台面</b><span>上传论文后先看修复方案 再选择要处理的范围</span></button>
+            <button type="button" data-screen-target="workbench"><b>修复流程</b><span>显示检查 生成方案 修正 复查 下载的当前进度</span></button>
+            <button type="button" data-screen-target="pdf-review"><b>PDF 复核</b><span>用截图和问题位置说明格式问题 只展示真实检测结果</span></button>
+            <button type="button" data-screen-target="history"><b>历史任务</b><span>查看修复任务 PDF 复核结果和仍可下载的文件</span></button>
+            <button type="button" data-screen-target="result"><b>结果文件</b><span>集中下载修复包 报告 并提示下一步是否需要人工确认</span></button>
+            <button type="button" data-screen-target="result"><b>规则结果</b><span>把通过 提醒 需要人工复核的项目分清楚</span></button>
           </div>
         </aside>
       </div>
@@ -164,8 +165,26 @@
 
         <aside class="right-rail glass">
           <p class="rail-title">格式雷达</p>
-          <div class="radar" aria-label="格式雷达盘" data-format-radar style="--radar-progress: 0%">
-            <span data-format-radar-label>等待检查</span>
+          <div class="format-radar-panel" data-format-radar-panel data-state="idle" aria-describedby="format-radar-summary">
+            <div class="format-radar-dial" role="img" aria-label="等待格式检查" data-format-radar style="--radar-progress: 0%">
+              <div class="format-radar-value">
+                <strong data-format-radar-label>等待检查</strong>
+                <span>结构规则分</span>
+              </div>
+            </div>
+            <div class="format-radar-copy" id="format-radar-summary">
+              <strong data-format-radar-conclusion>上传论文后查看格式检查结果</strong>
+              <p class="format-radar-note" data-format-radar-note>仅代表已接入的结构规则<br>原稿不会被覆盖</p>
+            </div>
+            <dl class="format-radar-metrics" aria-label="格式检查统计">
+              <div class="format-radar-metric"><dt>方案范围</dt><dd data-format-radar-metric="scope-count">--</dd></div>
+              <div class="format-radar-metric"><dt>受影响范围</dt><dd data-format-radar-metric="affected-scopes">--</dd></div>
+              <div class="format-radar-metric"><dt>可处理范围</dt><dd data-format-radar-metric="autofixable-scopes">--</dd></div>
+              <div class="format-radar-metric"><dt>人工确认项</dt><dd data-format-radar-metric="manual-review">--</dd></div>
+              <div class="format-radar-metric"><dt>暂不支持项</dt><dd data-format-radar-metric="unsupported">--</dd></div>
+            </dl>
+            <p class="format-radar-unknown" data-format-radar-unknown hidden></p>
+            <p class="format-radar-live-status" data-format-radar-status aria-live="polite" aria-atomic="true">等待格式检查</p>
           </div>
           <p class="rail-title">运行状态</p>
           <div class="agent-stack status-panel" aria-live="polite" data-status-panel>
@@ -203,11 +222,11 @@
           </div>
         </div>
         <div class="timeline glass" data-history-list>
-          <div class="task-card">
+          <button class="task-card" type="button" data-action="enter-workbench">
             <div class="task-date">等待<br>记录</div>
             <div><b>还没有历史记录</b><span>上传论文后会显示在这里</span></div>
-            <span class="status">待开始</span>
-          </div>
+            <span class="status">上传论文</span>
+          </button>
         </div>
       </div>
     </section>
@@ -232,11 +251,6 @@
               <div><b>当前论文</b><span data-pdf-docx-file>等待上传论文</span></div>
               <button class="theme-action pdf-action-button" type="button" data-action="enter-workbench">上传论文</button>
             </div>
-            <div class="pdf-action">
-              <i></i>
-              <div><b>查看页面问题</b><span>完成后在右侧显示问题位置</span></div>
-              <button class="theme-action pdf-action-button" type="button" data-action="refresh-render-result">查看结果</button>
-            </div>
             <div class="pdf-action" data-toc-output-action hidden>
               <i></i>
               <div class="toc-output-copy">
@@ -250,6 +264,10 @@
               <input id="pdf-match-confirmation" type="checkbox">
               <span>我确认这个 PDF 由当前论文导出</span>
             </label>
+            <div class="pdf-guidance">
+              <b>图片留白优先人工调整</b>
+              <span>遇到图表挤页或页底空白时 可在 Word 或 WPS 中等比例微调图片尺寸 再导出 PDF 复核</span>
+            </div>
           </div>
           <div class="pdf-status-strip">
             <span>状态<strong data-render-state>待上传</strong></span>
@@ -262,20 +280,8 @@
             <span>PDF 问题证据</span>
             <strong>问题位置</strong>
           </div>
-          <div class="ruler-stage" aria-label="PDF 页面截图与问题框" data-pdf-stage>
-            <div class="ruler-page"></div>
-            <div class="pdf-evidence-box"></div>
-            <div class="pdf-page-source">
-              <span>页面截图 <b>待返回</b></span>
-              <span>问题类型 <b>待返回</b></span>
-              <span>问题位置 <b>待返回</b></span>
-            </div>
-            <div class="guide-line"></div>
-            <div class="flag-rail">
-              <span class="flag one"></span>
-              <span class="flag two"></span>
-              <span class="flag three"></span>
-            </div>
+          <div class="ruler-stage" id="pdf-evidence-stage" role="region" aria-live="polite" aria-label="PDF 页面截图与问题框" data-pdf-stage>
+            <div class="empty-state"><b>等待 PDF 复核</b><span>上传 PDF 后显示真实页面截图和问题位置</span></div>
           </div>
           <div class="metrics">
             <div class="metric"><b>结论</b><strong data-pdf-metric="conclusion">待确认</strong><span>根据检测结果显示</span></div>
@@ -286,13 +292,7 @@
             <div class="finding"><b>等待 PDF 复核</b><p>上传 PDF 后 这里会显示页面截图和问题位置</p></div>
             <div class="finding"><b>下一步提示</b><p>复核完成后 这里会显示问题说明和处理建议</p></div>
           </div>
-          <div class="filmstrip" aria-label="修正前后胶片条" data-pdf-issues>
-            <span class="film-frame"></span>
-            <span class="film-frame active"></span>
-            <span class="film-frame"></span>
-            <span class="film-frame"></span>
-            <span class="film-frame"></span>
-          </div>
+          <div class="filmstrip" role="group" aria-label="检测到的页面问题" data-pdf-issues></div>
         </div>
       </div>
     </section>
@@ -309,22 +309,27 @@
             <div><span>范围</span><strong data-result-scope>上传论文后生成</strong></div>
             <div><span>时间</span><strong data-result-time>本地生成</strong></div>
           </div>
+          <button class="theme-action" type="button" data-action="enter-workbench">返回工作台</button>
         </div>
         <div class="packet-board glass">
           <div class="download-ribbon">
-            <div><b data-result-download-name>等待修复副本</b><span data-result-download-note>原文件未覆盖</span></div>
+            <div><b data-result-download-name>等待修复副本</b><span data-result-download-note>生成结果后可下载</span></div>
             <button class="theme-action result-download-button" type="button" data-download-role="output" disabled>下载 修复副本</button>
           </div>
-          <div class="artifact-grid">
-            <button class="artifact-card" type="button" data-download-role="report" disabled><b>任务报告</b><span>下载报告文件 查看规则摘要和人工复核项</span></button>
+          <div class="result-empty-state" data-result-empty>
+            <b>结果生成后会显示在这里</b>
+            <span>修复副本 报告 规则色谱 下一步提示</span>
+          </div>
+          <div class="artifact-grid" data-result-detail hidden>
+            <button class="artifact-card" type="button" data-download-role="report" disabled><b>任务报告</b><span>生成结果后可下载报告</span></button>
             <button class="artifact-card" type="button" data-action="choose-docx"><b>上传修复稿再复核</b><span>用修复稿导出 PDF 后 检查分页和版面</span></button>
           </div>
-          <div class="matrix-head">
+          <div class="matrix-head" data-result-detail hidden>
             <span>规则色谱</span>
             <span class="matrix-legend"><span><i></i>通过</span><span><i class="warn"></i>提醒</span></span>
           </div>
-          <div class="heatmap" aria-label="规则通过情况" data-result-heatmap></div>
-          <div class="packet-card"><b>下一步</b><span>用 Word 或 WPS 打开修复稿 更新目录后导出 PDF</span></div>
+          <div class="heatmap" aria-label="规则通过情况" data-result-heatmap data-result-detail hidden></div>
+          <div class="packet-card" data-result-detail hidden><b>下一步</b><span>用 Word 或 WPS 打开修复稿 更新目录后导出 PDF</span></div>
         </div>
       </div>
     </section>
@@ -337,6 +342,6 @@
     </div>
   </main>
 
-  <script type="module" src="/static/js/app.js?v=20260712-contract-closeout"></script>
+  <script type="module" src="/static/js/app.js?v=20260714-module-ownership"></script>
 </body>
 </html>

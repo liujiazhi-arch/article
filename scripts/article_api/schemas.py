@@ -53,6 +53,12 @@ class PlanRequest(BaseModel):
     scopes: list[str] | None = None
 
 
+class UploadPlanRequest(BaseModel):
+    profile: str = Field(default="lnu")
+    strict_profile: bool | None = None
+    scopes: list[str] | None = None
+
+
 class PreflightRequest(BaseModel):
     file_path: str = Field(..., min_length=1)
     profile: str = Field(default="lnu")

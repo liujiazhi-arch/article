@@ -119,7 +119,10 @@ def run_handler_subprocess(
     if not stdout:
         stderr = (stderr or "").strip()
         raise RuntimeError(f"Job runner returned no payload for {operation}: {stderr or 'empty stdout'}")
-    payload = json.loads(stdout)
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Job runner returned malformed JSON for {operation}") from exc
     if not isinstance(payload, dict):
         raise RuntimeError(f"Job runner returned invalid payload type for {operation}")
     return payload

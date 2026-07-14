@@ -1,34 +1,18 @@
-const state = {
-  theme: "snow",
+let state = {
   docxUpload: null,
-  pdfUpload: null,
-  activeJob: null,
   workbenchPlan: null,
-  applyResultPayload: null,
-  jobHistory: [],
-  selectedHistoryJob: null,
   renderResult: null,
   renderResultPayload: null,
-  activeEvidenceIndex: 0,
-  highlightVisible: true,
   applyRunning: false,
+  documentEpoch: 0,
+  pdfReviewEpoch: 0,
+  pdfReviewRequiresFreshDocx: false,
 };
-
-const listeners = new Set();
 
 export function getState() {
   return { ...state };
 }
 
 export function setState(patch) {
-  Object.assign(state, patch);
-  for (const listener of listeners) {
-    listener(getState());
-  }
-}
-
-export function subscribe(listener) {
-  listeners.add(listener);
-  listener(getState());
-  return () => listeners.delete(listener);
+  state = { ...state, ...patch };
 }

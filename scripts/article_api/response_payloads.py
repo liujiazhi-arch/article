@@ -187,7 +187,7 @@ def build_render_verify_payload(
         rendered_pdf=rendered_pdf,
         page_images_dir=page_images_dir,
     )
-    payload = render_verify_fn(
+    engine_payload = render_verify_fn(
         file_path,
         output_dir=output_dir,
         profile_path=profile_path,
@@ -199,55 +199,23 @@ def build_render_verify_payload(
         pdf_matches_docx_confirmed=pdf_matches_docx_confirmed,
         generate_static_toc=generate_static_toc,
     )
-    register_render_evidence_screenshots(payload)
-    render_summary = payload.get("render_summary") or {}
-    layout_score = payload.get("layout_score") or {}
-    render_text_summary = payload.get("render_text_summary") or {}
-    toc_finalization = payload.get("toc_finalization") or {}
-    payload.update(
-        {
-            "service": SERVICE_NAME,
-            "stage": SERVICE_STAGE,
-            "version": SERVICE_VERSION,
-            "api_version": API_VERSION,
-            "observed_at": utcnow(),
-            "operation": "render-verify",
-            "status": "ok",
-            "render_workflow_mode": render_workflow_mode,
-            "summary": {
-                "page_count": payload.get("page_count", 0),
-                "render_engine": payload.get("render_engine"),
-                "evidence_source": payload.get("evidence_source"),
-                "evidence_trust": payload.get("evidence_trust"),
-                "evidence_authoritative": bool(payload.get("evidence_authoritative")),
-                "layout_decision_eligible": bool(payload.get("layout_decision_eligible")),
-                "pdf_matches_docx_confirmed": bool(payload.get("pdf_matches_docx_confirmed")),
-                "render_fallback_used": bool(payload.get("render_fallback_used")),
-                "render_evidence_status": payload.get("render_evidence_status"),
-                "render_finding_count": len(payload.get("render_findings") or []),
-                "evidence_item_count": len(payload.get("evidence_items") or []),
-                "render_highest_severity": render_summary.get("highest_severity"),
-                "layout_score": layout_score.get("score"),
-                "layout_penalty": layout_score.get("penalty"),
-                "actionable_finding_count": int(render_summary.get("actionable_finding_count") or 0),
-                "expected_blank_count": int(render_summary.get("expected_blank_count") or 0),
-                "object_flow_issue_count": int(render_summary.get("object_flow_issue_count") or 0),
-                "heading_break_issue_count": int(render_summary.get("heading_break_issue_count") or 0),
-                "isolated_punctuation_count": int(render_summary.get("isolated_punctuation_count") or 0),
-                "page_text_available_count": int(render_text_summary.get("page_text_available_count") or 0),
-                "page_text_extraction_warning_count": int(render_text_summary.get("page_text_extraction_warning_count") or 0),
-                "review_item_count": len(payload.get("review_items") or []),
-                "manual_review_rule_count": len(payload.get("manual_review_rule_ids") or []),
-                "unsupported_rule_count": len(payload.get("unsupported_rule_ids") or []),
-                "render_workflow_mode": render_workflow_mode["id"],
-                "toc_finalization_status": toc_finalization.get("status"),
-                "toc_output_available": bool(toc_finalization.get("available")),
-                "toc_entry_count": toc_finalization.get("entry_count"),
-                "toc_mapped_count": toc_finalization.get("mapped_count"),
-            },
-        }
-    )
-    return payload
+    payload = register_render_evidence_screenshots(dict(engine_payload))
+    summary = {
+        **dict(payload.get("summary") or {}),
+        "render_workflow_mode": render_workflow_mode["id"],
+    }
+    return {
+        **payload,
+        "service": SERVICE_NAME,
+        "stage": SERVICE_STAGE,
+        "version": SERVICE_VERSION,
+        "api_version": API_VERSION,
+        "observed_at": utcnow(),
+        "operation": "render-verify",
+        "status": "ok",
+        "render_workflow_mode": render_workflow_mode,
+        "summary": summary,
+    }
 
 
 def build_render_workflow_modes_payload() -> dict[str, Any]:

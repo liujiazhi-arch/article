@@ -4,7 +4,13 @@ import os
 from typing import Any, Callable
 
 from article_api.route_error_handlers import call_with_http_error
-from article_api.schemas import UploadApplyRequest, UploadNormalizeRequest, UploadRenderReviewRequest, UploadVerifyRequest
+from article_api.schemas import (
+    UploadApplyRequest,
+    UploadNormalizeRequest,
+    UploadPlanRequest,
+    UploadRenderReviewRequest,
+    UploadVerifyRequest,
+)
 
 
 def _upload_payload(upload: Any, *, runtime_root: str | None, utcnow_fn: Callable[[], str]) -> dict[str, Any]:
@@ -32,6 +38,8 @@ def register_upload_routes(
     upload_view_fn: Callable[[dict[str, Any]], dict[str, Any]],
     cleanup_upload_fn: Callable[[str], dict[str, Any]],
     create_job_fn: Callable[[str, dict[str, Any]], dict[str, Any]],
+    plan_document_fn: Callable[..., dict[str, Any]],
+    resolve_upload_fn: Callable[[str], dict[str, Any]],
     verify_upload_job_kwargs_fn: Callable[[str, UploadVerifyRequest], dict[str, Any]],
     normalize_upload_job_kwargs_fn: Callable[[str, UploadNormalizeRequest], dict[str, Any]],
     apply_upload_job_kwargs_fn: Callable[[str, UploadApplyRequest], dict[str, Any]],
@@ -87,6 +95,19 @@ def register_upload_routes(
     @app.post("/uploads/{upload_id}/cleanup")
     def cleanup_uploaded_docx(upload_id: str) -> dict[str, Any]:
         return call_with_http_error(lambda: cleanup_upload_fn(upload_id), raise_job_http_error)
+
+    @app.post("/uploads/{upload_id}/plan")
+    def plan_uploaded_docx(upload_id: str, request: UploadPlanRequest) -> dict[str, Any]:
+        def action() -> dict[str, Any]:
+            upload = resolve_upload_fn(upload_id)
+            return plan_document_fn(
+                file_path=upload["stored_path"],
+                profile_path=request.profile,
+                scopes=request.scopes,
+                strict_profile=request.strict_profile,
+            )
+
+        return call_with_http_error(action, raise_job_http_error)
 
     @app.post("/uploads/{upload_id}/jobs/verify", status_code=201)
     def create_verify_job_from_upload(upload_id: str, request: UploadVerifyRequest) -> dict[str, Any]:

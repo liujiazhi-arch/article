@@ -62,3 +62,27 @@ def test_run_handler_subprocess_drains_large_runner_output(monkeypatch, tmp_path
     )
 
     assert len(payload["result"]["text"]) == 262144
+
+
+def test_execute_job_attempt_classifies_non_json_runner_output_as_retryable_internal_error(monkeypatch):
+    class FakeProcess:
+        args = ["python", "-m", "article_api.job_runner", "request.json"]
+
+        def __init__(self, _command, **_kwargs):
+            pass
+
+        def communicate(self, timeout=None):
+            return "not json", "runner crashed"
+
+    monkeypatch.setattr(job_execution.subprocess, "Popen", FakeProcess)
+
+    result = job_execution.execute_job_attempt(
+        "verify",
+        {"file_path": "demo.docx", "timeout_seconds": None},
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "internal_error"
+    assert result["error"]["type"] == "RuntimeError"
+    assert result["error"]["http_status"] == 500
+    assert result["error"]["retryable"] is True

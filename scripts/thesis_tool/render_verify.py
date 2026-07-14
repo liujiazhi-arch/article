@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import os
+import logging
 from pathlib import Path
-import re
-import shutil
 import subprocess
 import sys
 
@@ -15,16 +13,16 @@ import audit_thesis
 
 from thesis_tool.conclusion_report import render_ai_render_context, render_student_render_report
 from thesis_tool.pdf_backend import (
-    convert_pdf_with_pdfium as _convert_pdf_with_pdfium,
+    extract_pdf_line_boxes_with_pdfium as _extract_pdf_line_boxes_with_pdfium,
     extract_pdf_text_pages_with_pdfium as _extract_pdf_text_pages_with_pdfium,
 )
 from thesis_tool.render_analyzer import analyze_page_images
 from thesis_tool.render_bbox import (
-    bbox_page_lines as _bbox_page_lines,
+    attach_text_line_spans,
     build_evidence_items as _build_evidence_items,
-    extract_pdf_line_boxes,
 )
 from thesis_tool.render_pdf_text import extract_pdf_page_texts
+from thesis_tool import render_sources
 from thesis_tool.render_toc_evidence import (
     build_toc_page_number_findings as _build_toc_page_number_findings,
     render_summary_with_findings as _render_summary_with_findings,
@@ -41,13 +39,14 @@ from thesis_tool.workflow import (
 )
 
 
-RENDERER_AUTO = "auto"
-RENDERER_WORD_PDF = "word-pdf"
-RENDERER_MANUAL_PDF = "manual-pdf"
-RENDERER_WPS_MANUAL_IMAGES = "wps-manual-images"
-SUPPORTED_RENDERERS = {RENDERER_AUTO, RENDERER_WORD_PDF}
+RENDERER_AUTO = render_sources.RENDERER_AUTO
+RENDERER_WORD_PDF = render_sources.RENDERER_WORD_PDF
+RENDERER_MANUAL_PDF = render_sources.RENDERER_MANUAL_PDF
+RENDERER_WPS_MANUAL_IMAGES = render_sources.RENDERER_WPS_MANUAL_IMAGES
+SUPPORTED_RENDERERS = render_sources.SUPPORTED_RENDERERS
 AUTHORITATIVE_EVIDENCE_SOURCES = {RENDERER_WORD_PDF}
 UNVERIFIED_EVIDENCE_SOURCES = {RENDERER_MANUAL_PDF, RENDERER_WPS_MANUAL_IMAGES}
+LOGGER = logging.getLogger(__name__)
 
 
 def default_render_output_dir(input_docx: str) -> str:
@@ -55,238 +54,19 @@ def default_render_output_dir(input_docx: str) -> str:
     return str(source.with_name(f"{source.stem}_render_verify"))
 
 
-def _page_sort_key(path: Path) -> tuple[int, str]:
-    match = re.search(r"page-(\d+)\.png$", path.name)
-    if match:
-        return int(match.group(1)), path.name
-    return sys.maxsize, path.name
-
-
-def _collect_page_images(output_dir: str | Path) -> list[str]:
-    directory = Path(output_dir).expanduser().resolve()
-    return [str(path) for path in sorted(directory.glob("page-*.png"), key=_page_sort_key)]
-
-
-def _collect_png_images(output_dir: str | Path) -> list[str]:
-    directory = Path(output_dir).expanduser().resolve()
-    page_images = _collect_page_images(directory)
-    if page_images:
-        return page_images
-    return [str(path) for path in sorted(directory.glob("*.png"), key=_page_sort_key)]
-
-
-def _find_external_tool(*, env_name: str, binary: str, missing_message: str) -> str:
-    env_path = os.environ.get(env_name)
-    if env_path:
-        resolved = Path(env_path).expanduser().resolve()
-        if resolved.exists():
-            return str(resolved)
-    found = shutil.which(binary)
-    if found:
-        return found
-    raise RuntimeError(missing_message)
-
-
-def _find_pdftoppm() -> str:
-    return _find_external_tool(
-        env_name="ARTICLE_PDFTOPPM",
-        binary="pdftoppm",
-        missing_message="未找到 pdftoppm，无法将 Word PDF 转为页图。请安装 poppler 或设置 ARTICLE_PDFTOPPM。",
-    )
-
-
-def _find_pdftotext() -> str:
-    return _find_external_tool(
-        env_name="ARTICLE_PDFTOTEXT",
-        binary="pdftotext",
-        missing_message="未找到 pdftotext，无法抽取 PDF 每页文本。请安装 poppler 或设置 ARTICLE_PDFTOTEXT。",
-    )
-
-
-def _export_docx_to_pdf_with_word(input_docx: str, output_pdf: str) -> None:
-    if sys.platform != "darwin":
-        raise RuntimeError("word-pdf 渲染目前仅支持 macOS 上的 Microsoft Word。")
-    if shutil.which("osascript") is None:
-        raise RuntimeError("未找到 osascript，无法调用 Microsoft Word 导出 PDF。")
-
-    script = """
-on run argv
-  set inputPath to POSIX file (item 1 of argv)
-  set outputPath to POSIX file (item 2 of argv)
-  set expectedPath to item 1 of argv
-  tell application "Microsoft Word"
-    repeat with candidate in documents
-      set candidatePath to ""
-      try
-        set candidatePath to POSIX path of (full name of candidate as alias)
-      end try
-      if candidatePath is expectedPath then
-        error "The staged DOCX is already open in Microsoft Word; refusing to reuse it."
-      end if
-    end repeat
-    open inputPath
-    set docRef to missing value
-    set observedDocuments to {}
-    try
-    repeat with attempt from 1 to 30
-      set observedDocuments to {}
-      repeat with candidate in documents
-        set candidatePath to ""
-        try
-          set candidatePath to POSIX path of (full name of candidate as alias)
-        end try
-        if candidatePath is not "" then
-          set end of observedDocuments to candidatePath
-        end if
-        if candidatePath is expectedPath then
-          set docRef to candidate
-          exit repeat
-        end if
-      end repeat
-      if docRef is not missing value then exit repeat
-      delay 1
-    end repeat
-    if docRef is missing value then
-      error "Microsoft Word did not expose the opened DOCX; observed=" & observedDocuments
-    end if
-    save as docRef file name outputPath file format format PDF
-    on error errorMessage number errorNumber
-      if docRef is not missing value then
-        try
-          close docRef saving no
-        end try
-      end if
-      error errorMessage number errorNumber
-    end try
-    close docRef saving no
-  end tell
-end run
-"""
-    try:
-        input_path = Path(input_docx).expanduser().resolve()
-        output_path = Path(output_pdf).expanduser().resolve()
-        subprocess.run(
-            ["osascript", "-e", script, str(input_path), str(output_path)],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
-            "Microsoft Word 自动化没有完成，未能导出 PDF。通常是 Word 没有暴露已打开的 DOCX，"
-            "或正在等待权限、恢复文档、允许访问文件、保存确认等弹窗。请先处理 Word 弹窗；仍失败时改用手动导出 PDF。"
-        ) from exc
-    except subprocess.CalledProcessError as exc:
-        details = (exc.stderr or exc.stdout or "").strip()
-        message = "Microsoft Word 导出 PDF 失败。"
-        if details:
-            message = f"{message}\n{details}"
-        raise RuntimeError(message) from exc
-
-    if not Path(output_pdf).exists():
-        raise RuntimeError(f"Microsoft Word 未生成 PDF: {output_pdf}")
-
-
-def _convert_pdf_to_page_images(input_pdf: str, output_dir: str) -> None:
-    resolved_output_dir = Path(output_dir).expanduser().resolve()
-    resolved_output_dir.mkdir(parents=True, exist_ok=True)
-    for stale_page in resolved_output_dir.glob("page-*.png"):
-        stale_page.unlink()
-    try:
-        pdftoppm = _find_pdftoppm()
-    except RuntimeError:
-        try:
-            _convert_pdf_with_pdfium(input_pdf, resolved_output_dir)
-        except Exception as exc:
-            raise RuntimeError(f"PDF 转页图失败。\n{exc}") from exc
-        return
-    prefix = str(resolved_output_dir / "page")
-    try:
-        subprocess.run(
-            [pdftoppm, "-png", "-r", "120", str(Path(input_pdf).expanduser().resolve()), prefix],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        details = (exc.stderr or exc.stdout or "").strip()
-        message = "PDF 转页图失败。"
-        if details:
-            message = f"{message}\n{details}"
-        raise RuntimeError(message) from exc
-
-
-def _run_word_pdf_render(input_docx: str, output_dir: str) -> dict:
-    resolved_output_dir = Path(output_dir).expanduser().resolve()
-    resolved_output_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = resolved_output_dir / "render_verify_word.pdf"
-    page_dir = resolved_output_dir / "word_pdf_pages"
-    _export_docx_to_pdf_with_word(input_docx, str(pdf_path))
-    _convert_pdf_to_page_images(str(pdf_path), str(page_dir))
-    return {
-        "engine": RENDERER_WORD_PDF,
-        "page_dir": str(page_dir),
-        "pdf_path": str(pdf_path),
-        "fallback_used": False,
-        "warnings": [],
-    }
-
-
-def _run_render_engine(input_docx: str, output_dir: str, renderer: str) -> dict:
-    if renderer not in SUPPORTED_RENDERERS:
-        supported = ", ".join(sorted(SUPPORTED_RENDERERS))
-        raise ValueError(f"未知渲染器: {renderer}。可选: {supported}")
-    return _run_word_pdf_render(input_docx, output_dir)
-
-
-def _run_external_pdf_render(rendered_pdf: str, output_dir: str) -> dict:
-    resolved_pdf = Path(rendered_pdf).expanduser().resolve()
-    if not resolved_pdf.exists():
-        raise RuntimeError(f"用户提供的渲染 PDF 不存在: {resolved_pdf}")
-    if resolved_pdf.suffix.lower() != ".pdf":
-        raise RuntimeError(f"--rendered-pdf 需要 PDF 文件: {resolved_pdf}")
-    page_dir = Path(output_dir).expanduser().resolve() / "manual_pdf_pages"
-    _convert_pdf_to_page_images(str(resolved_pdf), str(page_dir))
-    return {
-        "engine": RENDERER_MANUAL_PDF,
-        "page_dir": str(page_dir),
-        "pdf_path": str(resolved_pdf),
-        "fallback_used": False,
-        "warnings": [],
-    }
-
-
-def _run_external_page_images(page_images_dir: str) -> dict:
-    resolved_dir = Path(page_images_dir).expanduser().resolve()
-    if not resolved_dir.exists() or not resolved_dir.is_dir():
-        raise RuntimeError(f"用户提供的页图目录不存在: {resolved_dir}")
-    if not _collect_png_images(resolved_dir):
-        raise RuntimeError(f"用户提供的页图目录未发现 PNG 页图: {resolved_dir}")
-    return {
-        "engine": RENDERER_WPS_MANUAL_IMAGES,
-        "page_dir": str(resolved_dir),
-        "pdf_path": None,
-        "fallback_used": False,
-        "warnings": [],
-    }
-
-
-def _resolve_render_metadata(
-    input_docx: str,
-    output_dir: str,
-    renderer: str,
-    *,
-    rendered_pdf: str | None = None,
-    page_images_dir: str | None = None,
-) -> dict:
-    if rendered_pdf and page_images_dir:
-        raise ValueError("--rendered-pdf 和 --page-images-dir 只能选择一个。")
-    if rendered_pdf:
-        return _run_external_pdf_render(rendered_pdf, output_dir)
-    if page_images_dir:
-        return _run_external_page_images(page_images_dir)
-    return _run_render_engine(input_docx, output_dir, renderer)
+_page_sort_key = render_sources._page_sort_key
+_collect_page_images = render_sources._collect_page_images
+_collect_png_images = render_sources._collect_png_images
+_find_external_tool = render_sources._find_external_tool
+_find_pdftoppm = render_sources._find_pdftoppm
+_find_pdftotext = render_sources._find_pdftotext
+_export_docx_to_pdf_with_word = render_sources._export_docx_to_pdf_with_word
+_convert_pdf_to_page_images = render_sources._convert_pdf_to_page_images
+_run_word_pdf_render = render_sources._run_word_pdf_render
+_run_render_engine = render_sources._run_render_engine
+_run_external_pdf_render = render_sources._run_external_pdf_render
+_run_external_page_images = render_sources._run_external_page_images
+_resolve_render_metadata = render_sources.resolve_render_source
 
 
 def _classify_evidence_trust(
@@ -320,11 +100,13 @@ def _classify_evidence_trust(
 
 
 def _extract_pdf_line_boxes(pdf_path: str | None) -> dict[int, list[dict]]:
-    return extract_pdf_line_boxes(
-        pdf_path,
-        find_pdftotext=_find_pdftotext,
-        run=subprocess.run,
-    )
+    if not pdf_path:
+        return {}
+    try:
+        return _extract_pdf_line_boxes_with_pdfium(Path(pdf_path).expanduser().resolve())
+    except Exception:
+        LOGGER.warning("无法提取 PDF 文字坐标 已降级为整页证据", exc_info=True)
+        return {}
 
 
 def _extract_pdf_page_texts(
@@ -506,6 +288,272 @@ def _classify_render_readiness(preflight: dict, verification: dict) -> str:
     return readiness or READINESS_RENDER_CHECK_REQUIRED
 
 
+def _resolve_render_context(
+    validated_input: str,
+    resolved_output_dir: Path,
+    renderer: str,
+    *,
+    rendered_pdf: str | None,
+    page_images_dir: str | None,
+    pdf_matches_docx_confirmed: bool,
+) -> dict:
+    render_metadata = _resolve_render_metadata(
+        validated_input,
+        str(resolved_output_dir),
+        renderer,
+        rendered_pdf=rendered_pdf,
+        page_images_dir=page_images_dir,
+    )
+    page_images = render_metadata.get("page_images") or _collect_png_images(render_metadata["page_dir"])
+    if not page_images:
+        raise RuntimeError(f"渲染未产出页图: {render_metadata['page_dir']}")
+    evidence_source = render_metadata["engine"]
+    confirmed = bool(pdf_matches_docx_confirmed)
+    evidence_trust = _classify_evidence_trust(evidence_source, pdf_matches_docx_confirmed=confirmed)
+    return {
+        "render_metadata": render_metadata,
+        "page_images": page_images,
+        "evidence_source": evidence_source,
+        "evidence_trust": evidence_trust,
+        "pdf_matches_docx_confirmed": confirmed,
+    }
+
+
+def _analyze_render_evidence(render_context: dict) -> dict:
+    render_metadata = render_context["render_metadata"]
+    page_images = render_context["page_images"]
+    page_texts, text_summary = _extract_pdf_page_texts(
+        render_metadata.get("pdf_path"),
+        page_count=len(page_images),
+    )
+    line_boxes = _extract_pdf_line_boxes(render_metadata.get("pdf_path"))
+    analysis = analyze_page_images(
+        page_images,
+        evidence_source=render_context["evidence_source"],
+        page_texts=page_texts,
+    )
+    findings = attach_text_line_spans(
+        _filter_user_visible_render_findings(list(analysis.get("findings") or [])),
+        line_boxes,
+    )
+    findings.extend(_build_toc_page_number_findings(page_texts, line_boxes_by_page=line_boxes))
+    return {
+        "page_texts": page_texts,
+        "render_text_summary": text_summary,
+        "render_findings": findings,
+        "render_analysis": analysis,
+    }
+
+
+def _complete_render_evidence_context(render_context: dict, evidence_context: dict) -> dict:
+    findings = evidence_context["render_findings"]
+    analysis = evidence_context["render_analysis"]
+    return {
+        **evidence_context,
+        "evidence_items": _build_evidence_items(findings, page_images=render_context["page_images"]),
+        "render_summary": _render_summary_with_findings(analysis.get("summary") or {}, findings),
+        "layout_score": dict(analysis.get("layout_score") or {}),
+    }
+
+
+def _build_structure_context(
+    validated_input: str,
+    *,
+    profile_path: str | None,
+    scopes,
+    strict_profile: bool | None,
+) -> dict:
+    preflight = build_document_preflight(
+        validated_input,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+    diagnostics = preflight.get("diagnostics") or build_document_diagnostics(
+        validated_input,
+        profile_path=profile_path,
+        strict_profile=strict_profile,
+    )
+    verification = build_scope_verify(
+        validated_input,
+        profile_path=profile_path,
+        scopes=scopes,
+        strict_profile=strict_profile,
+        diagnostics=diagnostics,
+    )
+    return {
+        "preflight": preflight,
+        "diagnostics": diagnostics,
+        "verification": verification,
+    }
+
+
+def _build_canonical_summary(
+    *,
+    render_context: dict,
+    evidence_context: dict,
+    structure_context: dict,
+    render_evidence_status: str,
+    wild_doc: dict,
+    review_items: list[str],
+    toc_finalization: dict,
+) -> dict:
+    render_metadata = render_context["render_metadata"]
+    evidence_trust = render_context["evidence_trust"]
+    render_summary = evidence_context["render_summary"]
+    render_text_summary = evidence_context["render_text_summary"]
+    layout_score = evidence_context["layout_score"]
+    verification = structure_context["verification"]
+    preflight = structure_context["preflight"]
+    return {
+        "page_count": len(render_context["page_images"]),
+        "render_engine": render_metadata["engine"],
+        "evidence_source": render_context["evidence_source"],
+        "evidence_trust": evidence_trust["trust"],
+        "evidence_authoritative": bool(evidence_trust["is_authoritative"]),
+        "layout_decision_eligible": bool(evidence_trust["layout_decision_eligible"]),
+        "pdf_matches_docx_confirmed": render_context["pdf_matches_docx_confirmed"],
+        "render_fallback_used": bool(render_metadata.get("fallback_used")),
+        "preflight_status": preflight.get("preflight_status"),
+        "wild_doc_detected": wild_doc["detected"],
+        "wild_doc_signal_count": len(wild_doc["signals"]),
+        "structure_readiness": verification.get("readiness"),
+        "render_evidence_status": render_evidence_status,
+        "render_finding_count": int(render_summary.get("finding_count") or 0),
+        "evidence_item_count": len(evidence_context["evidence_items"]),
+        "render_highest_severity": render_summary.get("highest_severity"),
+        "layout_score": layout_score.get("score"),
+        "layout_penalty": layout_score.get("penalty"),
+        "actionable_finding_count": int(render_summary.get("actionable_finding_count") or 0),
+        "expected_blank_count": int(render_summary.get("expected_blank_count") or 0),
+        "object_flow_issue_count": int(render_summary.get("object_flow_issue_count") or 0),
+        "heading_break_issue_count": int(render_summary.get("heading_break_issue_count") or 0),
+        "isolated_punctuation_count": int(render_summary.get("isolated_punctuation_count") or 0),
+        "page_text_available_count": int(render_text_summary.get("page_text_available_count") or 0),
+        "page_text_extraction_warning_count": int(
+            render_text_summary.get("page_text_extraction_warning_count") or 0
+        ),
+        "blank_page_count": int(render_summary.get("blank_page_count") or 0),
+        "render_suspect_count": int(render_summary.get("render_suspect_count") or 0),
+        "review_item_count": len(review_items),
+        "manual_review_rule_count": len(verification.get("manual_review_rule_ids") or []),
+        "unsupported_rule_count": len(verification.get("unsupported_rule_ids") or []),
+        "toc_finalization_status": toc_finalization.get("status"),
+        "toc_output_available": bool(toc_finalization.get("available")),
+        "toc_entry_count": toc_finalization.get("entry_count"),
+        "toc_mapped_count": toc_finalization.get("mapped_count"),
+    }
+
+
+def _build_report_context(
+    render_context: dict, evidence_context: dict, structure_context: dict
+) -> dict:
+    preflight = structure_context["preflight"]
+    verification = structure_context["verification"]
+    evidence_trust = render_context["evidence_trust"]
+    wild_doc = _summarize_wild_doc(preflight)
+    render_evidence_status = _classify_render_evidence_status(
+        page_count=len(render_context["page_images"]),
+        preflight=preflight,
+        verification=verification,
+        render_summary=evidence_context["render_summary"],
+        render_text_summary=evidence_context["render_text_summary"],
+        evidence_trust=evidence_trust,
+    )
+    render_warnings = list(render_context["render_metadata"].get("warnings") or [])
+    render_warnings.extend(evidence_trust["warnings"])
+    render_warnings.extend(evidence_context["render_text_summary"].get("warnings") or [])
+    review_items = _build_render_review_items(
+        structure_context["diagnostics"],
+        {**verification, "render_findings": evidence_context["render_findings"]},
+    )
+    readiness = _classify_render_readiness(preflight, verification)
+    return {
+        "render_evidence_status": render_evidence_status,
+        "render_warnings": render_warnings,
+        "review_items": review_items,
+        "wild_doc": wild_doc,
+        "readiness": readiness,
+    }
+
+
+def _build_render_report_payload(
+    *,
+    validated_input: str,
+    resolved_output_dir: Path,
+    profile_path: str | None,
+    renderer: str,
+    render_context: dict,
+    evidence_context: dict,
+    structure_context: dict,
+    report_context: dict,
+    canonical_summary: dict,
+    toc_finalization: dict,
+) -> dict:
+    render_metadata = render_context["render_metadata"]
+    evidence_trust = render_context["evidence_trust"]
+    verification = structure_context["verification"]
+    preflight = structure_context["preflight"]
+    return {
+        "document": {
+            "path": str(Path(validated_input)),
+            "name": Path(validated_input).name,
+        },
+        "profile": {
+            "id": verification.get("profile_id"),
+            "requested": verification.get("requested_profile", profile_path),
+            "fallback_used": bool(verification.get("fallback_used")),
+            "display": verification.get("profile_display"),
+        },
+        "output_dir": str(resolved_output_dir),
+        "render_engine": render_metadata["engine"],
+        "evidence_source": render_context["evidence_source"],
+        "evidence_trust": evidence_trust["trust"],
+        "evidence_authoritative": bool(evidence_trust["is_authoritative"]),
+        "layout_decision_eligible": bool(evidence_trust["layout_decision_eligible"]),
+        "pdf_matches_docx_confirmed": render_context["pdf_matches_docx_confirmed"],
+        "requested_render_engine": renderer,
+        "render_fallback_used": bool(render_metadata.get("fallback_used")),
+        "render_warnings": report_context["render_warnings"],
+        "render_pdf_path": render_metadata.get("pdf_path"),
+        "render_page_dir": render_metadata.get("page_dir"),
+        "render_text_summary": evidence_context["render_text_summary"],
+        "page_count": len(render_context["page_images"]),
+        "page_images": render_context["page_images"],
+        "render_findings": evidence_context["render_findings"],
+        "toc_finalization": toc_finalization,
+        "evidence_items": evidence_context["evidence_items"],
+        "render_summary": evidence_context["render_summary"],
+        "layout_score": evidence_context["layout_score"],
+        "selected_scopes": verification.get("selected_scopes"),
+        "overall_status": verification.get("overall_status"),
+        "readiness": report_context["readiness"],
+        "structure_readiness": verification.get("readiness"),
+        "preflight_status": preflight.get("preflight_status"),
+        "render_evidence_status": report_context["render_evidence_status"],
+        "wild_doc": report_context["wild_doc"],
+        "summary": canonical_summary,
+        "manual_review_rule_ids": list(verification.get("manual_review_rule_ids") or []),
+        "unsupported_rule_ids": list(verification.get("unsupported_rule_ids") or []),
+        "review_items": report_context["review_items"],
+        "report_path": str(resolved_output_dir / "render_verify_report.md"),
+        "render_conclusion_report_path": str(resolved_output_dir / "render_conclusion_report.md"),
+        "render_ai_review_context_path": str(resolved_output_dir / "render_ai_review_context.md"),
+    }
+
+
+def _write_render_verify_reports(report: dict) -> None:
+    render_findings = report["render_findings"]
+    Path(report["report_path"]).write_text(render_render_verify_report(report), encoding="utf-8")
+    Path(report["render_conclusion_report_path"]).write_text(
+        render_student_render_report(render_findings),
+        encoding="utf-8",
+    )
+    Path(report["render_ai_review_context_path"]).write_text(
+        render_ai_render_context(render_findings),
+        encoding="utf-8",
+    )
+
+
 def build_render_verify_report(
     input_docx: str,
     *,
@@ -525,161 +573,57 @@ def build_render_verify_report(
     resolved_output_dir = Path(output_dir or default_render_output_dir(validated_input)).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
 
-    render_metadata = _resolve_render_metadata(
+    render_context = _resolve_render_context(
         validated_input,
-        str(resolved_output_dir),
+        resolved_output_dir,
         renderer,
         rendered_pdf=rendered_pdf,
         page_images_dir=page_images_dir,
-    )
-    page_images = _collect_png_images(render_metadata["page_dir"])
-    if not page_images:
-        raise RuntimeError(f"渲染未产出页图: {render_metadata['page_dir']}")
-    evidence_source = render_metadata["engine"]
-    pdf_matches_docx_confirmed = bool(pdf_matches_docx_confirmed)
-    evidence_trust = _classify_evidence_trust(
-        evidence_source,
         pdf_matches_docx_confirmed=pdf_matches_docx_confirmed,
     )
-    page_texts, render_text_summary = _extract_pdf_page_texts(render_metadata.get("pdf_path"), page_count=len(page_images))
-    render_analysis = analyze_page_images(page_images, evidence_source=evidence_source, page_texts=page_texts)
-    render_findings = _filter_user_visible_render_findings(list(render_analysis.get("findings") or []))
-    render_findings.extend(
-        _build_toc_page_number_findings(
-            page_texts,
-            line_boxes_by_page=_extract_pdf_line_boxes(render_metadata.get("pdf_path")),
-        )
-    )
+    evidence_context = _analyze_render_evidence(render_context)
     toc_finalization = build_static_toc_finalization(
         validated_input,
         resolved_output_dir,
-        page_texts,
+        evidence_context["page_texts"],
         requested=bool(generate_static_toc),
-        pdf_matches_docx_confirmed=pdf_matches_docx_confirmed,
-        toc_findings=render_findings,
+        pdf_matches_docx_confirmed=render_context["pdf_matches_docx_confirmed"],
+        toc_findings=evidence_context["render_findings"],
     )
-    evidence_items = _build_evidence_items(render_findings, page_images=page_images)
-    render_summary = _render_summary_with_findings(render_analysis.get("summary") or {}, render_findings)
-    layout_score = dict(render_analysis.get("layout_score") or {})
-
-    preflight = build_document_preflight(
-        validated_input,
-        profile_path=profile_path,
-        strict_profile=strict_profile,
-    )
-    diagnostics = preflight.get("diagnostics") or build_document_diagnostics(
-        validated_input,
-        profile_path=profile_path,
-        strict_profile=strict_profile,
-    )
-    verification = build_scope_verify(
+    evidence_context = _complete_render_evidence_context(render_context, evidence_context)
+    structure_context = _build_structure_context(
         validated_input,
         profile_path=profile_path,
         scopes=scopes,
         strict_profile=strict_profile,
     )
-    wild_doc = _summarize_wild_doc(preflight)
-    render_evidence_status = _classify_render_evidence_status(
-        page_count=len(page_images),
-        preflight=preflight,
-        verification=verification,
-        render_summary=render_summary,
-        render_text_summary=render_text_summary,
-        evidence_trust=evidence_trust,
+    report_context = _build_report_context(
+        render_context,
+        evidence_context,
+        structure_context,
     )
-    render_warnings = list(render_metadata.get("warnings") or [])
-    render_warnings.extend(evidence_trust["warnings"])
-    render_warnings.extend(render_text_summary.get("warnings") or [])
-    report = {
-        "document": {
-            "path": str(Path(validated_input)),
-            "name": Path(validated_input).name,
-        },
-        "profile": {
-            "id": verification.get("profile_id"),
-            "requested": verification.get("requested_profile", profile_path),
-            "fallback_used": bool(verification.get("fallback_used")),
-            "display": verification.get("profile_display"),
-        },
-        "output_dir": str(resolved_output_dir),
-        "render_engine": render_metadata["engine"],
-        "evidence_source": evidence_source,
-        "evidence_trust": evidence_trust["trust"],
-        "evidence_authoritative": bool(evidence_trust["is_authoritative"]),
-        "layout_decision_eligible": bool(evidence_trust["layout_decision_eligible"]),
-        "pdf_matches_docx_confirmed": pdf_matches_docx_confirmed,
-        "requested_render_engine": renderer,
-        "render_fallback_used": bool(render_metadata.get("fallback_used")),
-        "render_warnings": render_warnings,
-        "render_pdf_path": render_metadata.get("pdf_path"),
-        "render_page_dir": render_metadata.get("page_dir"),
-        "render_text_summary": render_text_summary,
-        "page_count": len(page_images),
-        "page_images": page_images,
-        "render_findings": render_findings,
-        "toc_finalization": toc_finalization,
-        "evidence_items": evidence_items,
-        "render_summary": render_summary,
-        "layout_score": layout_score,
-        "selected_scopes": verification.get("selected_scopes"),
-        "overall_status": verification.get("overall_status"),
-        "readiness": _classify_render_readiness(preflight, verification),
-        "structure_readiness": verification.get("readiness"),
-        "preflight_status": preflight.get("preflight_status"),
-        "render_evidence_status": render_evidence_status,
-        "wild_doc": wild_doc,
-        "summary": {
-            "page_count": len(page_images),
-            "render_engine": render_metadata["engine"],
-            "evidence_source": evidence_source,
-            "evidence_trust": evidence_trust["trust"],
-            "evidence_authoritative": bool(evidence_trust["is_authoritative"]),
-            "layout_decision_eligible": bool(evidence_trust["layout_decision_eligible"]),
-            "pdf_matches_docx_confirmed": pdf_matches_docx_confirmed,
-            "render_fallback_used": bool(render_metadata.get("fallback_used")),
-            "preflight_status": preflight.get("preflight_status"),
-            "wild_doc_detected": wild_doc["detected"],
-            "wild_doc_signal_count": len(wild_doc["signals"]),
-            "structure_readiness": verification.get("readiness"),
-            "render_evidence_status": render_evidence_status,
-            "render_finding_count": int(render_summary.get("finding_count") or 0),
-            "evidence_item_count": len(evidence_items),
-            "render_highest_severity": render_summary.get("highest_severity"),
-            "layout_score": layout_score.get("score"),
-            "layout_penalty": layout_score.get("penalty"),
-            "actionable_finding_count": int(render_summary.get("actionable_finding_count") or 0),
-            "expected_blank_count": int(render_summary.get("expected_blank_count") or 0),
-            "object_flow_issue_count": int(render_summary.get("object_flow_issue_count") or 0),
-            "heading_break_issue_count": int(render_summary.get("heading_break_issue_count") or 0),
-            "page_text_available_count": int(render_text_summary.get("page_text_available_count") or 0),
-            "page_text_extraction_warning_count": int(render_text_summary.get("page_text_extraction_warning_count") or 0),
-            "blank_page_count": int(render_summary.get("blank_page_count") or 0),
-            "render_suspect_count": int(render_summary.get("render_suspect_count") or 0),
-            "manual_review_rule_count": len(verification.get("manual_review_rule_ids") or []),
-            "unsupported_rule_count": len(verification.get("unsupported_rule_ids") or []),
-        },
-        "manual_review_rule_ids": list(verification.get("manual_review_rule_ids") or []),
-        "unsupported_rule_ids": list(verification.get("unsupported_rule_ids") or []),
-        "review_items": _build_render_review_items(
-            diagnostics,
-            {
-                **verification,
-                "render_findings": render_findings,
-            },
-        ),
-        "report_path": str(resolved_output_dir / "render_verify_report.md"),
-        "render_conclusion_report_path": str(resolved_output_dir / "render_conclusion_report.md"),
-        "render_ai_review_context_path": str(resolved_output_dir / "render_ai_review_context.md"),
-    }
-    Path(report["report_path"]).write_text(render_render_verify_report(report), encoding="utf-8")
-    Path(report["render_conclusion_report_path"]).write_text(
-        render_student_render_report(render_findings),
-        encoding="utf-8",
+    canonical_summary = _build_canonical_summary(
+        render_context=render_context,
+        evidence_context=evidence_context,
+        structure_context=structure_context,
+        render_evidence_status=report_context["render_evidence_status"],
+        wild_doc=report_context["wild_doc"],
+        review_items=report_context["review_items"],
+        toc_finalization=toc_finalization,
     )
-    Path(report["render_ai_review_context_path"]).write_text(
-        render_ai_render_context(render_findings),
-        encoding="utf-8",
+    report = _build_render_report_payload(
+        validated_input=validated_input,
+        resolved_output_dir=resolved_output_dir,
+        profile_path=profile_path,
+        renderer=renderer,
+        render_context=render_context,
+        evidence_context=evidence_context,
+        structure_context=structure_context,
+        report_context=report_context,
+        canonical_summary=canonical_summary,
+        toc_finalization=toc_finalization,
     )
+    _write_render_verify_reports(report)
     return report
 
 
