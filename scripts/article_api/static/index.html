@@ -237,14 +237,14 @@
           <div class="pdf-console-head">
             <span class="component-label">PDF 复核</span>
             <h2>PDF 问题复核</h2>
-            <p>上传 Word 或 WPS 导出的 PDF 查看检测到的页面问题</p>
+            <p>先用 Word 或 WPS 导出修复稿 PDF 再导入复核</p>
           </div>
           <div class="pdf-action-stack">
             <div class="pdf-action">
               <i></i>
-              <div><b>上传 PDF</b><span data-pdf-file>等待上传对应 PDF</span></div>
+              <div><b>导入修复稿 PDF</b><span data-pdf-file>等待上传对应 PDF</span></div>
               <input id="pdf-input" class="visually-hidden" type="file" accept=".pdf" hidden>
-              <button class="theme-action pdf-action-button" type="button" data-action="choose-pdf">选择 PDF</button>
+              <button class="theme-action pdf-action-button" type="button" data-action="choose-pdf">导入 PDF</button>
             </div>
             <div class="pdf-action">
               <i></i>
@@ -322,7 +322,7 @@
           </div>
           <div class="artifact-grid" data-result-detail hidden>
             <button class="artifact-card" type="button" data-download-role="report" disabled><b>任务报告</b><span>生成结果后可下载报告</span></button>
-            <button class="artifact-card" type="button" data-action="choose-docx"><b>上传修复稿再复核</b><span>用修复稿导出 PDF 后 检查分页和版面</span></button>
+            <button class="artifact-card" type="button" data-action="choose-docx"><b>上传修复稿 DOCX</b><span>上传后进入 PDF 导入</span></button>
           </div>
           <div class="matrix-head" data-result-detail hidden>
             <span>规则色谱</span>

@@ -37,7 +37,8 @@ lnu-thesis-local serve
 3. 选择需要修复的 scope。
 4. 等待任务完成。
 5. 下载修复副本。
-6. 用 Word/WPS 打开修复副本做最终人工复核。
+6. 需要 PDF 复核时，用 Word/WPS 打开修复副本并导出 PDF。
+7. 在结果页上传修复稿 DOCX，再导入刚导出的修复稿 PDF。
 
 这里的“上传”只表示交给你电脑上的本地网页服务处理，不是上传到 GitHub 或云端。
 
@@ -45,7 +46,7 @@ lnu-thesis-local serve
 
 启动本地 API 后，浏览器打开 `http://127.0.0.1:<port>/`。
 
-PDF 复核需要先用 Word 或 WPS 导出 PDF，再上传到工具中查看页面问题。若目录页码不一致且全部正文标题都能与同版 PDF 精确对应，页面会提供静态目录版下载。下载后仍需重新导出 PDF 并再次复核。通过实机验收后的 `v0.1.2-beta` Windows 本地包会包含 PDF 复核运行组件，不需要另外安装 Poppler。
+PDF 复核不会把 DOCX 转成 PDF。需要先用 Word 或 WPS 从修复稿导出 PDF，再依次上传修复稿 DOCX 和对应 PDF。工具会比对两者内容，匹配后才用于页面版式结论。若目录页码不一致且全部正文标题都能与同版 PDF 精确对应，页面会提供静态目录版下载。下载后仍需重新导出 PDF 并再次复核。通过实机验收后的 `v0.1.2-beta` Windows 本地包会包含 PDF 复核运行组件，不需要另外安装 Poppler。
 
 界面示例：
 
@@ -68,7 +69,10 @@ thesis-workbench audit 你的论文.docx --profile lnu
 thesis-workbench plan 你的论文.docx --profile lnu
 thesis-workbench apply 你的论文.docx --profile lnu --scope abstract --output 修复后_摘要.docx
 thesis-workbench verify 修复后_摘要.docx --profile lnu --scope abstract
+thesis-workbench render-verify 修复后_摘要.docx --profile lnu --rendered-pdf Word或WPS导出的修复稿.pdf --pdf-matches-docx-confirmed
 ```
+
+`render-verify` 必须接收当前修复稿对应的 `--rendered-pdf`，不提供自动转换参数。
 
 ## 支持范围
 

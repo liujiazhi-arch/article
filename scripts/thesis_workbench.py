@@ -117,23 +117,21 @@ def build_parser():
     subparsers.add_parser("scopes", help="列出可用 scope")
     subparsers.add_parser("profiles", help="列出可用 profile")
 
-    render_verify_parser = subparsers.add_parser("render-verify", help="生成页图证据并输出渲染复核清单")
+    render_verify_parser = subparsers.add_parser("render-verify", help="导入 Word/WPS 导出的 PDF 并生成复核清单")
     render_verify_parser.add_argument("input_docx", help="输入 .docx 文件路径")
     add_profile_args(render_verify_parser)
     render_verify_parser.add_argument("--output-dir", help="页图与 JSON 报告输出目录")
-    render_verify_parser.add_argument(
-        "--renderer",
-        choices=["auto", "word-pdf"],
-        default="auto",
-        help="渲染引擎：默认 auto，使用 Microsoft Word 导出 PDF；Word 不可用时请手动导出 PDF 后传入 --rendered-pdf",
-    )
     render_verify_parser.add_argument(
         "--scope",
         action="append",
         default=None,
         help="可选：按 scope 复用结构复查结论，可重复传入，或用逗号分隔多个值",
     )
-    render_verify_parser.add_argument("--rendered-pdf", help="可选：使用用户手动导出的 PDF 作为渲染证据")
+    render_verify_parser.add_argument(
+        "--rendered-pdf",
+        required=True,
+        help="使用 Word 或 WPS 从当前 DOCX 导出的 PDF",
+    )
     render_verify_parser.add_argument(
         "--pdf-matches-docx-confirmed",
         action="store_true",
@@ -144,7 +142,6 @@ def build_parser():
         action="store_true",
         help="根据已确认的同版 PDF 生成静态目录版 DOCX",
     )
-    render_verify_parser.add_argument("--page-images-dir", help="可选：使用用户手动导出的 PNG 页图目录作为渲染证据")
     return parser
 
 
@@ -371,9 +368,7 @@ def main(argv=None):
                 profile_path=args.profile,
                 scopes=args.scope,
                 strict_profile=args.strict_profile,
-                renderer=args.renderer,
                 rendered_pdf=args.rendered_pdf,
-                page_images_dir=args.page_images_dir,
                 pdf_matches_docx_confirmed=args.pdf_matches_docx_confirmed,
                 generate_static_toc=args.generate_static_toc,
             )

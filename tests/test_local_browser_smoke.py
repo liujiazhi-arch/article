@@ -181,10 +181,10 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
     gate_attempt = commands.index([str(playwright_cli), "click", "[data-action='choose-pdf']"], gate_nav + 1)
     download = commands.index([str(playwright_cli), "click", "[data-download-role='output']"], gate_attempt + 1)
     repaired_upload = commands.index([str(playwright_cli), "upload", str(download_path)], download + 1)
-    review_nav = commands.index(
-        [str(playwright_cli), "click", ".scene-nav [data-screen-target='pdf-review']"], repaired_upload + 1
-    )
-    confirmation = commands.index([str(playwright_cli), "click", "#pdf-match-confirmation"], review_nav + 1)
+    confirmation = commands.index([str(playwright_cli), "click", "#pdf-match-confirmation"], repaired_upload + 1)
+    assert [str(playwright_cli), "click", ".scene-nav [data-screen-target='pdf-review']"] not in commands[
+        repaired_upload + 1 : confirmation
+    ]
     pdf_choice = commands.index([str(playwright_cli), "click", "[data-action='choose-pdf']"], confirmation + 1)
     commands.index([str(playwright_cli), "upload", str(pdf_path)], pdf_choice + 1)
     assert [
@@ -217,8 +217,9 @@ def test_local_browser_smoke_drives_real_browser_flow(monkeypatch, tmp_path):
         "() => document.querySelectorAll('[data-result-heatmap] .pass, [data-result-heatmap] .warn').length > 0",
         "() => document.querySelector('[data-screen=\"result\"]')?.classList.contains('active') === true "
         "&& document.querySelector('[data-status-title]')?.textContent.trim() === '先上传修复稿'",
-        "() => document.querySelector('[data-docx-file]')?.textContent.trim() === 'downloaded-repaired.docx' "
-        "&& document.querySelector('[data-status-title]')?.textContent.trim() === '修复方案已生成'",
+        "() => document.querySelector('[data-screen=\"pdf-review\"]')?.classList.contains('active') === true "
+        "&& document.querySelector('[data-pdf-docx-file]')?.textContent.trim() === 'downloaded-repaired.docx' "
+        "&& document.querySelector('[data-status-title]')?.textContent.trim() === '请导入修复稿 PDF'",
         "() => document.querySelector('[data-render-state]')?.textContent.trim() === '已完成' "
         "&& document.querySelector('[data-pdf-metric=\"issues\"]')?.textContent.trim() !== '--'",
     ):

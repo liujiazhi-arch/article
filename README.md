@@ -26,9 +26,12 @@ Windows 新包当前处于发布前验收，暂不建议下载公开旧包：
 
 1. 从 GitHub Release 下载 `lnu-thesis-local-windows.zip`。
 2. 完整解压，双击 `启动论文格式检查.bat`。
-3. 在本机网页上传 Word/WPS 保存的 `.docx`，生成修复方案，下载修复副本，并用 Word/WPS 人工复核。
+3. 在本机网页上传 Word/WPS 保存的 `.docx`，生成修复方案并下载修复副本。
+4. 需要 PDF 复核时，用 Word/WPS 打开修复副本并导出 PDF，再把修复稿 DOCX 和 PDF 导入本机网页。
 
 这里的“上传”指上传到你电脑上的本地网页服务，不是上传到 GitHub 或云端。
+
+PDF 复核不会把 DOCX 转成 PDF。这样可以保证复核看到的分页与学生最终使用的 Word/WPS 环境一致。
 
 ## 界面预览
 
@@ -136,8 +139,8 @@ thesis-workbench apply 你的论文.docx --profile lnu --scope headings --renumb
 # 复查指定 scope
 thesis-workbench verify 修复后_正文段落.docx --profile lnu --scope body_paragraphs
 
-# 使用 Word/WPS 导出的 PDF 做渲染复核
-thesis-workbench render-verify 修复后_正文段落.docx --profile lnu --rendered-pdf 手动导出的.pdf --pdf-matches-docx-confirmed
+# 使用 Word/WPS 导出的修复稿 PDF 做渲染复核
+thesis-workbench render-verify 修复后_正文段落.docx --profile lnu --rendered-pdf Word或WPS导出的修复稿.pdf --pdf-matches-docx-confirmed
 
 # 目录页码不一致时生成静态目录副本
 thesis-workbench render-verify 修复后_正文段落.docx --profile lnu --rendered-pdf 手动导出的.pdf --pdf-matches-docx-confirmed --generate-static-toc

@@ -175,7 +175,7 @@ def test_request_models_default_to_auto_strict_profile():
     preflight_request = PreflightRequest(file_path="demo.docx")
     normalize_request = NormalizeRequest(file_path="demo.docx")
     normalize_job_request = NormalizeJobRequest(file_path="demo.docx")
-    render_verify_request = RenderVerifyRequest(file_path="demo.docx")
+    render_verify_request = RenderVerifyRequest(file_path="demo.docx", rendered_pdf="/tmp/demo.pdf")
     upload_render_review_request = UploadRenderReviewRequest(pdf_upload_id="pdf-1")
     verify_request = VerifyRequest(file_path="demo.docx")
 
@@ -184,9 +184,7 @@ def test_request_models_default_to_auto_strict_profile():
     assert normalize_request.strict_profile is None
     assert normalize_job_request.strict_profile is None
     assert render_verify_request.strict_profile is None
-    assert render_verify_request.renderer == "auto"
-    assert render_verify_request.rendered_pdf is None
-    assert render_verify_request.page_images_dir is None
+    assert render_verify_request.rendered_pdf == "/tmp/demo.pdf"
     assert render_verify_request.pdf_matches_docx_confirmed is False
     assert render_verify_request.generate_static_toc is False
     assert upload_render_review_request.generate_static_toc is True
@@ -199,9 +197,14 @@ def test_apply_request_supports_candidate_mode():
     assert request.candidate_mode == "compact_candidate"
 
 
-def test_render_verify_request_rejects_artifact_tool_renderer():
+def test_render_verify_request_requires_user_exported_pdf():
     with pytest.raises(Exception):
-        RenderVerifyRequest(file_path="demo.docx", renderer="artifact-tool")
+        RenderVerifyRequest(file_path="demo.docx")
+
+
+def test_render_verify_request_rejects_renderer_controls():
+    with pytest.raises(Exception):
+        RenderVerifyRequest(file_path="demo.docx", rendered_pdf="/tmp/demo.pdf", renderer="word-pdf")
 
 
 def test_render_workflow_modes_payload_describes_pdf_and_candidate_modes():
@@ -212,9 +215,19 @@ def test_render_workflow_modes_payload_describes_pdf_and_candidate_modes():
     assert payload["recommended_mode"] == "default_user"
     assert payload["modes"][0]["requires_manual_pdf"] is True
     assert payload["modes"][0]["uses_automation"] is False
+    assert payload["modes"][0]["backend_action"] == "render-verify with rendered_pdf"
     assert payload["modes"][1]["creates_candidate_docx"] is True
     assert payload["modes"][1]["candidate_modes"] == ["fast_candidate", "compact_candidate"]
     assert any("Word/WPS" in issue for issue in payload["render_layer_issues"])
+
+
+def test_default_render_workflow_rejects_page_images_without_exported_pdf():
+    with pytest.raises(ValueError, match="导出 PDF"):
+        app_module.build_render_verify_payload(
+            file_path="/tmp/demo.docx",
+            workflow_mode="default_user",
+            page_images_dir="/tmp/pages",
+        )
 
 
 def test_render_verify_request_supports_workflow_mode():
@@ -1039,8 +1052,7 @@ def test_fake_app_render_verify_endpoint_returns_proof_summary(monkeypatch):
             file_path="/tmp/demo.docx",
             profile="lnu",
             scopes=["figures_tables"],
-            renderer="word-pdf",
-            page_images_dir="/tmp/wps-pages",
+            rendered_pdf="/tmp/wps-export.pdf",
         )
     )
 

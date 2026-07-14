@@ -192,6 +192,19 @@ def test_result_screen_keeps_a_clear_path_back_to_the_workbench():
     assert "返回工作台" in result
 
 
+def test_pdf_review_requires_the_user_exported_repaired_pdf():
+    client = TestClient(create_app())
+
+    html = client.get("/").text
+    pdf_review = html[html.index('<section class="screen" data-screen="pdf-review">') : html.index("</section>", html.index('<section class="screen" data-screen="pdf-review">'))]
+    result = html[html.index('<section class="screen" data-screen="result">') : html.index("</section>", html.index('<section class="screen" data-screen="result">'))]
+
+    assert "导入修复稿 PDF" in pdf_review
+    assert "用 Word 或 WPS 导出" in pdf_review
+    assert "上传修复稿 DOCX" in result
+    assert "上传后进入 PDF 导入" in result
+
+
 def test_result_screen_hides_detail_blocks_until_results_exist():
     client = TestClient(create_app())
 

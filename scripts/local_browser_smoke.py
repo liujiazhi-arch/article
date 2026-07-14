@@ -162,8 +162,9 @@ _FRESH_DOCX_GATE = (
     "&& document.querySelector('[data-status-title]')?.textContent.trim() === '先上传修复稿'"
 )
 _REPAIRED_DOCX_READY = (
-    "() => document.querySelector('[data-docx-file]')?.textContent.trim() === 'downloaded-repaired.docx' "
-    "&& document.querySelector('[data-status-title]')?.textContent.trim() === '修复方案已生成'"
+    "() => document.querySelector('[data-screen=\"pdf-review\"]')?.classList.contains('active') === true "
+    "&& document.querySelector('[data-pdf-docx-file]')?.textContent.trim() === 'downloaded-repaired.docx' "
+    "&& document.querySelector('[data-status-title]')?.textContent.trim() === '请导入修复稿 PDF'"
 )
 _PDF_REVIEW_READY = (
     "() => document.querySelector('[data-render-state]')?.textContent.trim() === '已完成' "
@@ -324,7 +325,6 @@ def _run_pdf_review(playwright_cli: Path, files: _SmokeFiles, *, cwd: Path, time
     )
     _run_playwright(playwright_cli, "upload", files.downloaded_docx, cwd=cwd, timeout=timeout)
     _wait_for_eval_truthy(playwright_cli, _REPAIRED_DOCX_READY, cwd=cwd, timeout=timeout)
-    _run_playwright(playwright_cli, "click", ".scene-nav [data-screen-target='pdf-review']", cwd=cwd, timeout=timeout)
     _run_playwright(playwright_cli, "click", "#pdf-match-confirmation", cwd=cwd, timeout=timeout)
     _run_playwright(playwright_cli, "click", "[data-action='choose-pdf']", cwd=cwd, timeout=timeout)
     _run_playwright(playwright_cli, "upload", files.pdf, cwd=cwd, timeout=timeout)

@@ -321,9 +321,7 @@ def test_run_render_verify_returns_payload(monkeypatch):
         "/tmp/demo.docx",
         profile="lnu",
         scopes=["toc"],
-        renderer="word-pdf",
         rendered_pdf="/tmp/export.pdf",
-        page_images_dir=None,
         workflow_mode="default_user",
         generate_static_toc=True,
     )
@@ -435,6 +433,31 @@ def test_main_render_verify_outputs_json(monkeypatch, capsys):
     assert payload["workflow_mode"] == "default_user"
     assert payload["page_count"] == 2
     assert payload["selected_scopes"] == ["toc"]
+
+
+def test_main_render_verify_requires_user_exported_pdf(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        local_app.main(["render-verify", "/tmp/demo.docx"])
+
+    assert exc_info.value.code == 2
+    assert "--rendered-pdf" in capsys.readouterr().err
+
+
+def test_main_render_verify_rejects_renderer_option(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        local_app.main(
+            [
+                "render-verify",
+                "/tmp/demo.docx",
+                "--rendered-pdf",
+                "/tmp/export.pdf",
+                "--renderer",
+                "word-pdf",
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    assert "unrecognized arguments: --renderer" in capsys.readouterr().err
 
 
 def test_build_doctor_report_quotes_workflow_paths(monkeypatch, tmp_path):

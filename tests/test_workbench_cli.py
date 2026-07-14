@@ -486,7 +486,22 @@ def test_workbench_normalize_cli_supports_compact_output(tmp_path):
     assert "after_preflight_status=warning" in result.stdout
 
 
-def test_workbench_render_verify_cli_rejects_artifact_tool_renderer(tmp_path):
+def test_workbench_render_verify_cli_requires_user_exported_pdf(tmp_path):
+    source_path = Path(tmp_path) / "workbench_cli_render_verify.docx"
+    Document().save(source_path)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "thesis_workbench.py"), "render-verify", str(source_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "--rendered-pdf" in result.stderr
+
+
+def test_workbench_render_verify_cli_rejects_renderer_option(tmp_path):
     source_path = Path(tmp_path) / "workbench_cli_render_verify.docx"
     doc = Document()
     doc.add_heading("Render Verify", level=1)
@@ -503,6 +518,8 @@ def test_workbench_render_verify_cli_rejects_artifact_tool_renderer(tmp_path):
             "lnu",
             "--output-dir",
             str(output_dir),
+            "--rendered-pdf",
+            str(Path(tmp_path) / "manual.pdf"),
             "--renderer",
             "artifact-tool",
         ],
@@ -512,7 +529,7 @@ def test_workbench_render_verify_cli_rejects_artifact_tool_renderer(tmp_path):
     )
 
     assert result.returncode == 2
-    assert "artifact-tool" in result.stderr
+    assert "unrecognized arguments: --renderer" in result.stderr
 
 
 def test_workbench_render_verify_forwards_pdf_docx_confirmation(monkeypatch, capsys):

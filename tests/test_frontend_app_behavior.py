@@ -708,6 +708,91 @@ await docxInput.emit("change");
 assert.equal(getState().pdfReviewRequiresFreshDocx, false);
 assert.equal(pdfMatchConfirmation.checked, false);
 assert.equal(docxInput.value, "");
+assert.equal(pdfScreen.classList.contains("active"), true);
+assert.equal(statusTitle.textContent, "请导入修复稿 PDF");
+assert.equal(statusMessage.textContent, "用 Word 或 WPS 导出后选择 PDF");
+"""
+    )
+
+
+def test_repaired_docx_upload_opens_pdf_review_when_plan_is_unavailable():
+    _run_node(
+        """
+setState({ pdfReviewRequiresFreshDocx: true, documentEpoch: 10 });
+fetchHandler = async (url) => {
+  if (url === "/uploads/docx") {
+    return jsonResponse({ upload_id: "docx-2", file_name: "paper-fixed.docx", stored_path: "/tmp/paper-fixed.docx" });
+  }
+  if (url === "/uploads/docx-2/plan") return jsonResponse({ detail: "plan unavailable" }, 503);
+  throw new Error(`unexpected request ${url}`);
+};
+docxInput.files = [{ name: "paper-fixed.docx" }];
+await docxInput.emit("change");
+
+assert.equal(pdfScreen.classList.contains("active"), true);
+assert.equal(getState().docxUpload.file_name, "paper-fixed.docx");
+assert.equal(getState().pdfReviewRequiresFreshDocx, false);
+assert.equal(statusTitle.textContent, "请导入修复稿 PDF");
+assert.equal(statusMessage.textContent, "用 Word 或 WPS 导出后选择 PDF");
+"""
+    )
+
+
+def test_late_repaired_docx_plan_does_not_replace_pdf_review_status():
+    _run_node(
+        """
+setState({ pdfReviewRequiresFreshDocx: true, documentEpoch: 10, pdfReviewEpoch: 20 });
+let resolvePlan;
+fetchHandler = async (url) => {
+  if (url === "/uploads/docx") {
+    return jsonResponse({ upload_id: "docx-2", file_name: "paper-fixed.docx", stored_path: "/tmp/paper-fixed.docx" });
+  }
+  if (url === "/uploads/docx-2/plan") {
+    return new Promise((resolve) => { resolvePlan = resolve; });
+  }
+  throw new Error(`unexpected request ${url}`);
+};
+docxInput.files = [{ name: "paper-fixed.docx" }];
+const uploadFlow = docxInput.emit("change");
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(pdfScreen.classList.contains("active"), true);
+assert.ok(resolvePlan, "repair plan should be pending");
+
+setState({ pdfReviewEpoch: getState().pdfReviewEpoch + 1 });
+statusTitle.textContent = "PDF 复核完成";
+statusMessage.textContent = "没有发现需要确认的位置";
+resolvePlan(jsonResponse({ scopes: [], summary: {} }));
+await uploadFlow;
+
+assert.equal(statusTitle.textContent, "PDF 复核完成");
+assert.equal(statusMessage.textContent, "没有发现需要确认的位置");
+"""
+    )
+
+
+def test_history_apply_result_requires_fresh_docx_for_pdf_review():
+    _run_node(
+        """
+setState({ documentEpoch: 10, pdfReviewEpoch: 20, pdfReviewRequiresFreshDocx: false });
+fetchHandler = async () => jsonResponse({
+  operation: "apply",
+  job_id: "history-apply",
+  artifacts: [],
+  summary: { selected_scopes: ["body_paragraphs"] },
+  result: { verification: { scopes: [] } },
+});
+const target = {
+  closest(selector) {
+    return selector === "[data-history-job-id]" ? { dataset: { historyJobId: "history-apply" } } : null;
+  },
+};
+
+await document.emit("click", { target });
+await new Promise((resolve) => setImmediate(resolve));
+
+assert.equal(resultScreen.classList.contains("active"), true);
+assert.equal(getState().pdfReviewRequiresFreshDocx, true);
+assert.equal(statusTitle.textContent, "修正结果已生成");
 """
     )
 

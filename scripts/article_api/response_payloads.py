@@ -22,7 +22,7 @@ RENDER_WORKFLOW_MODES: tuple[dict[str, Any], ...] = (
         "requires_manual_pdf": True,
         "uses_automation": False,
         "creates_candidate_docx": False,
-        "backend_action": "render-verify with rendered_pdf or page_images_dir",
+        "backend_action": "render-verify with rendered_pdf",
         "why": "Word/WPS 自动化容易被恢复弹窗、权限和超时打断；手动导出的 PDF 才是稳定版式证据。",
         "best_for": "普通用户、最终提交前复核、多人使用场景。",
     },
@@ -248,8 +248,8 @@ def resolve_render_workflow_mode(
     if mode is None:
         valid = ", ".join(item["id"] for item in RENDER_WORKFLOW_MODES)
         raise ValueError(f"未知渲染工作流模式: {workflow_mode}。可选: {valid}")
-    if mode_id == "default_user" and not (rendered_pdf or page_images_dir):
-        raise ValueError("PDF 版式复核需要先用 Word/WPS 导出 PDF，或提供页图目录。")
+    if mode_id == "default_user" and not rendered_pdf:
+        raise ValueError("PDF 版式复核需要先用 Word/WPS 导出 PDF。")
     if mode_id == "agent_candidate":
         raise ValueError("Agent 候选稿模式不直接执行 render-verify；请先生成候选 DOCX，再用 PDF 版式复核。")
     return mode

@@ -40,6 +40,8 @@ def test_frontend_backend_contract_freezes_required_endpoints():
 def test_frontend_backend_contract_defines_pdf_review_boundary():
     text = CONTRACT.read_text(encoding="utf-8")
 
+    assert "Public PDF review never converts DOCX to PDF" in text
+    assert "repaired DOCX upload must precede the repaired PDF upload" in text
     assert '"pdf_matches_docx_confirmed": true' in text
     assert "bbox = null" in text
     assert "must not draw a fake precise box" in text

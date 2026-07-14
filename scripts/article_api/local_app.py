@@ -84,13 +84,11 @@ def run_normalize(
 def run_render_verify(
     file_path: str,
     *,
+    rendered_pdf: str,
     output_dir: str | None = None,
     profile: str = "lnu",
     strict_profile: bool | None = None,
     scopes=None,
-    renderer: str = "auto",
-    rendered_pdf: str | None = None,
-    page_images_dir: str | None = None,
     pdf_matches_docx_confirmed: bool = False,
     generate_static_toc: bool = False,
     workflow_mode: str | None = None,
@@ -101,9 +99,7 @@ def run_render_verify(
         profile_path=profile,
         strict_profile=strict_profile,
         scopes=scopes,
-        renderer=renderer,
         rendered_pdf=rendered_pdf,
-        page_images_dir=page_images_dir,
         pdf_matches_docx_confirmed=pdf_matches_docx_confirmed,
         generate_static_toc=generate_static_toc,
         workflow_mode=workflow_mode,
@@ -156,11 +152,9 @@ def _build_parser() -> argparse.ArgumentParser:
     render_verify_parser.add_argument("--allow-profile-fallback", dest="strict_profile", action="store_false")
     render_verify_parser.add_argument("--output-dir")
     render_verify_parser.add_argument("--scope", action="append", default=None)
-    render_verify_parser.add_argument("--renderer", choices=["auto", "word-pdf"], default="auto")
-    render_verify_parser.add_argument("--rendered-pdf")
+    render_verify_parser.add_argument("--rendered-pdf", required=True)
     render_verify_parser.add_argument("--pdf-matches-docx-confirmed", action="store_true")
     render_verify_parser.add_argument("--generate-static-toc", action="store_true")
-    render_verify_parser.add_argument("--page-images-dir")
     render_verify_parser.add_argument("--workflow-mode", choices=["default_user", "agent_candidate"])
     render_verify_parser.set_defaults(handler=_handle_render_verify)
 
@@ -267,9 +261,7 @@ def _handle_render_verify(args: argparse.Namespace) -> int:
             profile=args.profile,
             strict_profile=args.strict_profile,
             scopes=args.scope,
-            renderer=args.renderer,
             rendered_pdf=args.rendered_pdf,
-            page_images_dir=args.page_images_dir,
             pdf_matches_docx_confirmed=args.pdf_matches_docx_confirmed,
             generate_static_toc=args.generate_static_toc,
             workflow_mode=args.workflow_mode,

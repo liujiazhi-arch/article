@@ -81,14 +81,14 @@ class NormalizeJobRequest(NormalizeRequest):
 
 
 class RenderVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     file_path: str = Field(..., min_length=1)
     output_dir: str | None = None
     profile: str = Field(default="lnu")
     strict_profile: bool | None = None
     scopes: list[str] | None = None
-    renderer: str = Field(default="auto", pattern="^(auto|word-pdf)$")
-    rendered_pdf: str | None = None
-    page_images_dir: str | None = None
+    rendered_pdf: str = Field(..., min_length=1)
     pdf_matches_docx_confirmed: bool = False
     generate_static_toc: bool = False
     workflow_mode: str | None = Field(default=None, pattern="^(default_user|agent_candidate)$")

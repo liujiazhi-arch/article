@@ -95,20 +95,20 @@ function showError(error) {
   setStatus(error.message || "操作没有完成", error.nextAction || "请检查文件后重试");
 }
 
-async function createWorkbenchPlanFromUpload(upload, documentEpoch = null) {
+async function createWorkbenchPlanFromUpload(upload, documentEpoch = null, updateStatus = true) {
   renderWorkflowPlan({ state: "loading", fileName: upload.file_name, stage: "plan" });
-  setStatus("论文已上传", "正在生成修复方案");
+  if (updateStatus) setStatus("论文已上传", "正在生成修复方案");
   try {
     const plan = await createUploadPlan(upload.upload_id);
     if (documentEpoch && getState().documentEpoch !== documentEpoch) return null;
     setState({ workbenchPlan: plan });
     renderWorkflowPlan({ state: "ready", plan });
-    setStatus("修复方案已生成", "可以生成修正结果");
+    if (updateStatus) setStatus("修复方案已生成", "可以生成修正结果");
     return plan;
   } catch (planError) {
     if (documentEpoch && getState().documentEpoch !== documentEpoch) return null;
     renderWorkflowPlan({ state: "error", message: planError.nextAction || "请稍后重试生成方案" });
-    setStatus("论文已上传", "修复方案暂时不可用");
+    if (updateStatus) setStatus("论文已上传", "修复方案暂时不可用");
     throw planError;
   }
 }
@@ -165,9 +165,7 @@ async function openHistoryJob(jobId) {
     return;
   }
   if (resultPayload.operation === "apply") {
-    resetPdfReviewState(document);
-    renderResult(resultPayload);
-    showScreen("result");
+    showApplyResult(document, resultPayload);
   }
 }
 
@@ -259,8 +257,10 @@ async function handleCreateApplyJob(root) {
 async function handleDocxUpload(root, docxInput) {
   const file = docxInput.files && docxInput.files[0];
   if (!file) return;
+  const continueToPdfReview = getState().pdfReviewRequiresFreshDocx === true;
   const hadCurrentDocument = Boolean(getState().docxUpload);
   const documentEpoch = resetDocumentState(root);
+  const pdfReviewEpoch = getState().pdfReviewEpoch;
   renderWorkflowPlan({ state: "loading", fileName: file.name }, root);
   try {
     setStatus("正在上传论文", "请稍候");
@@ -269,7 +269,22 @@ async function handleDocxUpload(root, docxInput) {
     setState({ docxUpload: upload, pdfReviewRequiresFreshDocx: false });
     if (hadCurrentDocument) resetCoverForm(root);
     renderPdfReviewContext(root, { documentName: upload.file_name });
-    await createWorkbenchPlanFromUpload(upload, documentEpoch);
+    if (continueToPdfReview) {
+      showScreen("pdf-review");
+    }
+    try {
+      await createWorkbenchPlanFromUpload(upload, documentEpoch, !continueToPdfReview);
+    } catch (planError) {
+      if (!continueToPdfReview) throw planError;
+    }
+    const current = getState();
+    if (
+      continueToPdfReview
+      && current.documentEpoch === documentEpoch
+      && current.pdfReviewEpoch === pdfReviewEpoch
+    ) {
+      setStatus("请导入修复稿 PDF", "用 Word 或 WPS 导出后选择 PDF");
+    }
   } catch (error) {
     if (getState().documentEpoch !== documentEpoch) return;
     showError(error);

@@ -9,6 +9,9 @@ Date: 2026-07-14
 
 ## Uploads
 
+- Public PDF review never converts DOCX to PDF. The student exports the repaired DOCX with Word/WPS and imports that PDF.
+- A repaired DOCX upload must precede the repaired PDF upload because it is the content-matching source for the review.
+
 - `POST /uploads/docx`
   - Form field: `file`
   - Returns: `upload_id`, `file_name`, `stored_path`, `workspace_dir`, `runtime_root`, `size_bytes`, `created_at`
@@ -41,6 +44,10 @@ Date: 2026-07-14
   - Creates a background `render-verify` job.
   - Resolves `file_path` from the DOCX upload.
   - Resolves `rendered_pdf` from the PDF upload.
+
+- `POST /render-verify`
+  - Compatibility interface for trusted local callers that already own filesystem paths.
+  - Requires `rendered_pdf`; it does not accept renderer selection or a page-image directory.
 
 - `GET /jobs/{job_id}`
   - Returns `status`, `summary`, `artifacts`, and student-safe job metadata.
