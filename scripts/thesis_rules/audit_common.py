@@ -1785,8 +1785,9 @@ def check_f07(document_root, contexts, style_map):
         return False, issues, summarize_positions(bad_positions)
     return True, [], "全部图表题"
 
-def check_tb03_line(document_root, contexts, style_map):
-    """三线表应有栏目线：第一行每个单元格底边框 sz >= 6（0.75pt）。"""
+def check_tb03_line(document_root, contexts, style_map, cfg=None):
+    """三线表应有栏目线，最小线宽由 profile 配置。"""
+    required_size = int((cfg or {}).get("table_header_bottom_sz", 6) or 6)
     tables = get_non_equation_layout_tables(document_root)
     if not tables:
         return True, [], "文档无表格或仅含公式布局表"
@@ -1806,7 +1807,7 @@ def check_tb03_line(document_root, contexts, style_map):
             if bottom_border is not None:
                 sz = parse_int(get_w_attr(bottom_border, "sz"))
                 val = get_w_attr(bottom_border, "val")
-                if sz is not None and sz >= 6 and val not in ("nil", "none"):
+                if sz is not None and sz >= required_size and val not in ("nil", "none"):
                     row_has_bottom = True
                     break
         if not row_has_bottom:
@@ -1945,7 +1946,7 @@ RULE_CHECKERS = {
     "F05": lambda doc, ctxs, sm, cfg: check_f05(doc, ctxs, sm),
     "F06": lambda doc, ctxs, sm, cfg: check_f06(doc, ctxs, sm),
     "F07": lambda doc, ctxs, sm, cfg: check_f07(doc, ctxs, sm),
-    "TB03_LINE": lambda doc, ctxs, sm, cfg: check_tb03_line(doc, ctxs, sm),
+    "TB03_LINE": lambda doc, ctxs, sm, cfg: check_tb03_line(doc, ctxs, sm, cfg),
     "TB02": lambda doc, ctxs, sm, cfg: check_tb02_no_vline(doc, ctxs, sm, cfg),
     "TB03": lambda doc, ctxs, sm, cfg: check_tb03(doc, ctxs, sm),
     "SP01": lambda doc, ctxs, sm, cfg: check_sp01(doc, ctxs, sm),

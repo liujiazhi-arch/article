@@ -247,9 +247,9 @@ def _make_cell_level_border_table() -> ET.Element:
         tc_pr = ET.SubElement(tc, _w("tcPr"))
         tc_borders = ET.SubElement(tc_pr, _w("tcBorders"))
         if row_index == 0:
-            border_names = (("top", "18"), ("bottom", "6"))
+            border_names = (("top", "12"), ("bottom", "4"))
         else:
-            border_names = (("bottom", "18"),)
+            border_names = (("bottom", "12"),)
         for border_name, size in border_names:
             border = ET.SubElement(tc_borders, _w(border_name))
             border.set(_w("val"), "single")
@@ -888,6 +888,25 @@ def test_tb03_line_skips_equation_layout_table():
     passed, issues, _ = audit_thesis.check_tb03_line(doc, [], {})
 
     assert passed, issues
+
+
+def test_tb03_line_uses_profile_header_border_size():
+    doc = _doc_with_paragraphs(_make_cell_level_border_table())
+
+    default_passed, _, _ = audit_thesis.check_tb03_line(doc, [], {}, {})
+    passed, issues, _ = audit_thesis.check_tb03_line(
+        doc,
+        [],
+        {},
+        {"table_header_bottom_sz": 4},
+    )
+
+    assert not default_passed
+    assert passed, issues
+
+
+def test_lnu_profile_exposes_header_border_size(lnu_cfg):
+    assert lnu_cfg["table_header_bottom_sz"] == 4
 
 
 @pytest.mark.parametrize(

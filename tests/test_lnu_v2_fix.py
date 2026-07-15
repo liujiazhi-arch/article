@@ -2389,12 +2389,24 @@ def test_fix_table_borders_sets_inside_h():
     tc = ET.SubElement(tr, _w("tc"))
     ET.SubElement(tc, _w("p"))
 
+    fix_thesis.fix_table_borders(tbl, {"table_header_bottom_sz": 4})
+
+    top = tbl.find("w:tblPr/w:tblBorders/w:top", NSMAP)
+    bottom = tbl.find("w:tblPr/w:tblBorders/w:bottom", NSMAP)
+    inside_h = tbl.find("w:tblPr/w:tblBorders/w:insideH", NSMAP)
+    assert top is not None and top.get(_w("sz")) == "12"
+    assert bottom is not None and bottom.get(_w("sz")) == "12"
+    assert inside_h is not None
+    assert inside_h.get(_w("val")) == "single"
+    assert inside_h.get(_w("sz")) == "4"
+
+
+def test_fix_table_borders_keeps_cn_default_header_size():
+    tbl = ET.Element(_w("tbl"))
     fix_thesis.fix_table_borders(tbl)
 
     inside_h = tbl.find("w:tblPr/w:tblBorders/w:insideH", NSMAP)
-    assert inside_h is not None
-    assert inside_h.get(_w("val")) == "single"
-    assert inside_h.get(_w("sz")) == "6"
+    assert inside_h is not None and inside_h.get(_w("sz")) == "6"
 
 
 def test_fix_equation_reference_text_normalizes_same_run_lnu_dot_reference():

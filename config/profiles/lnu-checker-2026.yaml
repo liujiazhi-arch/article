@@ -122,7 +122,7 @@ additions:
     description: "表格外框1.5pt，内线0.5pt"
     method: docx-structure
     evidence: "表格边框"
-    fix: "fix_table_borders(top_bottom_sz=18, header_sz=6)"
+    fix: "fix_table_borders(top_bottom_sz=12, header_sz=4)"
     source: lnu-checker-2026
 
   - id: LNU_TB02
@@ -521,6 +521,7 @@ settings:
   figure_blank_line_twips: 360
   table_blank_line_twips: 360
   table_cell_line: 240
+  table_header_bottom_sz: 4
   figure_caption_line: 360
   figure_note_line: 240
   eq_number_sep: "."

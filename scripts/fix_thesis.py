@@ -3633,13 +3633,14 @@ def fix_caption_number_sep(p_elem, cfg=None):
             text_elem.text = updated
 
 
-def fix_table_borders(tbl_elem):
+def fix_table_borders(tbl_elem, cfg=None):
+    header_size = str(int((cfg or {}).get("table_header_bottom_sz", 6) or 6))
     tbl_pr = get_or_create(tbl_elem, "w:tblPr")
     tbl_borders = get_or_create(tbl_pr, "w:tblBorders")
     for border_name in ("top", "bottom"):
         border = get_or_create(tbl_borders, f"w:{border_name}")
         set_attr(border, "val", "single")
-        set_attr(border, "sz", "18")
+        set_attr(border, "sz", "12")
         set_attr(border, "color", "000000")
     for border_name in ("left", "right"):
         border = get_or_create(tbl_borders, f"w:{border_name}")
@@ -3658,7 +3659,7 @@ def fix_table_borders(tbl_elem):
     if inside_h is None:
         inside_h = ET.SubElement(tbl_borders, f"{{{W_NS}}}insideH")
     inside_h.set(f"{{{W_NS}}}val", "single")
-    inside_h.set(f"{{{W_NS}}}sz", "6")
+    inside_h.set(f"{{{W_NS}}}sz", header_size)
     inside_h.set(f"{{{W_NS}}}color", "auto")
 
     first_row = tbl_elem.find(".//w:tr", NSMAP)
@@ -3670,7 +3671,7 @@ def fix_table_borders(tbl_elem):
         tc_borders = get_or_create(tc_pr, "w:tcBorders")
         bottom = get_or_create(tc_borders, "w:bottom")
         set_attr(bottom, "val", "single")
-        set_attr(bottom, "sz", "6")
+        set_attr(bottom, "sz", header_size)
         set_attr(bottom, "color", "000000")
 
 
@@ -4693,7 +4694,7 @@ def _apply_table_passes(ctx: FixExecutionContext):
         if audit_thesis.is_equation_layout_table(tbl):
             fix_equation_layout_table_borders(tbl)
             continue
-        fix_table_borders(tbl)
+        fix_table_borders(tbl, ctx.cfg)
         if is_lnu_profile(ctx.runtime):
             fix_table_cell_font(tbl, ctx.cfg)
 

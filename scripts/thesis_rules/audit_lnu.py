@@ -1353,10 +1353,10 @@ def check_lnu_ref05(document_root, contexts, style_map, cfg):
     return (len(issues) == 0), issues, f"共检查{len(seen)}条"
 
 def check_lnu_tb01(document_root, contexts, style_map, cfg):
-    """LNU_TB01: 表格外框线1.5pt(18)，内线0.5pt(6)"""
+    """LNU_TB01: 表格外框线1.5pt(12)，内线0.5pt(4)。"""
     issues = []
-    OUTER_MIN, OUTER_MAX = 14, 22
-    INNER_MIN, INNER_MAX = 4, 10
+    OUTER_MIN, OUTER_MAX = 10, 14
+    INNER_MIN, INNER_MAX = 3, 5
 
     def _cell_border_ok(cell, side, min_size, max_size):
         border = cell.find(f"w:tcPr/w:tcBorders/w:{side}", NSMAP)
@@ -1402,7 +1402,7 @@ def check_lnu_tb01(document_root, contexts, style_map, cfg):
                 continue  # 无边框定义，跳过（可能在单元格级别设置）
             sz_val = parse_int(get_w_attr(border, "sz"))
             if sz_val is not None and not (OUTER_MIN <= sz_val <= OUTER_MAX):
-                issues.append(f"第{tbl_count}个表格外框{side}线宽={sz_val}，应约为18(1.5pt)")
+                issues.append(f"第{tbl_count}个表格外框{side}线宽={sz_val}，应约为12(1.5pt)")
         for side in ("left", "right"):
             border = tbl_borders.find(f"w:{side}", NSMAP)
             if border is None:
@@ -1419,7 +1419,7 @@ def check_lnu_tb01(document_root, contexts, style_map, cfg):
                 continue  # none 表示无内线（三线表通过单元格级边框实现分隔线）
             sz_val = parse_int(get_w_attr(border, "sz"))
             if sz_val is not None and not (INNER_MIN <= sz_val <= INNER_MAX):
-                issues.append(f"第{tbl_count}个表格内线{side}线宽={sz_val}，应约为6(0.5pt)")
+                issues.append(f"第{tbl_count}个表格内线{side}线宽={sz_val}，应约为4(0.5pt)")
         if len(issues) >= 6:
             break
     return (len(issues) == 0), issues, f"检查了{tbl_count}个表格"
