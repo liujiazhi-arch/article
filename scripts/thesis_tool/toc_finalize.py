@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from copy import deepcopy
 import re
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -189,21 +190,38 @@ def analyze_static_toc(input_docx: str | Path, page_texts: Mapping[int, str]) ->
     }
 
 
-def _append_text_run(paragraph: ET.Element, text: str) -> None:
+def _first_text_run_properties(paragraph: ET.Element | None) -> ET.Element | None:
+    if paragraph is None:
+        return None
+    for run in paragraph.findall(".//w:r", NSMAP):
+        if run.find("w:t", NSMAP) is None:
+            continue
+        properties = run.find("w:rPr", NSMAP)
+        if properties is not None:
+            return properties
+    return None
+
+
+def _append_text_run(paragraph: ET.Element, text: str, run_properties: ET.Element | None = None) -> None:
     run = ET.SubElement(paragraph, f"{W}r")
+    if run_properties is not None:
+        run.append(deepcopy(run_properties))
     text_element = ET.SubElement(run, f"{W}t")
     text_element.text = text
 
 
 def _rewrite_entry(paragraph: ET.Element, title: str, page: int) -> None:
     paragraph_properties = paragraph.find("w:pPr", NSMAP)
+    run_properties = _first_text_run_properties(paragraph)
     for child in list(paragraph):
         if child is not paragraph_properties:
             paragraph.remove(child)
-    _append_text_run(paragraph, title)
+    _append_text_run(paragraph, title, run_properties)
     tab_run = ET.SubElement(paragraph, f"{W}r")
+    if run_properties is not None:
+        tab_run.append(deepcopy(run_properties))
     ET.SubElement(tab_run, f"{W}tab")
-    _append_text_run(paragraph, str(page))
+    _append_text_run(paragraph, str(page), run_properties)
 
 
 def _paragraph_style(paragraph: ET.Element) -> str | None:
@@ -281,15 +299,28 @@ def _toc_style_id(level: int, toc_style_levels: Mapping[str, int]) -> str:
     return next((style_id for style_id, style_level in toc_style_levels.items() if style_level == level), preferred)
 
 
-def _new_toc_paragraph(title: str, page: int, level: int, toc_style_levels: Mapping[str, int]) -> ET.Element:
+def _new_toc_paragraph(
+    title: str,
+    page: int,
+    level: int,
+    toc_style_levels: Mapping[str, int],
+    template: ET.Element | None,
+) -> ET.Element:
     paragraph = ET.Element(f"{W}p")
-    properties = ET.SubElement(paragraph, f"{W}pPr")
-    style = ET.SubElement(properties, f"{W}pStyle")
-    style.set(f"{W}val", _toc_style_id(level, toc_style_levels))
-    _append_text_run(paragraph, title)
+    template_properties = template.find("w:pPr", NSMAP) if template is not None else None
+    if template_properties is not None:
+        paragraph.append(deepcopy(template_properties))
+    else:
+        properties = ET.SubElement(paragraph, f"{W}pPr")
+        style = ET.SubElement(properties, f"{W}pStyle")
+        style.set(f"{W}val", _toc_style_id(level, toc_style_levels))
+    run_properties = _first_text_run_properties(template)
+    _append_text_run(paragraph, title, run_properties)
     tab_run = ET.SubElement(paragraph, f"{W}r")
+    if run_properties is not None:
+        tab_run.append(deepcopy(run_properties))
     ET.SubElement(tab_run, f"{W}tab")
-    _append_text_run(paragraph, str(page))
+    _append_text_run(paragraph, str(page), run_properties)
     return paragraph
 
 
@@ -300,10 +331,17 @@ def _insert_toc_entries(
     toc_style_levels: Mapping[str, int],
 ) -> None:
     body, insertion_index = _toc_insertion_index(document_root, toc_entries)
+    templates = {entry["level"]: entry["element"] for entry in reversed(toc_entries)}
     for offset, entry in enumerate(mapped_entries):
         body.insert(
             insertion_index + offset,
-            _new_toc_paragraph(entry["title"], entry["page"], entry["level"], toc_style_levels),
+            _new_toc_paragraph(
+                entry["title"],
+                entry["page"],
+                entry["level"],
+                toc_style_levels,
+                templates.get(entry["level"]),
+            ),
         )
     _remove_paragraphs(document_root, toc_entries)
 

@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 from docx import Document
+from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
 from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml import OxmlElement
+from docx.shared import Inches, Pt
 
 from thesis_tool.toc_finalize import analyze_static_toc, finalize_static_toc
 
@@ -198,6 +200,38 @@ def test_finalize_static_toc_preserves_repeated_heading_titles(tmp_path: Path):
         "第2章 结果\t3",
         "1.1 本章小结\t4",
     ]
+
+
+def test_finalize_static_toc_reuses_existing_entry_format_when_rebuilding(tmp_path: Path):
+    source_path = tmp_path / "source.docx"
+    output_path = tmp_path / "output.docx"
+    document = Document()
+    document.styles.add_style("TOC1", WD_STYLE_TYPE.PARAGRAPH)
+    document.add_paragraph("目  录")
+    entry = document.add_paragraph(style="TOC1")
+    entry.paragraph_format.tab_stops.add_tab_stop(
+        Inches(6),
+        WD_TAB_ALIGNMENT.RIGHT,
+        WD_TAB_LEADER.DOTS,
+    )
+    entry.add_run("第1章 绪论\t1").font.size = Pt(14)
+    document.add_paragraph("第1章 绪论", style="Heading 1")
+    document.add_paragraph("第2章 结论", style="Heading 1")
+    document.save(source_path)
+
+    finalize_static_toc(
+        source_path,
+        output_path,
+        {
+            4: "第1章 绪论\n- 1 -",
+            5: "第2章 结论\n- 2 -",
+        },
+    )
+
+    entries = [p for p in Document(output_path).paragraphs if p.style.style_id == "TOC1"]
+    assert [paragraph.text for paragraph in entries] == ["第1章 绪论\t1", "第2章 结论\t2"]
+    assert all(run.font.size == Pt(14) for paragraph in entries for run in paragraph.runs)
+    assert all(paragraph.paragraph_format.tab_stops for paragraph in entries)
 
 
 def test_finalize_static_toc_writes_plain_entries_and_preserves_body_and_media(tmp_path: Path):
