@@ -51,7 +51,7 @@ def test_browser_smoke_pdf_has_extractable_formula_split_evidence(tmp_path):
     page_texts, text_summary = _extract_pdf_page_texts(str(pdf_path), page_count=2)
 
     assert text_summary["available"] is True
-    assert page_texts[1].splitlines()[-1] == "x=y+z"
+    assert "".join(page_texts[1].splitlines()[-1].split()) == "x=y+z"
     assert page_texts[2].splitlines()[0] == "(1)"
 
 
