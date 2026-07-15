@@ -70,6 +70,10 @@ def test_paragraph_spacing_helpers_create_and_read_twip_attributes():
 
 def test_pagination_and_table_row_flags_report_idempotent_changes():
     paragraph = ET.Element(_w("p"))
+    p_pr = ET.SubElement(paragraph, _w("pPr"))
+    ET.SubElement(p_pr, _w("pStyle"))
+    ET.SubElement(p_pr, _w("spacing"))
+    ET.SubElement(p_pr, _w("rPr"))
     row = ET.Element(_w("tr"))
 
     assert set_paragraph_pagination_flags(paragraph, keep_next=True, keep_lines=True, page_break_before=False) == 3
@@ -77,10 +81,38 @@ def test_pagination_and_table_row_flags_report_idempotent_changes():
     assert paragraph.find("w:pPr/w:keepNext", NSMAP).get(_w("val")) == "1"
     assert paragraph.find("w:pPr/w:keepLines", NSMAP).get(_w("val")) == "1"
     assert paragraph.find("w:pPr/w:pageBreakBefore", NSMAP).get(_w("val")) == "0"
+    assert [child.tag for child in p_pr] == [
+        _w("pStyle"),
+        _w("keepNext"),
+        _w("keepLines"),
+        _w("pageBreakBefore"),
+        _w("spacing"),
+        _w("rPr"),
+    ]
 
     assert set_table_row_cant_split(row) == 1
     assert set_table_row_cant_split(row) == 0
     assert row.find("w:trPr/w:cantSplit", NSMAP).get(_w("val")) == "1"
+
+
+def test_pagination_flags_reorder_existing_properties_once():
+    paragraph = ET.Element(_w("p"))
+    p_pr = ET.SubElement(paragraph, _w("pPr"))
+    ET.SubElement(p_pr, _w("pStyle"))
+    ET.SubElement(p_pr, _w("spacing"))
+    for tag_name, value in (("keepNext", "1"), ("keepLines", "1"), ("pageBreakBefore", "0")):
+        element = ET.SubElement(p_pr, _w(tag_name))
+        element.set(_w("val"), value)
+
+    assert set_paragraph_pagination_flags(paragraph, keep_next=True, keep_lines=True) == 3
+    assert set_paragraph_pagination_flags(paragraph, keep_next=True, keep_lines=True) == 0
+    assert [child.tag for child in p_pr] == [
+        _w("pStyle"),
+        _w("keepNext"),
+        _w("keepLines"),
+        _w("pageBreakBefore"),
+        _w("spacing"),
+    ]
 
 
 def test_onoff_read_helpers_match_word_boolean_semantics():

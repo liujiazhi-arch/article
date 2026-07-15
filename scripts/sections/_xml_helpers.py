@@ -105,15 +105,21 @@ def set_paragraph_spacing_attrs(p_elem, *, before=None, after=None, line=None):
         set_attr(spacing, "lineRule", "auto")
 
 
-def set_onoff_property(parent_elem, tag_name: str, enabled: bool) -> int:
+def set_onoff_property(parent_elem, tag_name: str, enabled: bool, *, insert_index: int | None = None) -> int:
     elem = parent_elem.find(f"w:{tag_name}", NSMAP)
+    created = elem is None
     if elem is None:
         elem = ET.SubElement(parent_elem, f"{{{W_NS}}}{tag_name}")
     desired = "1" if enabled else "0"
-    if elem.get(f"{{{W_NS}}}val") == desired:
-        return 0
-    set_attr(elem, "val", desired)
-    return 1
+    value_changed = elem.get(f"{{{W_NS}}}val") != desired
+    if value_changed:
+        set_attr(elem, "val", desired)
+    order_changed = False
+    if insert_index is not None and list(parent_elem).index(elem) != insert_index:
+        parent_elem.remove(elem)
+        parent_elem.insert(insert_index, elem)
+        order_changed = True
+    return int(created or value_changed or order_changed)
 
 
 def is_onoff_enabled(elem) -> bool:
@@ -133,10 +139,12 @@ def table_row_cant_split_enabled(tr_elem) -> bool:
 
 def set_paragraph_pagination_flags(p_elem, *, keep_next: bool, keep_lines: bool, page_break_before: bool = False) -> int:
     p_pr = ensure_ppr(p_elem)
+    p_style = p_pr.find("w:pStyle", NSMAP)
+    insert_index = list(p_pr).index(p_style) + 1 if p_style is not None else 0
     changed = 0
-    changed += set_onoff_property(p_pr, "keepNext", keep_next)
-    changed += set_onoff_property(p_pr, "keepLines", keep_lines)
-    changed += set_onoff_property(p_pr, "pageBreakBefore", page_break_before)
+    changed += set_onoff_property(p_pr, "keepNext", keep_next, insert_index=insert_index)
+    changed += set_onoff_property(p_pr, "keepLines", keep_lines, insert_index=insert_index + 1)
+    changed += set_onoff_property(p_pr, "pageBreakBefore", page_break_before, insert_index=insert_index + 2)
     return changed
 
 
